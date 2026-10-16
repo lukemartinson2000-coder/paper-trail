@@ -3726,11 +3726,39 @@
     var projTotals = basisZero();
     var ssCap = limits ? limits.ssWageBase * 0.062 : Infinity;
     var ssSoFar = actual.ss + actualAfter.ss;
+    /* v37.5.59.15 year-end salary target: remaining base pay = target − base pay already paid (YTD + later stubs),
+     * spread evenly over the remaining projected checks. Each projected check is the latest check's figures scaled to
+     * that gross; the IRS caps (401k/HSA/FSA, Social Security wage base) still apply afterwards. Paid actuals are untouched. */
+    var targetInfo = null;
+    var latestProj = latestF;
+    var tgtAmt = stubNum(opts.salaryTarget);
+    if (tgtAmt > 0) {
+      var nProj = 0;
+      var dc = parseIso(latest.payDate);
+      for (var pc = 0; pc < 60; pc++) { dc = stepPayDate(dc, freq, 1); if (dc.getFullYear() !== year) break; nProj++; }
+      var paidBase = roundMoney((actual.gross - actual.bonus) + (actualAfter.gross - actualAfter.bonus));
+      var remainingBase = roundMoney(tgtAmt - paidBase);
+      targetInfo = { target: roundMoney(tgtAmt), paidBase: paidBase, remaining: remainingBase, checksLeft: nProj, perCheck: null, status: "ignored", note: "" };
+      if (nProj === 0) targetInfo.note = "No paychecks left this year, so the year-end target can’t change anything.";
+      else if (!(remainingBase > 0)) targetInfo.note = "The target is at or below what’s already paid (" + moneyLabel(paidBase) + "), so it’s ignored.";
+      else if (!(latestF.gross > 0)) targetInfo.note = "The latest stub has no gross pay to scale from, so the target is ignored.";
+      else {
+        var perCheck = roundMoney(remainingBase / nProj);
+        var scale = perCheck / latestF.gross;
+        latestProj = {};
+        Object.keys(latestF).forEach(function (k) { latestProj[k] = latestF[k]; });
+        BASIS_KEYS.forEach(function (k) { latestProj[k] = roundMoney((latestF[k] || 0) * scale); });
+        targetInfo.perCheck = perCheck;
+        targetInfo.status = "applied";
+        targetInfo.note = "Year-end salary target " + moneyLabel(tgtAmt) + ": " + moneyLabel(remainingBase) + " left after " + moneyLabel(paidBase) +
+          " paid, spread over " + nProj + " remaining check" + (nProj === 1 ? "" : "s") + " (" + moneyLabel(perCheck) + " gross each).";
+      }
+    }
     var dd = parseIso(latest.payDate);
     for (var p = 0; p < 60; p++) {
       dd = stepPayDate(dd, freq, 1);
       if (dd.getFullYear() !== year) break;
-      var pf = applyCaps(latestF);
+      var pf = applyCaps(latestProj);
       var ssRoom = Math.max(0, ssCap - ssSoFar);
       pf.ss = roundMoney(Math.min(pf.ss, ssRoom));
       ssSoFar += pf.ss;
@@ -3876,6 +3904,7 @@
       pretax: pretax,
       capped: capped,
       limits: limits,
+      salaryTarget: targetInfo,
       taxes: {
         fed: total.fed, state: total.state, fica: roundMoney(total.ss + total.med), otherTax: total.otherTax,
         total: roundMoney(total.fed + total.state + total.ss + total.med + total.otherTax)

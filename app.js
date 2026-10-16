@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.14. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.15. */
 (function () {
   "use strict";
 
@@ -339,7 +339,7 @@
     }
     plan.preTax = ensurePreTax(plan.preTax);
     if (plan.filingStatus !== "married") plan.filingStatus = "single";
-    /* v37.5.59.14: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
+    /* v37.5.59.15: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
     if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = !(Number(plan.employer401kBase) > 0);
     if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = !(Number(plan.employer401kMatch) > 0);
     plan.postTax = (plan.postTax || []).map(function (row) {
@@ -1006,7 +1006,7 @@
   }
 
   function defaultLineNames(envelope) {
-    /* v37.5.59.14: new-user default. Existing users' months are never rewritten. */
+    /* v37.5.59.15: new-user default. Existing users' months are never rewritten. */
     if (envelope === "Giving") return ["Tithes / Charity"];
     return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
   }
@@ -1229,7 +1229,7 @@
     render();
   }
 
-  /* ---- v37.5.59.14: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
+  /* ---- v37.5.59.15: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
   function txsTouchingLine(month, lineId) {
     return (month.transactions || []).filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
@@ -7244,6 +7244,79 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.3 (owner): actual YTD + projected remaining checks, capped at 2026 IRS limits.
    * Replaces stub × paychecks/year everywhere (brackets, Taxes, average tax, True). Cached per render input. */
   var payStubBasisCache = {};
+  /* ---- v37.5.59.15: Compensation → income statement sync, year-end salary target, line notes ----
+   * Stored on this device only, in state.incomeSync / state.incomeTargets. Tester sharing is an allow-list
+   * (buildTesterPayload) that never reads these, so targets and free-text notes are never shared.
+   * Sync is an overlay: it never rewrites or deletes what the user typed on the income statement. */
+  var SYNC_LINES = [
+    { id: "salary", label: "Salary" },
+    { id: "bonus", label: "Bonus" },
+    { id: "match", label: "401k match" }
+  ];
+  var NOTE_LINES = [
+    { id: "salary", label: "Salary" },
+    { id: "bonus", label: "Bonus" },
+    { id: "sideGig", label: "Side gig" },
+    { id: "other", label: "Other" },
+    { id: "match", label: "401k match" }
+  ];
+
+  function incomeSyncCfg() {
+    var c = state && state.incomeSync;
+    if (!c || typeof c !== "object") c = { off: false, lines: {} };
+    if (!c.lines || typeof c.lines !== "object") c.lines = {};
+    return c;
+  }
+
+  function incomeTargetFor(year) {
+    var all = (state && state.incomeTargets) || {};
+    var t = all[String(Number(year))] || {};
+    var target = Number(t.salaryTarget);
+    return { salaryTarget: target > 0 ? target : null, notes: t.notes && typeof t.notes === "object" ? t.notes : {} };
+  }
+
+  function writeIncomeTarget(year, target, notes) {
+    if (!state.incomeTargets || typeof state.incomeTargets !== "object") state.incomeTargets = {};
+    var cleanNotes = {};
+    Object.keys(notes || {}).forEach(function (k) { var v = String(notes[k] || "").replace(/^\s+|\s+$/g, ""); if (v) cleanNotes[k] = v.slice(0, 300); });
+    if (!(target > 0) && !Object.keys(cleanNotes).length) { delete state.incomeTargets[String(year)]; return; }
+    state.incomeTargets[String(year)] = { salaryTarget: target > 0 ? target : null, notes: cleanNotes };
+  }
+
+  /* What Compensation contributes to each synced line for this year. Current calendar year only; stub years
+   * keep their stub figures (stubs win), so this only reaches the typed-income path. Variable comp is never
+   * synced (off in 2026). A bonus syncs only while its pay month is still ahead; side gig / other have no
+   * Compensation source. */
+  function compSyncValues(year) {
+    var out = {};
+    var cfg = incomeSyncCfg();
+    var now = currentYearMonth();
+    if (cfg.off || Number(year) !== now.year || !state || !state.compensation) return out;
+    var plan = migrateCompensation(state.compensation);
+    var est = estimateCompensation(plan);
+    if (!cfg.lines.salary && est.baseSalary > 0) out.salary = roundCents(est.baseSalary);
+    var pct = Number(plan.bonusTargetPercent) || 0;
+    var bm = bonusMonthOf();
+    if (!cfg.lines.bonus && est.baseSalary > 0 && pct > 0 && bm && bm >= now.month) out.bonus = roundCents(est.baseSalary * pct / 100);
+    var er = roundCents((Number(est.employerMatch) || 0) + (Number(est.employerBase) || 0));
+    if (!cfg.lines.match && er > 0) out.match = er;
+    return out;
+  }
+
+  function syncedAnnualRow(row, year) {
+    var out = row;
+    var copied = false;
+    function set(id, v) {
+      if (!copied) { out = {}; Object.keys(row).forEach(function (k) { out[k] = row[k]; }); copied = true; }
+      out[id] = v;
+    }
+    var t = incomeTargetFor(year);
+    var sync = compSyncValues(year);
+    Object.keys(sync).forEach(function (id) { set(id, sync[id]); });
+    if (t.salaryTarget) set("salary", t.salaryTarget);
+    return out;
+  }
+
   function payStubBasisFor(year) {
     if (!gm().payStubYearBasis) return null;
     var stubs = confirmedPayStubs();
@@ -7259,7 +7332,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       // v37.5.59.4: a bonus is projected only if its month is still ahead (bonusMonth); amount = typed bonus, else target %.
       bonusMonth: bonusMonthOf(),
       bonusAmount: typedRow ? annualRow(typedRow).bonus : null,
-      bonusTargetPercent: Number(plan.bonusTargetPercent) || 0
+      bonusTargetPercent: Number(plan.bonusTargetPercent) || 0,
+      salaryTarget: incomeTargetFor(year).salaryTarget
     };
     var key = JSON.stringify([stubs, opts]);
     var slot = payStubBasisCache[String(opts.year)];
@@ -7516,6 +7590,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         total: roundCents(gp.total + extra + er)
       };
     }
+    row = syncedAnnualRow(row, year);
     var total = annualTotal(row);
     var taxed = null;
     ["salary", "bonus", "sideGig", "other"].forEach(function (id) { if (row[id] != null) taxed = (taxed || 0) + row[id]; });
@@ -7904,6 +7979,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* v37.5.59.3: HSA coverage (sets the HSA cap) + which pay-stub basis the estimates use. */
+  /* Small captions under the income summary: year-end target label, synced lines, notes. */
+  function annualSyncNoteHtml(year) {
+    var t = incomeTargetFor(year);
+    var html = "";
+    var basis = payStubBasisFor(year);
+    if (t.salaryTarget) {
+      html += '<p class="caption quiet annual-target-label"><span class="annual-target-chip">year-end target</span> ' +
+        esc("Salary " + moneyWhole(t.salaryTarget)) +
+        (basis && basis.salaryTarget ? " — " + esc(basis.salaryTarget.note) : " — typed salary uses the target; remaining pay is spread once pay stubs are confirmed.") + "</p>";
+    }
+    var sync = compSyncValues(year);
+    if (t.salaryTarget) delete sync.salary;
+    var ids = Object.keys(sync);
+    if (ids.length) {
+      html += '<p class="caption quiet annual-sync-note">' + esc("Synced from Compensation: " + ids.map(function (id) {
+        return SYNC_LINES.filter(function (l) { return l.id === id; })[0].label + " " + moneyWhole(sync[id]);
+      }).join(", ") + ". Turn this off in Compensation (“Don’t sync from Compensation”). Nothing you typed is changed.") + "</p>";
+    }
+    NOTE_LINES.forEach(function (l) {
+      if (t.notes[l.id]) html += '<p class="caption quiet annual-line-note"><strong>' + esc(l.label) + ":</strong> " + esc(t.notes[l.id]) + "</p>";
+    });
+    return html;
+  }
+
   function annualStubBasisHtml(year) {
     var basis = payStubBasisFor(year);
     if (!basis) return "";
@@ -7999,7 +8098,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     /* v37.5.53: same opening as net worth — year, enlarged income total, then the yearly columns.
        Salary and savings rate sit in that summary. Income is annualTotal, which already includes 401k match once. */
-    var summaryRow = annualRow(book.years[String(highlight)]);
+    var summaryRow = syncedAnnualRow(annualRow(book.years[String(highlight)]), highlight);
     var summary = annualMetrics(summaryRow, highlight);
     html += '<p class="stmt-year stmt-year-quiet">' + highlight + "</p>" +
       '<div class="sheet-table stmt-sheet">' +
@@ -8025,6 +8124,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option>" +
       "</select></label>" +
       annualStubBasisHtml(highlight) +
+      annualSyncNoteHtml(highlight) +
       '<p class="caption quiet annual-filing-hint">Used for marginal bracket estimates (2026 IRS / MN tables).</p>' +
       '<div class="annual-scroll"><table class="annual-table"><thead><tr>' +
       '<th class="annual-label" scope="row"></th>';
@@ -8040,7 +8140,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (spec.kind === "total" ? "is-total" : spec.kind === "flow" ? "is-flow" : spec.kind === "bracket" ? "is-bracket" : "") +
         '">' + annualLabelCell(spec);
       years.forEach(function (year) {
-        var row = annualRow(book.years[String(year)]);
+        var row = syncedAnnualRow(annualRow(book.years[String(year)]), year);
         var metrics = annualMetrics(row, year);
         var value = null;
         var text = "—";
@@ -8451,7 +8551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
 
 
-  /* v37.5.59.14: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
+  /* v37.5.59.15: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
   function worthCurrentYearFilled() {
     var cy = new Date().getFullYear();
     if (state.worth.years.indexOf(cy) < 0) return false;
@@ -10042,6 +10142,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       esc(money(value)) + '"></div>';
   }
 
+  function incomeSyncSectionHtml() {
+    var cfg = incomeSyncCfg();
+    var html = '<p class="sheet-label">Income statement sync</p>' +
+      '<p class="caption">By default Salary, Bonus (while its month is ahead) and 401k match here feed this year’s income statement. Pay stubs still win once confirmed. Nothing you typed there is changed or deleted.</p>' +
+      '<label class="sync-toggle"><input type="checkbox" data-act="sync-toggle" data-line="all"' + (cfg.off ? " checked" : "") + '> Don’t sync from Compensation</label>';
+    SYNC_LINES.forEach(function (l) {
+      html += '<label class="sync-toggle sync-line"><input type="checkbox" data-act="sync-toggle" data-line="' + l.id + '"' +
+        (cfg.lines[l.id] ? " checked" : "") + (cfg.off ? " disabled" : "") + "> Don’t sync " + esc(l.label) + "</label>";
+    });
+    return html;
+  }
+
   function employerToggleRow(label, valueName, flagName, plan, dollars) {
     var isPercent = !!plan[flagName];
     var value = Number(plan[valueName]) || 0;
@@ -10143,6 +10255,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="planner-row"><label>Bonus target (% of base salary)</label>' +
       '<input name="bonusTargetPercent" data-act="comp-field" inputmode="decimal" type="text" value="' +
       esc(plan.bonusTargetPercent || 0) + '"></div>' +
+      incomeSyncSectionHtml() +
       '<p class="sheet-label">Employer · per year</p>' +
       employerToggleRow("Employer 401k base", "employer401kBase", "employer401kBaseIsPercent", plan, est.employerBase) +
       employerToggleRow("Employer 401k match", "employer401kMatch", "employer401kMatchIsPercent", plan, est.employerMatch) +
@@ -11798,7 +11911,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.14";
+  var APP_VERSION = "37.5.59.15";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -13703,8 +13816,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ? '<p class="caption annual-stub-sheet-note">' + esc(year + " uses your pay stubs for Salary, Bonus and 401k match (" + sheetParts.basis.short +
         "): gross pay " + money(sheetParts.grossPay) + ". What you type here is the fallback if there’s no stub; a typed Bonus is projected only if its month is still ahead.") + "</p>"
       : "";
+    var tg = incomeTargetFor(year);
+    var syncNow = compSyncValues(year);
+    var syncNote = Object.keys(syncNow).length
+      ? '<p class="caption annual-sync-note">' + esc("Synced from Compensation right now: " + Object.keys(syncNow).map(function (id) {
+          return SYNC_LINES.filter(function (l) { return l.id === id; })[0].label + " " + money(syncNow[id]);
+        }).join(", ") + ". What you type below stays saved and comes back if you turn sync off.") + "</p>"
+      : "";
+    var targetBlock = '<p class="section-label">Year-end salary target</p>' +
+      '<label class="field">Projected full-year salary' +
+      '<input name="salaryTarget" class="cents-input" data-cents="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" placeholder="—" value="' +
+      esc(tg.salaryTarget ? money(tg.salaryTarget) : "") + '"></label>' +
+      '<p class="caption">Optional. With pay stubs, remaining paychecks = (target − salary already paid) ÷ checks left, within IRS limits. Blank means no target.</p>' +
+      (tg.salaryTarget ? '<button class="text-btn" type="button" data-act="clear-salary-target" data-year="' + year + '">Clear year-end target</button>' : "") +
+      '<p class="section-label">Notes</p>' +
+      NOTE_LINES.map(function (l) {
+        return '<label class="field">' + esc(l.label) + ' note<input name="note_' + l.id + '" type="text" maxlength="300" placeholder="Optional" value="' + esc(tg.notes[l.id] || "") + '"></label>';
+      }).join("") +
+      '<p class="caption">Targets and notes stay on this device and are not part of tester sharing.</p>';
     openSheet(year + " income",
-      stubNote + fields +
+      stubNote + syncNote + fields + targetBlock +
       '<p class="section-label">Tax breakdown</p>' +
       taxParts +
       '<p class="caption">Blank stays blank. Pay-stub estimates stay live estimates when you Save — only a line you type over becomes yours. If you type a tax sub-line, Taxes = your typed lines + the estimate for the rest (read-only). Bracket picks are reference-only and never change Taxes. Saving writes only ' +
@@ -13785,7 +13916,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.59.12 (QA M3): hard cap so a 20-digit paste can't become $1.22 or overflow totals. */
   var MONEY_MAX = 9999999.99;
-  /* v37.5.59.14 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
+  /* v37.5.59.15 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
   var MONEY_HINT_HTML = "";
   var moneyCapWarned = false;
 
@@ -15075,6 +15206,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.statementDetails = false;
       saveState();
       render();
+    } else if (act === "clear-salary-target") {
+      var clrYear = Number(actEl.getAttribute("data-year"));
+      var clrT = incomeTargetFor(clrYear);
+      writeIncomeTarget(clrYear, null, clrT.notes);
+      payStubBasisCache = {};
+      saveState();
+      closeModal();
+      render();
+      openAnnualYear(clrYear);
     } else if (act === "add-prior-year") {
       openPriorYearSheet();
     } else if (act === "add-year") {
@@ -15139,7 +15279,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         lineSpendList(month, found.line.id) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
-      /* v37.5.59.14 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
+      /* v37.5.59.15 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
       if (actEl.getAttribute("data-focus") === "assigned") {
         var focusAmount = function () {
           var amt = document.querySelector('#modal input[name="assigned"]');
@@ -15753,6 +15893,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       annualNext.stateBracket = priorAnnual.stateBracket;
       annualNext.stateOtherPct = priorAnnual.stateOtherPct;
       state.annualStatement.years[annualYearKey] = annualNext;
+      if (form.elements.salaryTarget) {
+        var tgtVal = readOptionalCents(form.elements.salaryTarget);
+        var noteVals = {};
+        NOTE_LINES.forEach(function (l) { var ni = form.elements["note_" + l.id]; if (ni) noteVals[l.id] = ni.value; });
+        writeIncomeTarget(annualYearKey, tgtVal, noteVals);
+        payStubBasisCache = {};
+      }
     }
     ignoreClicksUntil = Date.now() + 100; // v37.5.59.12: swallow only the closing Save click
     closeModal();
@@ -16076,6 +16223,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.foo = migrateFoo(state.foo);
       state.foo.loanExtras[el.getAttribute("data-loan") || ""] = dollarsFromDigits(el.value) || 100;
       saveState();
+    } else if (el.getAttribute("data-act") === "sync-toggle") {
+      var syncCfg = incomeSyncCfg();
+      var syncLine = el.getAttribute("data-line");
+      if (syncLine === "all") syncCfg.off = !!el.checked;
+      else syncCfg.lines[syncLine] = !!el.checked;
+      state.incomeSync = syncCfg;
+      payStubBasisCache = {};
+      saveState();
+      openIncomeStatement({ preserveScroll: true });
     } else if (el.getAttribute("data-act") === "employer-mode") {
       var employerPlan = migrateCompensation(state.compensation || defaultCompensation());
       var eFlag = el.getAttribute("data-flag");
