@@ -4354,3 +4354,20 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .onboard-inner.welcome-min { padding-top: calc(40px + env(safe-area-inset-top, 0px)); }
 .intro-sheet .welcome-stats { margin: 12px 0 18px; gap: 18px; }
 .intro-sheet h3 { margin-top: 14px; }
+
+/* v37.5.59.14: press-and-hold envelope menu */
+.envelope-line, .envelope-head { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.env-menu h3 { margin: 0; }
+.env-menu .caption { margin: 2px 0 10px; }
+.env-menu-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+.env-menu-list button { padding: 12px 14px; text-align: left; border: 1px solid var(--rule); border-radius: 10px; background: var(--card); color: var(--ink); font-size: 16px; }
+.env-menu-list button:disabled { opacity: 0.4; }
+.env-menu-list button.danger { color: var(--danger); }
+
+/* v37.5.59.14: employer 401k base/match — % by default, "Enter as $" checkbox */
+.employer-dollar-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+.employer-dollar-toggle input{width:auto;margin:0}
+.employer-pct-wrap{display:inline-flex;align-items:center;gap:4px}
+/* v37.5.59.14: add-prior-year "+" ahead of the net worth year timeline */
+.year-add-prior{flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:1px dashed var(--line,#bbb);background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer;margin-right:8px;vertical-align:middle}
+.year-slider .year-add-prior{align-self:center}

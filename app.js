@@ -5,6 +5,7 @@
   var STORAGE_KEY = "PaperTrail.preview.v6";
   var DEFAULT_ENVELOPES = [
     "Savings",
+    "Giving",
     "Housing",
     "Food",
     "Health",
@@ -19,6 +20,7 @@
   ];
   var SAMPLE_ASSIGNED = {
     Savings: 200,
+    Giving: 0,
     Housing: 1000,
     Food: 500,
     Health: 90,
@@ -278,9 +280,9 @@
       employee401kValue: 0,
       employee401kIsPercent: true,
       employer401kBase: 0,
-      employer401kBaseIsPercent: false,
+      employer401kBaseIsPercent: true,
       employer401kMatch: 0,
-      employer401kMatchIsPercent: false,
+      employer401kMatchIsPercent: true,
       hsaDeferral: 0,
       otherDeductions: 0,
       zipCode: "",
@@ -337,8 +339,9 @@
     }
     plan.preTax = ensurePreTax(plan.preTax);
     if (plan.filingStatus !== "married") plan.filingStatus = "single";
-    if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = false;
-    if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = false;
+    /* v37.5.59.14: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
+    if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = !(Number(plan.employer401kBase) > 0);
+    if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = !(Number(plan.employer401kMatch) > 0);
     plan.postTax = (plan.postTax || []).map(function (row) {
       return {
         id: row.id || nextId(),
@@ -1003,6 +1006,8 @@
   }
 
   function defaultLineNames(envelope) {
+    /* v37.5.59.14: new-user default. Existing users' months are never rewritten. */
+    if (envelope === "Giving") return ["Tithes / Charity"];
     return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
   }
 
@@ -1010,6 +1015,7 @@
     if (envelope === "Food") {
       return [{ name: "Groceries", assigned: 400 }, { name: "Restaurants", assigned: 100 }];
     }
+    if (envelope === "Giving") return [{ name: "Tithes / Charity", assigned: 0 }];
     return [{ name: envelope, assigned: SAMPLE_ASSIGNED[envelope] || 0 }];
   }
 
@@ -1222,6 +1228,210 @@
     saveState();
     render();
   }
+
+  /* ---- v37.5.59.14: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
+  function txsTouchingLine(month, lineId) {
+    return (month.transactions || []).filter(function (t) {
+      return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
+    });
+  }
+
+  function reassignLineTxs(month, fromLineId, toCat, toLine) {
+    (month.transactions || []).forEach(function (t) {
+      if (t.legs && t.legs.length) {
+        t.legs.forEach(function (leg) {
+          if (leg.lineId === fromLineId) { leg.categoryId = toCat.id; leg.lineId = toLine.id; }
+        });
+        t.categoryId = t.legs[0].categoryId;
+        t.lineId = t.legs[0].lineId;
+      } else if (t.lineId === fromLineId) {
+        t.categoryId = toCat.id;
+        t.lineId = toLine.id;
+      }
+    });
+  }
+
+  function fallbackLineFor(month, exceptCatId, exceptLineId) {
+    var found = null;
+    var cats = sortedCategories(month);
+    var same = cats.filter(function (c) { return c.id === exceptCatId; })[0];
+    function pick(cat) {
+      var l = sortedLines(cat).filter(function (x) { return x.id !== exceptLineId; })[0];
+      return l ? { cat: cat, line: l } : null;
+    }
+    if (same) found = pick(same);
+    if (!found) {
+      cats.filter(function (c) { return /^miscellaneous$/i.test(c.name) && c.id !== exceptCatId; }).forEach(function (c) { found = found || pick(c); });
+    }
+    if (!found) cats.forEach(function (c) { if (c.id !== exceptCatId) found = found || pick(c); });
+    return found;
+  }
+
+  /* Delete an envelope line but keep its transaction history (moved to a sensible neighbour). */
+  function deleteLineKeepHistory(month, lineId) {
+    var found = findLine(month, lineId);
+    if (!found) return;
+    var txs = txsTouchingLine(month, lineId);
+    if (!txs.length) { deleteLine(month, lineId); return; }
+    var target = fallbackLineFor(month, found.cat.id, lineId);
+    if (!target) { deleteLine(month, lineId); return; }
+    var assigned = Number(found.line.assigned) || 0;
+    var msg = "Delete " + found.line.name + "?\n\nIt has " + txs.length + (txs.length === 1 ? " transaction" : " transactions") +
+      (assigned > 0 ? " and " + money(assigned) + " assigned" : "") +
+      ". The transactions are kept and move to “" + target.line.name + "”" +
+      (assigned > 0 ? "; the assigned dollars return to Left to assign" : "") + ".";
+    if (!window.confirm(msg)) return;
+    var wasDebt = found.cat && /^debt$/i.test(found.cat.name);
+    var debtName = found.line.name;
+    reassignLineTxs(month, lineId, target.cat, target.line);
+    found.cat.lines = (found.cat.lines || []).filter(function (l) { return l.id !== lineId; });
+    reindexLines(found.cat);
+    if (wasDebt) removeBudgetNwLiability(debtName);
+    closeModal();
+    saveState();
+    render();
+  }
+
+  function deleteEnvelopeKeepHistory(month, catId) {
+    var cat = month.categories.filter(function (c) { return c.id === catId; })[0];
+    if (!cat) return;
+    var txs = (month.transactions || []).filter(function (t) {
+      return txLegs(t).some(function (leg) { return leg.categoryId === catId; });
+    });
+    if (!txs.length) { deleteEnvelope(month, catId); return; }
+    var target = null;
+    var others = sortedCategories(month).filter(function (c) { return c.id !== catId; });
+    var misc = others.filter(function (c) { return /^miscellaneous$/i.test(c.name); })[0] || others[0];
+    if (misc && sortedLines(misc).length) target = { cat: misc, line: sortedLines(misc)[0] };
+    if (!target) { deleteEnvelope(month, catId); return; }
+    var assigned = catAssigned(cat);
+    var msg = "Delete " + cat.name + "?\n\nIt has " + txs.length + (txs.length === 1 ? " transaction" : " transactions") +
+      (assigned > 0 ? " and " + money(assigned) + " assigned" : "") +
+      ". The transactions are kept and move to “" + target.cat.name + " › " + target.line.name + "”" +
+      (assigned > 0 ? "; the assigned dollars return to Left to assign" : "") + ".";
+    if (!window.confirm(msg)) return;
+    (month.transactions || []).forEach(function (t) {
+      if (t.legs && t.legs.length) {
+        t.legs.forEach(function (leg) {
+          if (leg.categoryId === catId) { leg.categoryId = target.cat.id; leg.lineId = target.line.id; }
+        });
+        t.categoryId = t.legs[0].categoryId;
+        t.lineId = t.legs[0].lineId;
+      } else if (t.categoryId === catId) {
+        t.categoryId = target.cat.id;
+        t.lineId = target.line.id;
+      }
+    });
+    month.categories = month.categories.filter(function (c) { return c.id !== catId; });
+    reindexCategories(month);
+    closeModal();
+    saveState();
+    render();
+  }
+
+  function moveLineToCategory(month, lineId, destCatId) {
+    var found = findLine(month, lineId);
+    var dest = month.categories.filter(function (c) { return c.id === destCatId; })[0];
+    if (!found || !dest || dest.id === found.cat.id) return;
+    found.cat.lines = (found.cat.lines || []).filter(function (l) { return l.id !== lineId; });
+    reindexLines(found.cat);
+    found.line.sortOrder = (dest.lines || []).length;
+    dest.lines = (dest.lines || []).concat([found.line]);
+    (month.transactions || []).forEach(function (t) {
+      if (t.legs && t.legs.length) {
+        t.legs.forEach(function (leg) { if (leg.lineId === lineId) leg.categoryId = dest.id; });
+        t.categoryId = t.legs[0].categoryId;
+      } else if (t.lineId === lineId) {
+        t.categoryId = dest.id;
+      }
+    });
+    closeModal();
+    saveState();
+    render();
+  }
+
+  function openEnvelopeMenu(kind, id) {
+    var month = ensureMonth(state.year, state.month);
+    var html = '<div class="sheet env-menu">';
+    if (kind === "line") {
+      var found = findLine(month, id);
+      if (!found) return;
+      var lines = sortedLines(found.cat);
+      var idx = lines.map(function (l) { return l.id; }).indexOf(id);
+      html += "<h3>" + esc(found.line.name) + '</h3><p class="caption">' + esc(found.cat.name) + "</p>" +
+        '<div class="env-menu-list">' +
+        '<button type="button" data-act="envmenu-line-up" data-id="' + esc(id) + '"' + (idx <= 0 ? " disabled" : "") + ">Move up</button>" +
+        '<button type="button" data-act="envmenu-line-down" data-id="' + esc(id) + '"' + (idx >= lines.length - 1 ? " disabled" : "") + ">Move down</button>";
+      if (!/^debt$/i.test(found.cat.name)) {
+        sortedCategories(month).filter(function (c) { return c.id !== found.cat.id && !/^debt$/i.test(c.name); }).forEach(function (c) {
+          html += '<button type="button" data-act="envmenu-line-to" data-id="' + esc(id) + '" data-to="' + esc(c.id) + '">Move to ' + esc(c.name) + "</button>";
+        });
+      }
+      html += '<button class="danger" type="button" data-act="envmenu-line-delete" data-id="' + esc(id) + '">Delete…</button></div>';
+    } else {
+      var cat = month.categories.filter(function (c) { return c.id === id; })[0];
+      if (!cat) return;
+      var cats = sortedCategories(month);
+      var ci = cats.map(function (c) { return c.id; }).indexOf(id);
+      html += "<h3>" + esc(cat.name) + '</h3><div class="env-menu-list">' +
+        '<button type="button" data-act="envmenu-cat-up" data-id="' + esc(id) + '"' + (ci <= 0 ? " disabled" : "") + ">Move up</button>" +
+        '<button type="button" data-act="envmenu-cat-down" data-id="' + esc(id) + '"' + (ci >= cats.length - 1 ? " disabled" : "") + ">Move down</button>" +
+        '<button class="danger" type="button" data-act="envmenu-cat-delete" data-id="' + esc(id) + '">Delete…</button></div>';
+    }
+    html += '<div class="sheet-actions"><button type="button" data-act="close-modal">Cancel</button></div></div>';
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = html;
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+  }
+
+  /* Long-press (~500ms) on a budget envelope row. Cancels on movement (so scrolling still works); the
+     click that follows a fired press is swallowed so it never also opens the edit sheet. */
+  (function () {
+    var timer = null;
+    var startX = 0;
+    var startY = 0;
+    var suppressUntil = 0;
+    function cancel() { if (timer) { clearTimeout(timer); timer = null; } }
+    document.addEventListener("pointerdown", function (ev) {
+      if (ev.button > 0 || state.tab !== "budget") return;
+      var row = ev.target.closest && ev.target.closest("#screen .envelope-line, #screen .envelope-head");
+      if (!row || envelopeEditMode) return;
+      cancel();
+      startX = ev.clientX;
+      startY = ev.clientY;
+      var isLine = row.classList.contains("envelope-line");
+      var idEl = isLine ? row.querySelector("[data-act=edit-line-item]") : row.querySelector("[data-act=open-envelope]");
+      var id = idEl && idEl.getAttribute("data-id");
+      if (!id) return;
+      timer = setTimeout(function () {
+        timer = null;
+        suppressUntil = Infinity;
+        openEnvelopeMenu(isLine ? "line" : "cat", id);
+      }, 500);
+    }, true);
+    document.addEventListener("pointermove", function (ev) {
+      if (timer && (Math.abs(ev.clientX - startX) > 8 || Math.abs(ev.clientY - startY) > 8)) cancel();
+    }, true);
+    ["pointerup", "pointercancel", "scroll", "dragstart"].forEach(function (name) {
+      document.addEventListener(name, cancel, true);
+    });
+    /* The click that ends a fired press can arrive any time after release; swallow it, then re-arm shortly after pointerup. */
+    ["pointerup", "pointercancel"].forEach(function (name) {
+      document.addEventListener(name, function () {
+        if (suppressUntil === Infinity) suppressUntil = Date.now() + 450;
+      }, true);
+    });
+    document.addEventListener("contextmenu", function (ev) {
+      if (ev.target.closest && ev.target.closest("#screen .envelope-line, #screen .envelope-head")) ev.preventDefault();
+    }, true);
+    window.addEventListener("click", function (ev) {
+      if (Date.now() < suppressUntil) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+      }
+    }, true);
+  })();
 
   function moveEnvelope(month, id, delta) {
     var ordered = sortedCategories(month);
@@ -2970,7 +3180,7 @@
       (opts.subtotal ? " is-subtotal" : "") +
       (opts.underlined ? " is-underlined" : "");
     return '<div class="' + cls + '"><span class="stmt-label">' + esc(label) +
-      '</span><span class="mono stmt-amt' + (opts.moss ? " moss" : "") + '">' + money(amount) + "</span></div>";
+      '</span><span class="mono stmt-amt' + (opts.moss ? " moss" : "") + '">' + (opts.whole ? moneyWhole(amount) : money(amount)) + "</span></div>";
   }
 
   var BS_ASSET_SECTIONS = [
@@ -3868,7 +4078,7 @@
           : /401/.test(String(line.name || "").toLowerCase()) ? "k401"
           : "";
         if (cueKind) html += docCueHtml(cueKind, line.id, line.name);
-        html += '<button class="line-assigned-btn" type="button" data-act="edit-line-item" data-id="' +
+        html += '<button class="line-assigned-btn" type="button" data-act="edit-line-item" data-focus="assigned" data-id="' +
           line.id + '" aria-label="' + esc(envelopeMode() + " " + money(lineShown) + " for " + line.name) + '">' +
           money(lineShown) + "</button>";
         html += "</div>";
@@ -8083,9 +8293,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
     var html = '<div class="stmt-pass">' + shell +
-      '<p class="stmt-year stmt-year-quiet">' + year + "</p>" +
+      '<p class="stmt-year stmt-year-quiet">' + worthAddPriorButton() + year + "</p>" +
       '<div class="sheet-table stmt-sheet">' +
-      statementRowHtml("Net worth", current.equity, { total: true, underlined: true });
+      statementRowHtml("Net worth", current.equity, { total: true, underlined: true, whole: true });
     if (!worthHasData()) {
       html += "</div>" +
         '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p>' +
@@ -8241,10 +8451,43 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
 
 
+  /* v37.5.59.14: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
+  function worthCurrentYearFilled() {
+    var cy = new Date().getFullYear();
+    if (state.worth.years.indexOf(cy) < 0) return false;
+    var t = worthTotals(cy);
+    return t.assets !== 0 || t.liabilities !== 0;
+  }
+
+  function worthAddPriorButton() {
+    return worthCurrentYearFilled()
+      ? '<button class="year-add-prior" type="button" data-act="add-prior-year" aria-label="Add a prior year">+</button>'
+      : "";
+  }
+
+  function openPriorYearSheet() {
+    var cy = new Date().getFullYear();
+    var have = state.worth.years;
+    var opts = "";
+    for (var y = cy - 1; y >= cy - 40; y--) {
+      if (have.indexOf(y) < 0) opts += '<option value="' + y + '">' + y + "</option>";
+    }
+    if (!opts) return;
+    var html = '<label class="field">Year<select name="priorYear">' + opts + "</select></label>" +
+      '<p class="caption">Enter what you owned and owed at the end of that year. Leave a line at $0 if it didn’t exist yet.</p>';
+    ["asset", "liability"].forEach(function (kind) {
+      var lines = state.worth.lines.filter(function (l) { return (l.kind === "liability") === (kind === "liability"); });
+      if (!lines.length) return;
+      html += '<p class="section-label">' + (kind === "asset" ? "Assets" : "Liabilities") + "</p>";
+      lines.forEach(function (l) { html += field(l.name, "wl_" + l.id, 0, "number"); });
+    });
+    openSheet("Add a prior year", html, "save-prior-year");
+  }
+
   function renderWorthYearSlider(years) {
     if (!years || !years.length) return "";
     /* One sticky unit: label, slider, and caption. CSS pins it; do not scroll it to the top. */
-    var html = '<div class="year-slider-bar"><p class="section-label">By year</p><div class="year-slider">';
+    var html = '<div class="year-slider-bar"><p class="section-label">By year</p><div class="year-slider">' + worthAddPriorButton();
     years.forEach(function (year) {
       var equity = worthTotals(year).equity;
       html += '<button class="year-slide' + (year === state.worthYear ? " on" : "") +
@@ -8276,7 +8519,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<header class="stmt-header stmt-hero-center">' +
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
-      '<p class="stmt-hero-amount">' + money(totals.equity) + "</p></header>";
+      '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>";
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
     } else {
@@ -9803,27 +10046,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var isPercent = !!plan[flagName];
     var value = Number(plan[valueName]) || 0;
     var input = isPercent
-      ? '<input name="' + valueName + '" data-act="comp-field" inputmode="decimal" type="text" value="' +
-        esc(value) + '">'
+      ? '<input name="' + valueName + '" data-act="comp-field" inputmode="decimal" type="text" placeholder="0" value="' +
+        esc(value || "") + '">'
       : '<input name="' + valueName + '" class="cents-input" data-dollars="1" data-act="comp-field" inputmode="numeric" autocomplete="off" type="text" value="' +
         esc(money(value)) + '">';
     return '<div class="deduct-row">' +
       '<span class="deduct-name">' + esc(label) +
       (valueName.indexOf("401k") >= 0 ? docCueHtml("k401") : "") +
       "</span>" +
-      '<select data-act="employer-mode" data-flag="' + flagName + '">' +
-      '<option value="fixed"' + (isPercent ? "" : " selected") + ">$</option>" +
-      '<option value="percent"' + (isPercent ? " selected" : "") + ">% of paycheck</option></select>" +
-      input +
+      '<label class="employer-dollar-toggle"><input type="checkbox" data-act="employer-mode" data-flag="' + flagName +
+      '" data-value="' + valueName + '"' + (isPercent ? "" : " checked") + "> Enter as $ per year</label>" +
+      (isPercent ? '<span class="employer-pct-wrap">' + input + "<span>%</span></span>" : input) +
       '<span class="mono deduct-amt" data-employer-amt="' + valueName + '">' + money(dollars) + "</span></div>";
   }
 
   function methodOptions(selected, includeNet) {
     var options = [
-      ["fixed", "$ Fixed"],
-      ["percentGross", "% of gross"]
+      ["fixed", "$ / yr"],
+      ["percentGross", "% gross"]
     ];
-    if (includeNet) options.push(["percentNet", "% of net"]);
+    if (includeNet) options.push(["percentNet", "% net"]);
     return options.map(function (pair) {
       return '<option value="' + pair[0] + '"' + (selected === pair[0] ? " selected" : "") + ">" + pair[1] + "</option>";
     }).join("");
@@ -9895,24 +10137,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ? '<details class="comp-whatif" id="comp-whatif"' + (compWhatIfOpen ? " open" : "") + '><summary class="sheet-label">What-if from typed compensation</summary>' +
           '<div id="comp-whatif-est">' + compWhatIfHtml(est, true) + "</div>"
         : "") +
-      '<p class="sheet-label">Compensation</p>' +
-      moneyRow("Base salary", "baseSalary", plan.baseSalary) +
-      '<div class="planner-row"><label>Bonus target %</label>' +
+      '<p class="sheet-label">Compensation · per year</p>' +
+      '<p class="caption annual-note">Every dollar amount on this screen is a yearly (annual) total, not per paycheck. Per-paycheck figures are only the suggested paycheck below.</p>' +
+      moneyRow("Base salary (per year)", "baseSalary", plan.baseSalary) +
+      '<div class="planner-row"><label>Bonus target (% of base salary)</label>' +
       '<input name="bonusTargetPercent" data-act="comp-field" inputmode="decimal" type="text" value="' +
       esc(plan.bonusTargetPercent || 0) + '"></div>' +
-      '<p class="sheet-label">Employer</p>' +
+      '<p class="sheet-label">Employer · per year</p>' +
       employerToggleRow("Employer 401k base", "employer401kBase", "employer401kBaseIsPercent", plan, est.employerBase) +
       employerToggleRow("Employer 401k match", "employer401kMatch", "employer401kMatchIsPercent", plan, est.employerMatch) +
-      '<p class="caption">Same $ vs % of paycheck toggle as employee deferral. Employer 401k is compensation, not an employee pre-tax row.</p>' +
-      '<p class="sheet-label">Pre-tax deductions</p>' +
-      '<div class="deduct-head"><span>Name</span><span>Method</span><span>Amount</span><span>Total</span></div>' +
+      '<p class="caption">Percent is of yearly pay; dollars are a yearly total. Employer 401k is compensation, not an employee pre-tax row.</p>' +
+      '<p class="sheet-label">Pre-tax deductions · per year</p>' +
+      '<div class="deduct-head"><span>Name</span><span>Method</span><span>Amount</span><span>Per year</span></div>' +
       preTaxRowsHtml(plan, est) +
-      '<div class="row"><span>Pre-tax total</span><span class="mono" id="pretax-total">' + money(est.preTaxTotal) + "</span></div>" +
-      '<p class="caption">Each row is $ fixed or % of gross (defaults $0 / 0%). 401k is a percent of gross unless you switch it. Pre-tax reduces taxable income.</p>' +
-      '<p class="sheet-label">Post-tax deductions</p>' +
-      '<p class="caption">Roth 401(k), voluntary life, short-term disability. $ fixed, % of gross, or % of net.</p>' +
+      '<div class="row"><span>Pre-tax total (per year)</span><span class="mono" id="pretax-total">' + money(est.preTaxTotal) + "</span></div>" +
+      '<p class="caption">Each row is a yearly $ total or a % of yearly gross (defaults $0 / 0%). Not per paycheck. 401k is a percent of gross unless you switch it. Pre-tax reduces taxable income.</p>' +
+      '<p class="sheet-label">Post-tax deductions · per year</p>' +
+      '<p class="caption">Roth 401(k), voluntary life, short-term disability. Yearly $ total, % of yearly gross, or % of yearly net. Not per paycheck.</p>' +
       postTaxRowsHtml(plan, est) +
-      '<div class="row"><span>Post-tax total</span><span class="mono" id="posttax-total">' + money(est.postTaxTotal) + "</span></div>" +
+      '<div class="row"><span>Post-tax total (per year)</span><span class="mono" id="posttax-total">' + money(est.postTaxTotal) + "</span></div>" +
       '<p class="sheet-label">Job location</p>' +
       '<div class="planner-row"><label>Job location ZIP</label>' +
       '<input name="zipCode" data-act="comp-field" inputmode="numeric" type="text" value="' +
@@ -14832,6 +15075,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.statementDetails = false;
       saveState();
       render();
+    } else if (act === "add-prior-year") {
+      openPriorYearSheet();
     } else if (act === "add-year") {
       var max = state.worth.years.length ? Math.max.apply(null, state.worth.years) : new Date().getFullYear() - 1;
       var nextYear = max + 1;
@@ -14894,6 +15139,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         lineSpendList(month, found.line.id) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
+      /* v37.5.59.14 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
+      if (actEl.getAttribute("data-focus") === "assigned") {
+        var focusAmount = function () {
+          var amt = document.querySelector('#modal input[name="assigned"]');
+          if (amt) { amt.focus(); try { amt.select(); } catch (err) {} }
+        };
+        focusAmount();
+        setTimeout(focusAmount, 60);
+      }
+    } else if (act === "envmenu-line-up" || act === "envmenu-line-down") {
+      closeModal();
+      moveLine(month, actEl.getAttribute("data-id"), act === "envmenu-line-up" ? -1 : 1);
+    } else if (act === "envmenu-line-to") {
+      moveLineToCategory(month, actEl.getAttribute("data-id"), actEl.getAttribute("data-to"));
+    } else if (act === "envmenu-line-delete") {
+      deleteLineKeepHistory(month, actEl.getAttribute("data-id"));
+    } else if (act === "envmenu-cat-up" || act === "envmenu-cat-down") {
+      closeModal();
+      moveEnvelope(month, actEl.getAttribute("data-id"), act === "envmenu-cat-up" ? -1 : 1);
+    } else if (act === "envmenu-cat-delete") {
+      deleteEnvelopeKeepHistory(month, actEl.getAttribute("data-id"));
     } else if (act === "delete-line") {
       deleteLine(month, actEl.getAttribute("data-id"));
     } else if (act === "move-line-up") {
@@ -15052,6 +15318,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (Object.prototype.hasOwnProperty.call(data, "loanApr")) {
       data.loanApr = Number(String(data.loanApr || "").replace(/[^0-9.]/g, "")) || 0;
+    }
+    if (act === "save-prior-year") {
+      var py = Number(data.priorYear);
+      if (py && state.worth.years.indexOf(py) < 0) {
+        state.worth.lines.forEach(function (line) {
+          line.amounts[py] = Math.abs(centsFromDigits(data["wl_" + line.id])) || 0;
+          if (!line.additions) line.additions = {};
+          line.additions[py] = 0;
+        });
+        state.worth.years.push(py);
+        state.worth.years.sort(function (a, b) { return a - b; });
+        if (!state.worth.income) state.worth.income = {};
+        if (!state.worth.notes) state.worth.notes = {};
+        if (state.worth.income[py] == null) state.worth.income[py] = 0;
+        if (state.worth.notes[py] == null) state.worth.notes[py] = "";
+        state.worthYear = py;
+        saveState();
+      }
+      closeModal();
+      render();
+      return;
     }
     if (act === "save-category") {
       var assigned = Number(data.assigned) || 0;
@@ -15791,7 +16078,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       saveState();
     } else if (el.getAttribute("data-act") === "employer-mode") {
       var employerPlan = migrateCompensation(state.compensation || defaultCompensation());
-      employerPlan[el.getAttribute("data-flag")] = el.value === "percent";
+      var eFlag = el.getAttribute("data-flag");
+      var eValue = el.getAttribute("data-value");
+      var toPercent = !el.checked;
+      var eEst = estimateCompensation(employerPlan);
+      var curDollars = eValue === "employer401kBase" ? eEst.employerBase : eEst.employerMatch;
+      var altKey = eValue + (toPercent ? "AltPercent" : "AltDollars");
+      var oldKey = eValue + (toPercent ? "AltDollars" : "AltPercent");
+      employerPlan[oldKey] = Number(employerPlan[eValue]) || 0; /* remember the value we are leaving */
+      if (toPercent) {
+        employerPlan[eValue] = eEst.cashPay > 0 ? Math.round((Number(curDollars) || 0) / eEst.cashPay * 10000) / 100
+          : (Number(employerPlan[altKey]) || 0);
+      } else {
+        employerPlan[eValue] = eEst.cashPay > 0 ? Math.round((Number(curDollars) || 0) * 100) / 100
+          : (Number(employerPlan[altKey]) || 0);
+      }
+      employerPlan[eFlag] = toPercent;
       state.compensation = employerPlan;
       saveState();
       openIncomeStatement({ preserveScroll: true });
