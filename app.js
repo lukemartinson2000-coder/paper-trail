@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.12. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.13. */
 (function () {
   "use strict";
 
@@ -4741,6 +4741,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return (currentNW - priorTotals.equity) / denom;
   }
 
+  /* v37.5.59.13 (owner): FOO Step 1 (deductibles) stays hidden — and never blocks — until the user has
+     entered budget data: any transaction, any non-zero income line, or any envelope with an assigned amount
+     in any month. Net Worth balances or Vault papers alone don't count. */
+  function fooStep1Shown() {
+    var months = state.months || {};
+    return Object.keys(months).some(function (key) {
+      var m = months[key];
+      if (!m) return false;
+      if ((m.transactions || []).length) return true;
+      if ((m.incomes || []).some(function (i) { return (Number(i.amount) || 0) !== 0; })) return true;
+      return (m.categories || []).some(function (c) { return catAssigned(c) !== 0; });
+    });
+  }
+
   function buildGradeInput(month) {
     var GM = window.GradeMath;
     var used = gradeMonthFor(month);
@@ -4804,6 +4818,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       needsBirthdayForDebt: !!classified.needsBirthday && !foo.noDebt,
       retirementRateOfGross: retirementRate,
       deductiblesCovered: deductiblesCovered,
+      deductiblesHidden: !fooStep1Shown(),
       matchCaptured: foo.matchFull ? true : null,
       emergencyFunded: foo.emergencyFunded ? true : null,
       rothOnTrack: foo.rothOnTrack ? true : ((Number(foo.rothAmount) || 0) > 0 ? true : null),
@@ -4894,6 +4909,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<section class="card foo-rail">';
     html += '<p class="kicker" title="Often shortened to FOO">Financial order of operations</p><div class="foo-dots">';
     grade.foo.steps.forEach(function (step) {
+      if (step.number === 1 && !fooStep1Shown()) return; /* v37.5.59.13: hidden until data exists */
       html += '<span class="foo-dot ' + step.status + '" title="' + esc(step.name) + '"></span>';
     });
     html += "</div><p class='next-dollar'>" + esc(grade.foo.nextDollarLine) + "</p>";
@@ -4920,7 +4936,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     html += '<div class="foo-mini">';
     grade.foo.steps.forEach(function (step) {
-      if (step.status === "current") return;
+      if (step.status === "current" || (step.number === 1 && !fooStep1Shown())) return;
       html += '<div class="foo-mini-row"><span>' + step.number + ". " + esc(step.name) +
         "</span>" +
         (step.status === "done" ? fooDoneCluster(step.number) : "<span class='caption'>locked</span>") +
@@ -5691,7 +5707,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     });
     var grade = window.GradeMath.evaluate(buildGradeInput(month));
-    var done = grade.foo.steps.filter(function (step) { return step.status === "done"; }).length;
+    var done = grade.foo.steps.filter(function (step) { return step.status === "done" && !(step.number === 1 && !fooStep1Shown()); }).length;
     var priorAnchor = cadence === "year"
       ? { year: month.year - 1, month: month.month }
       : offsetMonth(month.year, month.month, cadence === "quarter" ? -3 : -1);
@@ -5978,12 +5994,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "</section>" +
       '<div class="foo-list">';
 
-    html += fooStep(1, "Deductibles covered",
-      '<label class="field">Amount' +
-      '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="deductibles" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(foo.deductibles || 0)) + '"></label>' +
-      highestDeductibleNoteHtml(foo),
-      statuses[1]);
+    if (fooStep1Shown()) {
+      html += fooStep(1, "Deductibles covered",
+        '<label class="field">Amount' +
+        '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="deductibles" inputmode="numeric" autocomplete="off" type="text" value="' +
+        esc(money(foo.deductibles || 0)) + '"></label>' +
+        highestDeductibleNoteHtml(foo),
+        statuses[1]);
+    }
 
     var matchBody =
       '<label class="check"><input type="checkbox" data-act="foo-check" data-field="matchFull"' +
@@ -10284,7 +10302,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       delete ob.answers.needs;
     }
     if (ob.screen === "see") ob.screen = "wants";
-    if (onboardFlow(ob).indexOf(ob.screen) < 0) ob.screen = "welcome";
+    if (onboardFlow(ob).indexOf(ob.screen) < 0) ob.screen = onboardFlow(ob)[0];
     if (!ob.skipped || typeof ob.skipped !== "object") ob.skipped = {};
     ob.hidden = !!ob.hidden;
     ob.demo = !!ob.demo;
@@ -10395,9 +10413,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="onboard-step-copy"><div class="name">' + esc(s.title) +
         (s.optional ? ' <span class="caption">(optional)</span>' : "") + "</div>" +
         '<span class="caption">' + esc(s.hint) + "</span></div>" +
-        (s.done ? '<span class="caption onboard-state">Done</span>'
-          : '<button class="text-btn onboard-go" type="button" data-act="ob-guide" data-step="' + s.id + '">' +
-            (s.skipped ? "Resume" : "Start") + "</button>") +
+        (s.done ? '<span class="caption onboard-state">Done</span>' : "") +
         "</div>";
     });
     if (p.complete) {
@@ -10422,13 +10438,77 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return !!(ob && (ob.surveyCompletedAt || ob.surveyYear));
   }
 
+  /* ---- Welcome pages (two minimal screens, first launch only) ----------------------------------
+     UPDATE STAT COPY HERE. Every figure is quoted from the source's own wording; keep the source name
+     and year in `cap`, keep captions country-neutral, and keep the "association, not cause" note.
+     Verified 2026-10: FCAC Canadian Financial Capability Survey 2019 (canada.ca, 45% vs 58% card balance,
+     65% vs 39% emergency savings); Howard/Sussman/Hardisty/Lukas, Journal of Marketing Research 2022
+     (monthly spend predicted $2,276.74 vs actual $2,693.51 = 15.5% lower); Peetz & Davydenko, J. Exp.
+     Social Psychology 2021 (personal-strategy group spent an average $236 less in Study 2, $228 in Study 1);
+     Long Angle 2026 High-Net-Worth Financial Products Report (72% track portfolio/net worth, 62% budget). */
+  var WELCOME_SEEN_KEY = "PaperTrail.welcomeSeen";
+  var WELCOME_PAGES = {
+    welcome: {
+      kicker: "Welcome to Paper Trail!",
+      title: "People who don’t track tend to fare worse.",
+      cta: "See the difference",
+      stats: [
+        ["15.5%", "less than people actually spent: predicted vs. actual monthly spending · Journal of Marketing Research, 2022"],
+        ["58%", "of people too time-pressed or overwhelmed to budget carry a credit-card balance, vs. 45% of budgeters · FCAC Financial Capability Survey, 2019"],
+        ["39%", "of those same people have emergency savings, vs. 65% of budgeters · FCAC Financial Capability Survey, 2019"]
+      ]
+    },
+    welcome2: {
+      kicker: "",
+      title: "People who track tend to do better.",
+      cta: "Continue",
+      stats: [
+        ["72%", "of high-net-worth respondents track a portfolio or net worth · Long Angle survey, 2026"],
+        ["62%", "of high-net-worth respondents track a budget · Long Angle survey, 2026"],
+        ["$236", "less spent in a month, on average, by adults who wrote down their own spending self-control strategies, vs. a comparison group · Peetz & Davydenko, 2021"]
+      ]
+    }
+  };
+
+  function welcomeSeen() {
+    try { return localStorage.getItem(WELCOME_SEEN_KEY) === "1"; } catch (err) { return true; }
+  }
+
+  function markWelcomeSeen() {
+    try { localStorage.setItem(WELCOME_SEEN_KEY, "1"); } catch (err) {}
+  }
+
+  function welcomeCardsHtml(page) {
+    return page.stats.map(function (st, i) {
+      return '<div class="welcome-stat" style="animation-delay:' + (i * 90) + 'ms"><span class="welcome-num">' + esc(st[0]) +
+        '</span><span class="welcome-cap">' + esc(st[1]) + "</span></div>";
+    }).join("");
+  }
+
+  /* Profile › About & Privacy › "Replay intro" */
+  function openIntroSheet() {
+    captureModalReturnScreenTop();
+    var html = '<div class="sheet about-sheet intro-sheet">';
+    ["welcome", "welcome2"].forEach(function (k) {
+      var pg = WELCOME_PAGES[k];
+      html += '<h3>' + esc(pg.title) + '</h3><div class="welcome-stats">' + welcomeCardsHtml(pg) + "</div>";
+    });
+    html += '<p class="welcome-note">Surveys show association, not cause.</p>' +
+      '<div class="sheet-actions"><button type="button" data-act="about-back">Back</button>' +
+      '<button class="primary" type="button" data-act="close-modal">Done</button></div></div>';
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = html;
+  }
+
   function onboardFlow(ob) {
     var screens = [
-      "welcome", "name", "pay", "birthday", "pets", "serious", "confidence", "stress",
+      "welcome", "welcome2", "name", "pay", "birthday", "pets", "serious", "confidence", "stress",
       "best", "worst", "wants", "fears", "decide", "education", "advisor", "margin", "insurance",
       "optimize", "target", "diy", "home", "car", "school", "work", "hincome", "hworth",
-      "drop", "invest", "cash", "goal", "debt", "sits", "hear", "payfor", "extra"
+      "drop", "invest", "cash", "goal", "debt", "sits", "hear", "extra"
     ];
+    if (welcomeSeen()) screens = screens.filter(function (x) { return x !== "welcome" && x !== "welcome2"; });
     if (hasPriorSurvey(ob)) screens.push("compare");
     screens.push("privacy");
     return screens;
@@ -10456,7 +10536,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     debt: "debt",
     sits: "moneySits",
     hear: "hearFrom",
-    payfor: "payFor",
     extra: "extraIncome",
     compare: "compared"
   };
@@ -10472,7 +10551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function surveyReady(screen, a) {
-    if (screen === "name" || screen === "best" || screen === "worst" || screen === "welcome" || screen === "privacy") return true;
+    if (screen === "name" || screen === "best" || screen === "worst" || screen === "welcome" || screen === "welcome2" || screen === "privacy") return true;
     if (screen === "pay") return !!a.payFrequency;
     if (screen === "birthday") return !!a.birthday;
     if (screen === "serious") return a.serious === "today" || Number(a.serious) >= 1;
@@ -10503,6 +10582,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function onboardDots(screen, flow) {
+    flow = flow.filter(function (f) { return f !== "welcome2"; });
     var idx = flow.indexOf(screen);
     if (idx <= 0) return "";
     var total = flow.length - 1;
@@ -10550,21 +10630,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ob.error = ob.error || "Add your birthday first.";
       screen = "birthday";
     }
-    var back = screen === "welcome" ? "" : '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
+    var back = screen === "welcome" || screen === "welcome2" ? "" : '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
     var html = '<div class="onboard-inner" data-screen="' + screen + '">' + onboardDots(screen, flow);
-    if (screen === "welcome") {
-      html += "<h2>Welcome to Paper Trail!</h2>" +
-        "<p>We are very excited to grow with you.</p>" +
-        "<p>Most people never see where their money goes. In a 2019 National Foundation for Credit Counseling survey, only about 2 in 5 U.S. adults said they keep a budget and track spending on food, housing, and entertainment.</p>" +
-        "<p>Wealthier households tend to do the opposite. In a 2026 survey of high-net-worth investors, 72% track a portfolio or net worth, and 62% track a budget.</p>" +
-        "<p>Now there is one place to do both.</p>" +
-        // v37.5.59.12: no "budget first or net worth first" pick — the survey always ends on Budget.
-        '<p class="caption">A short survey first, then your Budget.</p>' +
-        '<button class="primary onboard-primary" type="button" data-act="ob-next">Get started</button>';
-      if (!hasRealData()) {
-        html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>' +
-          '<p class="caption">The demo fills the app with sample numbers so you can look around. Start your own budget anytime.</p>';
+    if (screen === "welcome" || screen === "welcome2") {
+      var wp = WELCOME_PAGES[screen];
+      html = '<div class="onboard-inner welcome-min" data-screen="' + screen + '">' +
+        (wp.kicker ? '<p class="welcome-kicker">' + esc(wp.kicker) + "</p>" : "") +
+        "<h2>" + esc(wp.title) + "</h2>" +
+        '<div class="welcome-stats">' + welcomeCardsHtml(wp) + "</div>" +
+        '<p class="welcome-note">Surveys show association, not cause.</p>' +
+        '<div class="welcome-foot">' +
+        '<button class="primary onboard-primary" type="button" data-act="ob-next">' + esc(wp.cta) + '</button>' +
+        '<div class="welcome-dots" aria-hidden="true"><i class="' + (screen === "welcome" ? "on" : "") + '"></i><i class="' + (screen === "welcome2" ? "on" : "") + '"></i></div>';
+      if (screen === "welcome2") {
+        html += '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
+      } else if (!hasRealData()) {
+        html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>';
       }
+      html += "</div>";
     } else if (screen === "name") {
       html += "<h2>First name</h2>" +
         '<label class="field">First name<input name="obName" type="text" autocomplete="given-name" value="' +
@@ -10763,12 +10846,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           { id: "home", label: "Buy a home" },
           { id: "grow", label: "Grow investments" }
         ]],
-        debt: ["Debt that actually bothers you", [
-          { id: "none", label: "None" },
-          { id: "cards", label: "Credit cards" },
-          { id: "student", label: "Student loans" },
-          { id: "car", label: "A car" },
-          { id: "mortgage", label: "A mortgage" }
+        debt: ["Do you have debt that bothers you?", [
+          { id: "none", label: "No, none that bothers me" },
+          { id: "cards", label: "Yes, credit cards" },
+          { id: "student", label: "Yes, student loans" },
+          { id: "car", label: "Yes, a car loan" },
+          { id: "mortgage", label: "Yes, a mortgage" }
         ]],
         sits: ["Where does most of your money sit?", [
           { id: "cash", label: "Cash" },
@@ -10780,11 +10863,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           { id: "barely", label: "Barely" },
           { id: "monthly", label: "A monthly check-in" },
           { id: "often", label: "Often" }
-        ]],
-        payfor: ["What would you pay for?", [
-          { id: "free", label: "Free is enough" },
-          { id: "few", label: "A few dollars a month" },
-          { id: "more", label: "More if it clearly helps" }
         ]],
         extra: ["If you wanted extra income, would you double down at work, or start a side gig?", [
           { id: "work", label: "Double down at work" },
@@ -10798,7 +10876,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           surveyActions(back, surveyReady(screen, a));
       }
     }
-    if (ob.error && screen !== "welcome") html += '<p class="caption rust">' + esc(ob.error) + "</p>";
+    if (ob.error && screen !== "welcome" && screen !== "welcome2") html += '<p class="caption rust">' + esc(ob.error) + "</p>";
     return html + "</div>";
   }
 
@@ -10943,6 +11021,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function finishSurveyToBudget() {
     var ob = onboarding();
+    markWelcomeSeen();
     readOnboardInputs();
     applyOnboardAnswers();
     ob.surveyCompletedAt = new Date().toISOString();
@@ -11050,9 +11129,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var i = flow.indexOf(ob.screen);
     if (act === "ob-next") {
       readOnboardInputs();
-      if (ob.screen === "welcome") {
+      if (ob.screen === "welcome" || ob.screen === "welcome2") {
         ob.error = "";
-        ob.screen = "name";
+        ob.screen = ob.screen === "welcome" ? "welcome2" : "name";
         saveState();
         renderOnboarding();
         return;
@@ -11269,6 +11348,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="profile-section">Delete</p>' +
       "<p>Erase everything on this device, or clear one month’s spending, from the danger zone at the bottom of Profile. Each asks first. Single transactions are deleted on the Transactions tab.</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="danger"><strong>Go to the danger zone</strong><span class="caption">Erase all data · Clear this month’s spending</span></button>';
+    html += '<p class="profile-section">Intro</p>' +
+      '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>';
     if (ob.status === "active" && ob.hidden) {
       html += '<p class="profile-section">Setup</p>' +
         '<button class="data-btn" type="button" data-act="ob-show"><strong>Show setup checklist</strong><span class="caption">Back on the Budget tab</span></button>';
@@ -11474,7 +11555,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.12";
+  var APP_VERSION = "37.5.59.13";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -13039,6 +13120,89 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
+  /* v37.5.59.13: first-visit mini tour for Stats and Transactions. Seen flags live in their own
+     localStorage keys (never in app state, backups, or tester-shared data). Next-only; never blocks the page. */
+  var TOUR_STEPS = {
+    stats: [
+      { sel: ".stats-doors", title: "Two statements", text: "Income statement shows what came in and went out. Net worth shows what you own and owe." },
+      { sel: ".stats-vault", title: "Vault", text: "Vault keeps papers like loans, insurance and pay stubs in one place." },
+      { sel: "#month-bar .icon-btn", title: "Year and Profile", text: "The calendar button picks the year. The gear opens Profile and settings." }
+    ],
+    spend: [
+      { sel: "[data-act=add-spend]", title: "Add a transaction", text: "Tap Add, or the + button, to log spending or income." },
+      { sel: ".search-field", title: "Search", text: "Search this month’s transactions by payee or envelope." },
+      { sel: ".swipe-hint, .tx-row, .row", title: "Edit or delete", text: "Tap a row to edit it. Swipe a row left to reveal delete." }
+    ]
+  };
+  var tourState = null;
+
+  function tourSeen(tab) {
+    try { return localStorage.getItem("PaperTrail.tourSeen." + tab) === "1"; } catch (err) { return true; }
+  }
+
+  function tourMarkSeen(tab) {
+    try { localStorage.setItem("PaperTrail.tourSeen." + tab, "1"); } catch (err) {}
+  }
+
+  function tourClose() {
+    var el = document.getElementById("tour-coach");
+    if (el) el.remove();
+    var hl = document.querySelectorAll(".tour-hl");
+    for (var i = 0; i < hl.length; i++) hl[i].classList.remove("tour-hl");
+    tourState = null;
+  }
+
+  function tourShow() {
+    var phone = document.getElementById("phone");
+    if (!phone || !tourState) return;
+    var steps = TOUR_STEPS[tourState.tab];
+    var step = steps[tourState.i];
+    var old = document.querySelectorAll(".tour-hl");
+    for (var k = 0; k < old.length; k++) old[k].classList.remove("tour-hl");
+    var target = document.querySelector("#phone " + step.sel.split(",")[0].trim()) || document.querySelector("#phone " + step.sel);
+    if (target) target.classList.add("tour-hl");
+    var el = document.getElementById("tour-coach");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "tour-coach";
+      el.className = "tour-coach";
+      el.setAttribute("role", "status");
+      phone.appendChild(el);
+    }
+    var last = tourState.i === steps.length - 1;
+    el.innerHTML = '<div class="tour-card"><p class="kicker">Quick tour · ' + (tourState.i + 1) + " of " + steps.length + "</p>" +
+      "<strong>" + esc(step.title) + "</strong><p>" + esc(step.text) + "</p>" +
+      '<div class="tour-actions">' + (last ? '<button class="text-btn" type="button" data-tour="close">Close</button>' : "") +
+      '<button class="planner-apply" type="button" data-tour="next">' + (last ? "Done" : "Next") + "</button></div></div>";
+  }
+
+  function maybeStartTour() {
+    if (tourState) {
+      if (tourState.tab !== state.tab) tourClose(); else { tourShow(); return; }
+    }
+    var tab = state.tab;
+    if (!TOUR_STEPS[tab] || tourSeen(tab)) return;
+    var ob = state.onboarding;
+    if (ob && ob.status === "survey") return;
+    if (tab === "stats" && state.statsDoor === "vault") return;
+    if (document.querySelector(".modal:not([hidden]), .sheet")) return;
+    tourMarkSeen(tab);
+    tourState = { tab: tab, i: 0 };
+    tourShow();
+  }
+
+  document.addEventListener("click", function (ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest("[data-tour]") : null;
+    if (!b || !tourState) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (b.getAttribute("data-tour") === "close") { tourClose(); return; }
+    var steps = TOUR_STEPS[tourState.tab];
+    if (tourState.i >= steps.length - 1) { tourClose(); return; }
+    tourState.i++;
+    tourShow();
+  }, true);
+
   function render() {
     applyNight();
     paintSaveWarning();
@@ -13111,6 +13275,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       scroller.scrollLeft = Math.max(0, scroller.scrollLeft + delta + 8);
     });
     renderOnboarding();
+    maybeStartTour();
     if (pendingScreenUi) {
       restoreScreenUi(pendingScreenUi);
       requestAnimationFrame(function () { restoreScreenUi(pendingScreenUi); pendingScreenUi = null; });
@@ -14067,6 +14232,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (act === "open-about") { openAbout(); return; }
+    if (act === "show-intro") { openIntroSheet(); return; }
     if (act === "about-back") { openProfile(); return; }
     if (act === "about-go") {
       var aboutTo = actEl.getAttribute("data-to");

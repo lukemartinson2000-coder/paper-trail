@@ -586,7 +586,7 @@
     var rothOK = input.rothOnTrack === true || hit25;
     var maxOK = hit25 || !!input.maxEmployerPlans;
     var done = {
-      1: deductiblesOK,
+      1: input.deductiblesHidden ? true : deductiblesOK, /* v37.5.59.13: step 1 stays out of the way until the user has entered budget data */
       2: matchOK ? true : matchCaptured,
       3: debtOK,
       4: emergencyOK,
