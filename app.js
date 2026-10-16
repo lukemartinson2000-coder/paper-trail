@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.15. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.16. */
 (function () {
   "use strict";
 
@@ -339,7 +339,7 @@
     }
     plan.preTax = ensurePreTax(plan.preTax);
     if (plan.filingStatus !== "married") plan.filingStatus = "single";
-    /* v37.5.59.15: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
+    /* v37.5.59.16: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
     if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = !(Number(plan.employer401kBase) > 0);
     if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = !(Number(plan.employer401kMatch) > 0);
     plan.postTax = (plan.postTax || []).map(function (row) {
@@ -1006,7 +1006,7 @@
   }
 
   function defaultLineNames(envelope) {
-    /* v37.5.59.15: new-user default. Existing users' months are never rewritten. */
+    /* v37.5.59.16: new-user default. Existing users' months are never rewritten. */
     if (envelope === "Giving") return ["Tithes / Charity"];
     return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
   }
@@ -1229,7 +1229,7 @@
     render();
   }
 
-  /* ---- v37.5.59.15: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
+  /* ---- v37.5.59.16: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
   function txsTouchingLine(month, lineId) {
     return (month.transactions || []).filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
@@ -7244,7 +7244,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.3 (owner): actual YTD + projected remaining checks, capped at 2026 IRS limits.
    * Replaces stub × paychecks/year everywhere (brackets, Taxes, average tax, True). Cached per render input. */
   var payStubBasisCache = {};
-  /* ---- v37.5.59.15: Compensation → income statement sync, year-end salary target, line notes ----
+  /* ---- v37.5.59.16: Compensation → income statement sync, year-end salary target, line notes ----
    * Stored on this device only, in state.incomeSync / state.incomeTargets. Tester sharing is an allow-list
    * (buildTesterPayload) that never reads these, so targets and free-text notes are never shared.
    * Sync is an overlay: it never rewrites or deletes what the user typed on the income statement. */
@@ -8551,7 +8551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
 
 
-  /* v37.5.59.15: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
+  /* v37.5.59.16: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
   function worthCurrentYearFilled() {
     var cy = new Date().getFullYear();
     if (state.worth.years.indexOf(cy) < 0) return false;
@@ -10864,7 +10864,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "optimize", "target", "diy", "home", "car", "school", "work", "hincome", "hworth",
       "drop", "invest", "cash", "goal", "debt", "sits", "hear", "extra"
     ];
-    if (welcomeSeen()) screens = screens.filter(function (x) { return x !== "welcome" && x !== "welcome2"; });
+    if (welcomeSeen() || (ob && ob.retake)) screens = screens.filter(function (x) { return x !== "welcome" && x !== "welcome2"; });
     if (hasPriorSurvey(ob)) screens.push("compare");
     screens.push("privacy");
     return screens;
@@ -10976,144 +10976,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="primary" type="button" data-act="ob-next"' + (enabled ? "" : " disabled") + ">Next</button></div>";
   }
 
-  function onboardScreenHtml() {
-    var ob = onboarding();
-    var a = ob.answers;
-    var flow = onboardFlow(ob);
-    var screen = ob.screen;
-    if (screen === "serious" && seriousAges(a.birthday || birthdayISO()) == null) {
-      ob.screen = "birthday";
-      ob.error = ob.error || "Add your birthday first.";
-      screen = "birthday";
-    }
-    var back = screen === "welcome" || screen === "welcome2" ? "" : '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
-    var html = '<div class="onboard-inner" data-screen="' + screen + '">' + onboardDots(screen, flow);
-    if (screen === "welcome" || screen === "welcome2") {
-      var wp = WELCOME_PAGES[screen];
-      html = '<div class="onboard-inner welcome-min" data-screen="' + screen + '">' +
-        (wp.kicker ? '<p class="welcome-kicker">' + esc(wp.kicker) + "</p>" : "") +
-        "<h2>" + esc(wp.title) + "</h2>" +
-        '<div class="welcome-stats">' + welcomeCardsHtml(wp) + "</div>" +
-        '<p class="welcome-note">Surveys show association, not cause.</p>' +
-        '<div class="welcome-foot">' +
-        '<button class="primary onboard-primary" type="button" data-act="ob-next">' + esc(wp.cta) + '</button>' +
-        '<div class="welcome-dots" aria-hidden="true"><i class="' + (screen === "welcome" ? "on" : "") + '"></i><i class="' + (screen === "welcome2" ? "on" : "") + '"></i></div>';
-      if (screen === "welcome2") {
-        html += '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
-      } else if (!hasRealData()) {
-        html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>';
-      }
-      html += "</div>";
-    } else if (screen === "name") {
-      html += "<h2>First name</h2>" +
-        '<label class="field">First name<input name="obName" type="text" autocomplete="given-name" value="' +
-        esc(a.name || "") + '" placeholder="Your name"></label>' +
-        '<p class="caption">Optional. Shows on Insights and in Profile.</p>' +
-        surveyActions(back, true);
-    } else if (screen === "pay") {
-      html += "<h2>How often do you get paid?</h2>" + surveyChoicesHtml(ONBOARD_PAY_CHOICES, a.payFrequency, false);
-      html += surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "birthday") {
-      html += "<h2>Birthday</h2>" +
-        '<label class="field">Birthday<input name="obBirthday" type="date" min="1920-01-01" max="' +
-        esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
-        '" value="' + esc(a.birthday || "") + '"></label>' +
-        '<p class="caption">The next question needs it.</p>' +
-        surveyActions(back, !!a.birthday);
-    } else if (screen === "serious") {
-      var ages = seriousAges(a.birthday || birthdayISO()) || [];
-      html += "<h2>When did you start taking money seriously?</h2>" +
-        '<div class="age-wheel" role="listbox" aria-label="When you started">';
-      var todayOn = a.serious === "today";
-      html += '<button type="button" role="option" aria-selected="' + (todayOn ? "true" : "false") +
-        '" class="' + (todayOn ? "on" : "") + '" data-act="ob-pick" data-value="today">Today</button>';
-      ages.forEach(function (age) {
-        var on = Number(a.serious) === age;
-        html += '<button type="button" role="option" aria-selected="' + (on ? "true" : "false") +
-          '" class="' + (on ? "on" : "") + '" data-act="ob-pick" data-value="' + age + '">Age ' + age + "</button>";
-      });
-      html += "</div>" +
-        '<p class="caption">Scroll, then tap. Today is fine.</p>' +
-        surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "confidence") {
-      html += "<h2>How confident are you making money decisions?</h2>" +
-        '<p class="caption">1 is unsure. 10 is sure.</p>' +
-        surveyScaleHtml(a.confidence) + surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "stress") {
-      html += "<h2>Money stress</h2>" +
-        '<p class="caption">1 is calm. 10 is a lot.</p>' +
-        surveyScaleHtml(a.stress) + surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "best" || screen === "worst") {
-      var best = screen === "best";
-      html += "<h2>" + (best ? "Best purchase" : "Worst purchase") + "</h2>" +
-        '<label class="field">' + (best ? "One you’re glad you made" : "One you wish you hadn’t") +
-        '<textarea name="' + (best ? "obBest" : "obWorst") + '" maxlength="240">' +
-        esc(best ? (a.bestPurchase || "") : (a.worstPurchase || "")) + "</textarea></label>" +
-        '<p class="caption">Optional.</p>' +
-        '<button class="text-btn onboard-skip" type="button" data-act="ob-skip-q">Skip</button>' +
-        surveyActions(back, true);
-    } else if (screen === "wants" || screen === "fears" || screen === "decide") {
-      /* Needs Map, unlabeled. One primary (significance, approval, acceptance) and one secondary (intelligence, pity, strength). */
-      var wantOpts = [
+  var SURVEY_NEED_OPTS = {
+    wants: [
         { id: "significance", label: "Do people see that I matter and make an impact?" },
         { id: "approval", label: "Do people recognize what I did and give me confidence?" },
         { id: "acceptance", label: "Do I belong, and can people tell?" }
-      ];
-      var fearOpts = [
+      ],
+    fears: [
         { id: "intelligence", label: "Do people see me as smart?" },
         { id: "pity", label: "Do people realize how hard I’ve had it?" },
         { id: "strength", label: "Do people see me as strong?" }
-      ];
-      var decideOpts = [
+      ],
+    decide: [
         { id: "deviance", label: "Will this help me stand out or break the usual way?" },
         { id: "novelty", label: "Is this new, and will people notice?" },
         { id: "social", label: "Will this make people connect with me?" },
         { id: "conformity", label: "Are people like me already doing this?" },
         { id: "investment", label: "Will this give me a return that’s worth it?" },
         { id: "necessity", label: "What makes this necessary, instead of the other options?" }
-      ];
-      var needScreen = screen === "wants" || screen === "fears";
-      var multiKey = screen === "wants" ? "primaryNeed" : screen === "fears" ? "secondaryNeed" : "decide";
-      var multi = a[multiKey] || (needScreen ? "" : []);
-      var multiTitle = screen === "wants"
-        ? "When money comes up, which question feels most true?"
-        : screen === "fears"
-          ? "Which of these is also true?"
-          : "When you make a money choice, which two questions do you ask?";
-      var multiOpts = screen === "wants" ? wantOpts : screen === "fears" ? fearOpts : decideOpts;
-      var picked = needScreen ? !!multi : multi.length === 2;
-      html += "<h2>" + multiTitle + "</h2>" +
-        '<p class="caption">' + (needScreen ? "Pick one." : "Pick two.") + "</p>" +
-        surveyChoicesHtml(multiOpts, multi, !needScreen) +
-        surveyActions(back, picked);
-    } else if (screen === "target") {
-      html += "<h2>Do you have a target return?</h2>" +
-        surveyChoicesHtml([
-          { id: "no", label: "No" },
-          { id: "yes", label: "Yes" }
-        ], a.targetReturn, false);
-      if (a.targetReturn === "yes") {
-        html += '<label class="field">Percent a year<input name="obTargetPct" type="text" inputmode="decimal" autocomplete="off" value="' +
-          esc(a.targetPercent === "" || a.targetPercent == null ? "" : String(a.targetPercent)) +
-          '" placeholder="Percent"></label>' +
-          '<p class="caption">Only the number you type. Nothing is filled in for you.</p>';
-      }
-      html += surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "compare") {
-      html += "<h2>Compared with last year, do you feel ahead, the same, or behind?</h2>" +
-        surveyChoicesHtml([
-          { id: "ahead", label: "Ahead" },
-          { id: "same", label: "The same" },
-          { id: "behind", label: "Behind" }
-        ], a.compared, false) + surveyActions(back, surveyReady(screen, a));
-    } else if (screen === "privacy") {
-      html += '<div class="onboard-privacy"><p class="onboard-lock" aria-hidden="true">🔒</p>' +
-        "<h2>What testers share</h2>" +
-        '<p class="onboard-sharing">As a Paper Trail tester, you share app data with your tester code to help find bugs and improve Paper Trail. That includes your survey answers and percentages like savings rate, plus dollar amounts and Vault details (document count and types). You can turn off dollar amounts and Vault details in Profile › Data sharing.</p></div>' +
-        '<div class="onboard-actions">' + back +
-        '<button class="primary" type="button" data-act="ob-survey-finish">Sounds good</button></div>';
-    } else {
-      var choiceScreens = {
+      ]
+  };
+
+  /* Single source for the choice questions: the survey screens and View survey results both read this. */
+  function surveyChoiceSpecs() {
+    return {
         pets: ["Dogs or cats?", [
           { id: "dog", label: "Dogs" },
           { id: "cat", label: "Cats" },
@@ -11225,6 +11111,232 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           { id: "gig", label: "Start a side gig" }
         ]]
       };
+  }
+
+  /* v37.5.59.16: readable survey results + retake. Answers live in state.onboarding.answers (saved state,
+   * backups and export/import). Retake pre-fills them, skips the welcome pages, never touches budget, income
+   * or net worth data, and puts the user back where they were. */
+  function surveyResultRows() {
+    var a = onboarding().answers || {};
+    var rows = [];
+    function add(q, v) { if (v != null && String(v) !== "") rows.push({ q: q, a: String(v) }); }
+    function labelOf(list, id) {
+      var hit = (list || []).filter(function (c) { return c.id === id; })[0];
+      return hit ? hit.label : id;
+    }
+    add("Your name", a.name);
+    var pay = ONBOARD_PAY_CHOICES.filter(function (c) { return c.id === a.payFrequency; })[0];
+    add("How often do you get paid?", pay ? pay.label : a.payFrequency);
+    add("Birthday", a.birthday);
+    add("When did you start taking money seriously?", a.serious === "today" ? "Today" : (a.serious !== "" && a.serious != null ? "Age " + a.serious : ""));
+    add("How confident are you making money decisions? (1 unsure – 10 sure)", a.confidence);
+    add("Money stress (1 calm – 10 a lot)", a.stress);
+    add("Best purchase", a.bestPurchase);
+    add("Worst purchase", a.worstPurchase);
+    add("When money comes up, which question feels most true?", labelOf(SURVEY_NEED_OPTS.wants, a.primaryNeed));
+    add("Which of these is also true?", labelOf(SURVEY_NEED_OPTS.fears, a.secondaryNeed));
+    if ((a.decide || []).length) add("When you make a money choice, which two questions do you ask?", a.decide.map(function (id) { return labelOf(SURVEY_NEED_OPTS.decide, id); }).join(" · "));
+    var specs = surveyChoiceSpecs();
+    ["education", "advisor", "margin", "insurance", "optimize", "diy"].forEach(function (k) {
+      add(specs[k][0], labelOf(specs[k][1], a[SURVEY_ANSWER_KEY[k]]));
+    });
+    if (a.targetReturn) add("Do you have a target return?", a.targetReturn === "yes" ? "Yes" + (a.targetPercent !== "" && a.targetPercent != null ? " — " + a.targetPercent + "% a year" : "") : "No");
+    ["pets", "home", "car", "school", "work", "hincome", "hworth", "drop", "invest", "cash", "goal", "debt", "sits", "hear", "extra"].forEach(function (k) {
+      add(specs[k][0], labelOf(specs[k][1], a[SURVEY_ANSWER_KEY[k]]));
+    });
+    if (a.compared) add("Compared with last year, do you feel ahead, the same, or behind?", labelOf([{ id: "ahead", label: "Ahead" }, { id: "same", label: "The same" }, { id: "behind", label: "Behind" }], a.compared));
+    return rows;
+  }
+
+  function openSurveyResults() {
+    captureModalReturnScreenTop();
+    var ob = onboarding();
+    var rows = surveyResultRows();
+    var html = '<div class="sheet about-sheet survey-results"><h3>Your survey answers</h3>';
+    if (ob.surveyCompletedAt) html += '<p class="caption">Last saved ' + esc(String(ob.surveyCompletedAt).slice(0, 10)) + ".</p>";
+    if (!rows.length) html += '<p class="empty">No survey answers are saved on this device yet.</p>';
+    else {
+      html += '<dl class="survey-list">';
+      rows.forEach(function (row) { html += "<dt>" + esc(row.q) + "</dt><dd>" + esc(row.a) + "</dd>"; });
+      html += "</dl>";
+    }
+    html += '<button class="data-btn" type="button" data-act="retake-survey"><strong>Retake survey</strong><span class="caption">Pre-filled with these answers</span></button>' +
+      '<div class="sheet-actions"><button type="button" data-act="about-back">Back</button>' +
+      '<button class="primary" type="button" data-act="close-modal">Done</button></div></div>';
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = html;
+  }
+
+  function startSurveyRetake() {
+    var ob = onboarding();
+    if (ob.retake) return;
+    ob.retake = {
+      prevStatus: ob.status,
+      prevScreen: ob.screen,
+      backup: JSON.parse(JSON.stringify(ob.answers || {}))
+    };
+    ob.status = "survey";
+    ob.screen = "name";
+    ob.error = "";
+    closeModal();
+    saveState();
+    render();
+  }
+
+  function endSurveyRetake(save) {
+    var ob = onboarding();
+    var rt = ob.retake;
+    if (!rt) return;
+    if (save) {
+      readOnboardInputs();
+      /* Settings the survey asks about (name, birthday, pay frequency) follow the new answers.
+       * Budget months, paychecks, income and net worth are never touched. */
+      var a = ob.answers;
+      state.profile = migrateProfile(state.profile, state.foo, state.compensation);
+      if (a.birthday) syncBirthday(a.birthday);
+      if (a.name) state.profile.name = a.name;
+      if (a.payFrequency && a.payFrequency !== state.profile.payFrequency) {
+        state.profile.payFrequency = a.payFrequency;
+        state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+        state.compensation.paychecksPerYear = checksForFrequency(a.payFrequency);
+      }
+      ob.surveyCompletedAt = new Date().toISOString();
+      ob.surveyYear = new Date().getFullYear();
+    } else {
+      ob.answers = rt.backup || ob.answers;
+    }
+    ob.status = rt.prevStatus || "done";
+    ob.screen = "privacy";
+    ob.error = "";
+    delete ob.retake;
+    saveState();
+    render();
+  }
+
+  function onboardScreenHtml() {
+    var ob = onboarding();
+    var a = ob.answers;
+    var flow = onboardFlow(ob);
+    var screen = ob.screen;
+    if (screen === "serious" && seriousAges(a.birthday || birthdayISO()) == null) {
+      ob.screen = "birthday";
+      ob.error = ob.error || "Add your birthday first.";
+      screen = "birthday";
+    }
+    var back = screen === "welcome" || screen === "welcome2" ? "" : '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
+    var html = '<div class="onboard-inner" data-screen="' + screen + '">' + onboardDots(screen, flow);
+    if (screen === "welcome" || screen === "welcome2") {
+      var wp = WELCOME_PAGES[screen];
+      html = '<div class="onboard-inner welcome-min" data-screen="' + screen + '">' +
+        (wp.kicker ? '<p class="welcome-kicker">' + esc(wp.kicker) + "</p>" : "") +
+        "<h2>" + esc(wp.title) + "</h2>" +
+        '<div class="welcome-stats">' + welcomeCardsHtml(wp) + "</div>" +
+        '<p class="welcome-note">Surveys show association, not cause.</p>' +
+        '<div class="welcome-foot">' +
+        '<button class="primary onboard-primary" type="button" data-act="ob-next">' + esc(wp.cta) + '</button>' +
+        '<div class="welcome-dots" aria-hidden="true"><i class="' + (screen === "welcome" ? "on" : "") + '"></i><i class="' + (screen === "welcome2" ? "on" : "") + '"></i></div>';
+      if (screen === "welcome2") {
+        html += '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
+      } else if (!hasRealData()) {
+        html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>';
+      }
+      html += "</div>";
+    } else if (screen === "name") {
+      html += "<h2>First name</h2>" +
+        '<label class="field">First name<input name="obName" type="text" autocomplete="given-name" value="' +
+        esc(a.name || "") + '" placeholder="Your name"></label>' +
+        '<p class="caption">Optional. Shows on Insights and in Profile.</p>' +
+        surveyActions(back, true);
+    } else if (screen === "pay") {
+      html += "<h2>How often do you get paid?</h2>" + surveyChoicesHtml(ONBOARD_PAY_CHOICES, a.payFrequency, false);
+      html += surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "birthday") {
+      html += "<h2>Birthday</h2>" +
+        '<label class="field">Birthday<input name="obBirthday" type="date" min="1920-01-01" max="' +
+        esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
+        '" value="' + esc(a.birthday || "") + '"></label>' +
+        '<p class="caption">The next question needs it.</p>' +
+        surveyActions(back, !!a.birthday);
+    } else if (screen === "serious") {
+      var ages = seriousAges(a.birthday || birthdayISO()) || [];
+      html += "<h2>When did you start taking money seriously?</h2>" +
+        '<div class="age-wheel" role="listbox" aria-label="When you started">';
+      var todayOn = a.serious === "today";
+      html += '<button type="button" role="option" aria-selected="' + (todayOn ? "true" : "false") +
+        '" class="' + (todayOn ? "on" : "") + '" data-act="ob-pick" data-value="today">Today</button>';
+      ages.forEach(function (age) {
+        var on = Number(a.serious) === age;
+        html += '<button type="button" role="option" aria-selected="' + (on ? "true" : "false") +
+          '" class="' + (on ? "on" : "") + '" data-act="ob-pick" data-value="' + age + '">Age ' + age + "</button>";
+      });
+      html += "</div>" +
+        '<p class="caption">Scroll, then tap. Today is fine.</p>' +
+        surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "confidence") {
+      html += "<h2>How confident are you making money decisions?</h2>" +
+        '<p class="caption">1 is unsure. 10 is sure.</p>' +
+        surveyScaleHtml(a.confidence) + surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "stress") {
+      html += "<h2>Money stress</h2>" +
+        '<p class="caption">1 is calm. 10 is a lot.</p>' +
+        surveyScaleHtml(a.stress) + surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "best" || screen === "worst") {
+      var best = screen === "best";
+      html += "<h2>" + (best ? "Best purchase" : "Worst purchase") + "</h2>" +
+        '<label class="field">' + (best ? "One you’re glad you made" : "One you wish you hadn’t") +
+        '<textarea name="' + (best ? "obBest" : "obWorst") + '" maxlength="240">' +
+        esc(best ? (a.bestPurchase || "") : (a.worstPurchase || "")) + "</textarea></label>" +
+        '<p class="caption">Optional.</p>' +
+        '<button class="text-btn onboard-skip" type="button" data-act="ob-skip-q">Skip</button>' +
+        surveyActions(back, true);
+    } else if (screen === "wants" || screen === "fears" || screen === "decide") {
+      /* Needs Map, unlabeled. One primary (significance, approval, acceptance) and one secondary (intelligence, pity, strength). */
+      var wantOpts = SURVEY_NEED_OPTS.wants;
+      var fearOpts = SURVEY_NEED_OPTS.fears;
+      var decideOpts = SURVEY_NEED_OPTS.decide;
+      var needScreen = screen === "wants" || screen === "fears";
+      var multiKey = screen === "wants" ? "primaryNeed" : screen === "fears" ? "secondaryNeed" : "decide";
+      var multi = a[multiKey] || (needScreen ? "" : []);
+      var multiTitle = screen === "wants"
+        ? "When money comes up, which question feels most true?"
+        : screen === "fears"
+          ? "Which of these is also true?"
+          : "When you make a money choice, which two questions do you ask?";
+      var multiOpts = screen === "wants" ? wantOpts : screen === "fears" ? fearOpts : decideOpts;
+      var picked = needScreen ? !!multi : multi.length === 2;
+      html += "<h2>" + multiTitle + "</h2>" +
+        '<p class="caption">' + (needScreen ? "Pick one." : "Pick two.") + "</p>" +
+        surveyChoicesHtml(multiOpts, multi, !needScreen) +
+        surveyActions(back, picked);
+    } else if (screen === "target") {
+      html += "<h2>Do you have a target return?</h2>" +
+        surveyChoicesHtml([
+          { id: "no", label: "No" },
+          { id: "yes", label: "Yes" }
+        ], a.targetReturn, false);
+      if (a.targetReturn === "yes") {
+        html += '<label class="field">Percent a year<input name="obTargetPct" type="text" inputmode="decimal" autocomplete="off" value="' +
+          esc(a.targetPercent === "" || a.targetPercent == null ? "" : String(a.targetPercent)) +
+          '" placeholder="Percent"></label>' +
+          '<p class="caption">Only the number you type. Nothing is filled in for you.</p>';
+      }
+      html += surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "compare") {
+      html += "<h2>Compared with last year, do you feel ahead, the same, or behind?</h2>" +
+        surveyChoicesHtml([
+          { id: "ahead", label: "Ahead" },
+          { id: "same", label: "The same" },
+          { id: "behind", label: "Behind" }
+        ], a.compared, false) + surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "privacy") {
+      html += '<div class="onboard-privacy"><p class="onboard-lock" aria-hidden="true">🔒</p>' +
+        "<h2>What testers share</h2>" +
+        '<p class="onboard-sharing">As a Paper Trail tester, you share app data with your tester code to help find bugs and improve Paper Trail. That includes your survey answers and percentages like savings rate, plus dollar amounts and Vault details (document count and types). You can turn off dollar amounts and Vault details in Profile › Data sharing.</p></div>' +
+        '<div class="onboard-actions">' + back +
+        '<button class="primary" type="button" data-act="ob-survey-finish">Sounds good</button></div>';
+    } else {
+      var choiceScreens = surveyChoiceSpecs();
       var spec = choiceScreens[screen];
       if (spec) {
         html += "<h2>" + esc(spec[0]) + "</h2>" +
@@ -11255,6 +11367,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       phone.appendChild(host);
     }
     host.innerHTML = onboardScreenHtml();
+    if (ob.retake) {
+      var inner = host.querySelector(".onboard-inner");
+      if (inner) inner.insertAdjacentHTML("afterbegin", '<button class="text-btn onboard-cancel" type="button" data-act="ob-retake-cancel">Cancel retake</button>');
+    }
     bindMoneyInputs(host);
     wireSurveyInputs(host);
     host.scrollTop = 0;
@@ -11377,6 +11493,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function finishSurveyToBudget() {
     var ob = onboarding();
+    if (ob.retake) { endSurveyRetake(true); return; }
     markWelcomeSeen();
     readOnboardInputs();
     applyOnboardAnswers();
@@ -11578,6 +11695,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (i >= 0 && i < flow.length - 1) ob.screen = flow[i + 1];
       saveState();
       renderOnboarding();
+    } else if (act === "ob-retake-cancel") {
+      endSurveyRetake(false);
     } else if (act === "ob-survey-finish") {
       finishSurveyToBudget();
     } else if (act === "ob-pay") {
@@ -11705,7 +11824,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<p>Erase everything on this device, or clear one month’s spending, from the danger zone at the bottom of Profile. Each asks first. Single transactions are deleted on the Transactions tab.</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="danger"><strong>Go to the danger zone</strong><span class="caption">Erase all data · Clear this month’s spending</span></button>';
     html += '<p class="profile-section">Intro</p>' +
-      '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>';
+      '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>' +
+      '<button class="data-btn" type="button" data-act="view-survey"><strong>View survey results</strong><span class="caption">Your saved answers, question by question</span></button>' +
+      '<button class="data-btn" type="button" data-act="retake-survey"><strong>Retake survey</strong><span class="caption">Pre-filled with your answers · budget, income and net worth stay as they are</span></button>';
     if (ob.status === "active" && ob.hidden) {
       html += '<p class="profile-section">Setup</p>' +
         '<button class="data-btn" type="button" data-act="ob-show"><strong>Show setup checklist</strong><span class="caption">Back on the Budget tab</span></button>';
@@ -11911,7 +12032,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.15";
+  var APP_VERSION = "37.5.59.16";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -13916,7 +14037,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.59.12 (QA M3): hard cap so a 20-digit paste can't become $1.22 or overflow totals. */
   var MONEY_MAX = 9999999.99;
-  /* v37.5.59.15 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
+  /* v37.5.59.16 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
   var MONEY_HINT_HTML = "";
   var moneyCapWarned = false;
 
@@ -14601,6 +14722,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (act === "open-about") { openAbout(); return; }
     if (act === "show-intro") { openIntroSheet(); return; }
+    if (act === "view-survey") { openSurveyResults(); return; }
+    if (act === "retake-survey") { startSurveyRetake(); return; }
     if (act === "about-back") { openProfile(); return; }
     if (act === "about-go") {
       var aboutTo = actEl.getAttribute("data-to");
@@ -15279,7 +15402,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         lineSpendList(month, found.line.id) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
-      /* v37.5.59.15 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
+      /* v37.5.59.16 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
       if (actEl.getAttribute("data-focus") === "assigned") {
         var focusAmount = function () {
           var amt = document.querySelector('#modal input[name="assigned"]');

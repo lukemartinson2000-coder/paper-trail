@@ -2625,7 +2625,7 @@ body.night .refund-amt { color: rgb(196, 160, 212); border-color: rgb(196, 160, 
 .refund-note { margin: 6px 0 4px; }
 .sheet-error { font-weight: 600; margin: 8px 0 0; }
 
-/* Delete at the top of the transaction detail (danger, one confirm; no Undo) */
+/* Delete at the top of the transaction detail (danger, one confirm; no Undo per owner) */
 .sheet button.danger-btn { color: var(--danger); }
 .danger-btn {
   display: block;
@@ -4376,3 +4376,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .sync-toggle input{width:auto;margin:0}
 .sync-line{margin-left:18px;font-size:13px}
 .annual-target-chip{display:inline-block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;border:1px solid currentColor;border-radius:999px;padding:1px 7px}
+/* v37.5.59.16: survey results + retake */
+.survey-list{margin:8px 0 14px}
+.survey-list dt{font-size:13px;opacity:.7;margin-top:10px}
+.survey-list dd{margin:2px 0 0;font-size:16px}
+.onboard-cancel{display:block;margin:0 0 6px auto}
