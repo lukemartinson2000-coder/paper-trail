@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.13. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.14. */
 (function () {
   "use strict";
 
@@ -11555,7 +11555,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.13";
+  var APP_VERSION = "37.5.59.14";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -13464,7 +13464,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       stubNote + fields +
       '<p class="section-label">Tax breakdown</p>' +
       taxParts +
-      '<p class="caption">Blank stays blank. Type whole dollars (2600 = $2,600.00; type “.” for cents). Pay-stub estimates stay live estimates when you Save — only a line you type over becomes yours. If you type a tax sub-line, Taxes = your typed lines + the estimate for the rest (read-only). Bracket picks are reference-only and never change Taxes. Saving writes only ' +
+      '<p class="caption">Blank stays blank. Pay-stub estimates stay live estimates when you Save — only a line you type over becomes yours. If you type a tax sub-line, Taxes = your typed lines + the estimate for the rest (read-only). Bracket picks are reference-only and never change Taxes. Saving writes only ' +
       year + '.</p>' +
       '<input type="hidden" name="year" value="' + year + '">',
       "save-annual-year");
@@ -13542,9 +13542,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.59.12 (QA M3): hard cap so a 20-digit paste can't become $1.22 or overflow totals. */
   var MONEY_MAX = 9999999.99;
-  /* v37.5.59.12: short hint for cash-register entry. */
-  var MONEY_HINT = "Type 1234 for $12.34 · add “.” for whole dollars (12.5 = $12.50)";
-  var MONEY_HINT_HTML = '<span class="caption money-hint">' + MONEY_HINT + "</span>";
+  /* v37.5.59.14 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
+  var MONEY_HINT_HTML = "";
   var moneyCapWarned = false;
 
   function clampMoney(n) {
@@ -13604,12 +13603,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     Array.prototype.forEach.call(root.querySelectorAll("[data-cents], [data-dollars]"), function (el) {
       if (el.dataset.moneyBound === "1") return;
       el.dataset.moneyBound = "1";
-      if (!el.getAttribute("title")) el.setAttribute("title", MONEY_HINT);
       el.setAttribute("placeholder", "$0.00");
-      var hintHost = el.closest && el.closest("label");
-      if (hintHost && !hintHost.querySelector(".money-hint") && !el.readOnly) {
-        hintHost.insertAdjacentHTML("beforeend", MONEY_HINT_HTML);
-      }
       // v37.5.59.12 (QA L4): Enter in a money field submits the sheet form.
       el.addEventListener("keydown", function (event) {
         if (event.key !== "Enter") return;
