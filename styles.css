@@ -2625,7 +2625,7 @@ body.night .refund-amt { color: rgb(196, 160, 212); border-color: rgb(196, 160, 
 .refund-note { margin: 6px 0 4px; }
 .sheet-error { font-weight: 600; margin: 8px 0 0; }
 
-/* Delete at the top of the transaction detail (danger, one confirm; no Undo per owner) */
+/* Delete at the top of the transaction detail (danger, one confirm; no Undo) */
 .sheet button.danger-btn { color: var(--danger); }
 .danger-btn {
   display: block;
