@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.16. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.17. */
 (function () {
   "use strict";
 
@@ -339,7 +339,7 @@
     }
     plan.preTax = ensurePreTax(plan.preTax);
     if (plan.filingStatus !== "married") plan.filingStatus = "single";
-    /* v37.5.59.16: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
+    /* v37.5.59.17: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
     if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = !(Number(plan.employer401kBase) > 0);
     if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = !(Number(plan.employer401kMatch) > 0);
     plan.postTax = (plan.postTax || []).map(function (row) {
@@ -1006,7 +1006,7 @@
   }
 
   function defaultLineNames(envelope) {
-    /* v37.5.59.16: new-user default. Existing users' months are never rewritten. */
+    /* v37.5.59.17: new-user default. Existing users' months are never rewritten. */
     if (envelope === "Giving") return ["Tithes / Charity"];
     return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
   }
@@ -1229,7 +1229,7 @@
     render();
   }
 
-  /* ---- v37.5.59.16: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
+  /* ---- v37.5.59.17: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
   function txsTouchingLine(month, lineId) {
     return (month.transactions || []).filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
@@ -7244,7 +7244,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.3 (owner): actual YTD + projected remaining checks, capped at 2026 IRS limits.
    * Replaces stub × paychecks/year everywhere (brackets, Taxes, average tax, True). Cached per render input. */
   var payStubBasisCache = {};
-  /* ---- v37.5.59.16: Compensation → income statement sync, year-end salary target, line notes ----
+  /* ---- v37.5.59.17: Compensation → income statement sync, year-end salary target, line notes ----
    * Stored on this device only, in state.incomeSync / state.incomeTargets. Tester sharing is an allow-list
    * (buildTesterPayload) that never reads these, so targets and free-text notes are never shared.
    * Sync is an overlay: it never rewrites or deletes what the user typed on the income statement. */
@@ -8551,7 +8551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
 
 
-  /* v37.5.59.16: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
+  /* v37.5.59.17: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
   function worthCurrentYearFilled() {
     var cy = new Date().getFullYear();
     if (state.worth.years.indexOf(cy) < 0) return false;
@@ -10842,16 +10842,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* Profile › About & Privacy › "Replay intro" */
-  function openIntroSheet() {
-    captureModalReturnScreenTop();
-    var html = '<div class="sheet about-sheet intro-sheet">';
-    ["welcome", "welcome2"].forEach(function (k) {
-      var pg = WELCOME_PAGES[k];
-      html += '<h3>' + esc(pg.title) + '</h3><div class="welcome-stats">' + welcomeCardsHtml(pg) + "</div>";
-    });
-    html += '<p class="welcome-note">Surveys show association, not cause.</p>' +
-      '<div class="sheet-actions"><button type="button" data-act="about-back">Back</button>' +
-      '<button class="primary" type="button" data-act="close-modal">Done</button></div></div>';
+  function openIntroSheet(page) {
+    /* v37.5.59.17: the replay is two pages, same as first launch: page 1 = the "worse" stats only, page 2 = the "better" stats only. */
+    page = page === 1 ? 1 : 0;
+    if (page === 0) captureModalReturnScreenTop();
+    var key = page === 0 ? "welcome" : "welcome2";
+    var pg = WELCOME_PAGES[key];
+    var html = '<div class="sheet about-sheet intro-sheet" data-intro-page="' + (page + 1) + '">' +
+      '<h3>' + esc(pg.title) + '</h3><div class="welcome-stats">' + welcomeCardsHtml(pg) + "</div>" +
+      '<p class="welcome-note">Surveys show association, not cause.</p>' +
+      '<div class="welcome-dots" aria-hidden="true"><i class="' + (page === 0 ? "on" : "") + '"></i><i class="' + (page === 1 ? "on" : "") + '"></i></div>' +
+      '<div class="sheet-actions">' +
+      (page === 0
+        ? '<button type="button" data-act="about-back">Back</button><button class="primary" type="button" data-act="intro-next">' + esc(pg.cta) + "</button>"
+        : '<button type="button" data-act="intro-prev">Back</button><button class="primary" type="button" data-act="close-modal">Done</button>') +
+      "</div></div>";
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = html;
@@ -11113,7 +11118,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       };
   }
 
-  /* v37.5.59.16: readable survey results + retake. Answers live in state.onboarding.answers (saved state,
+  /* v37.5.59.17: readable survey results + retake. Answers live in state.onboarding.answers (saved state,
    * backups and export/import). Retake pre-fills them, skips the welcome pages, never touches budget, income
    * or net worth data, and puts the user back where they were. */
   function surveyResultRows() {
@@ -12032,7 +12037,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.16";
+  var APP_VERSION = "37.5.59.17";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14037,7 +14042,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.59.12 (QA M3): hard cap so a 20-digit paste can't become $1.22 or overflow totals. */
   var MONEY_MAX = 9999999.99;
-  /* v37.5.59.16 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
+  /* v37.5.59.17 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
   var MONEY_HINT_HTML = "";
   var moneyCapWarned = false;
 
@@ -14721,7 +14726,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (act === "open-about") { openAbout(); return; }
-    if (act === "show-intro") { openIntroSheet(); return; }
+    if (act === "show-intro") { openIntroSheet(0); return; }
+    if (act === "intro-next") { openIntroSheet(1); return; }
+    if (act === "intro-prev") { openIntroSheet(0); return; }
     if (act === "view-survey") { openSurveyResults(); return; }
     if (act === "retake-survey") { startSurveyRetake(); return; }
     if (act === "about-back") { openProfile(); return; }
@@ -15402,7 +15409,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         lineSpendList(month, found.line.id) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
-      /* v37.5.59.16 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
+      /* v37.5.59.17 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
       if (actEl.getAttribute("data-focus") === "assigned") {
         var focusAmount = function () {
           var amt = document.querySelector('#modal input[name="assigned"]');
