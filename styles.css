@@ -4398,7 +4398,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .ed-summary { max-height: 80vh; overflow-y: auto; }
 
 /* v37.5.59.21: By-year tiles sit under the Details title; kept in flow (not sticky) so the page stays tidy. */
-.worth-details-nav + .year-slider-bar { position: static; top: auto; border-bottom: 0; box-shadow: none; margin: 0 0 8px; padding: 4px 0 2px; }
+.stmt-hero-center + .year-slider-bar { position: static; top: auto; border-bottom: 0; box-shadow: none; margin: 0 0 8px; padding: 4px 0 2px; }
 
 /* v37.5.59.20: amounts beside envelope lines — UI sans, tabular numerals (beats the generic button font rule). */
 button.line-assigned-btn, .envelope-line button.line-assigned-btn {
@@ -4427,3 +4427,6 @@ button.line-assigned-btn, .envelope-line button.line-assigned-btn {
 .stub-how summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 body.night .stub-row.is-flag .stub-name { color: var(--rose, #e0a0b4); }
 body.night .stub-head { border-bottom-color: var(--muted); }
+
+/* v37.5.59.22: bottom sheets leave the tab bar uncovered (tap a tab = clear the screen). Full-screen Wrapped keeps covering. */
+.modal:not(.wrap-open) { bottom: var(--tabbar-h, 0px); }

@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.21. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.22. */
 (function () {
   "use strict";
 
@@ -3924,6 +3924,12 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
+    /* v37.5.59.22: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    (function () {
+      var bar = document.getElementById("tab-bar");
+      var h = bar ? bar.offsetHeight : 0;
+      if (h > 0) document.documentElement.style.setProperty("--tabbar-h", h + "px");
+    })();
   }
 
   function isPremium() {
@@ -8388,19 +8394,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
+    /* v37.5.59.22: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+     * sits just below it, above Details. */
+    var yearLine = '<p class="stmt-year stmt-year-quiet">' + worthAddPriorButton() + year + "</p>";
     var html = '<div class="stmt-pass">' + shell +
-      '<p class="stmt-year stmt-year-quiet">' + worthAddPriorButton() + year + "</p>" +
       '<div class="sheet-table stmt-sheet">' +
       statementRowHtml("Net worth", current.equity, { total: true, underlined: true, whole: true });
     if (!worthHasData()) {
-      html += "</div>" +
+      html += "</div>" + yearLine +
         '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p>' +
         "<p>List what you own and what you owe. Charts and year-over-year change appear under Details once there’s a balance.</p>" +
         '<button class="text-btn" type="button" data-act="worth-details">Start my statement</button></section></div>';
       return html;
     }
     /* v37.5.31: Details sits under the hero, before the account list — one control, not the footer. */
-    html += "</div>" +
+    html += "</div>" + yearLine +
       '<div class="stmt-foot stmt-details-high">' +
       '<button class="text-btn" type="button" data-act="worth-details">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Line edits, tax triangle, and year-over-year live under Details.</p>' +
@@ -8608,8 +8616,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
       "<h2>Details</h2>" +
       '<button class="text-btn" type="button" data-act="add-year">Add year</button></div>' +
-      /* v37.5.59.21: By-year tiles (+ prior year) sit directly under the Details title. */
-      renderWorthYearSlider(years) +
       (state.tab === "stats"
         ? ""
         : (years.length
@@ -8618,7 +8624,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<header class="stmt-header stmt-hero-center">' +
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
-      '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>";
+      '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
+      /* v37.5.59.22: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
     } else {
@@ -12162,7 +12170,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.21";
+  var APP_VERSION = "37.5.59.22";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14671,8 +14679,32 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
+  /* v37.5.59.22: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+   * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
+  function clearToTabHome() {
+    try { closeModal(); } catch (err) {}
+    try { tourClose(); } catch (err) {}
+    pendingScreenUi = null;
+    modalReturnScreenTop = null;
+    modalReturnAnchor = null;
+    spendSearch = "";
+    spendShowLimit = TX_PAGE;
+    spendDraft = null;
+    quickSpendLineId = "";
+    envelopeEditMode = false;
+    vaultPickMode = false;
+    wrapSlideIndex = 0;
+    state.vaultDocId = "";
+    state.insightsDoor = "";
+    state.gradeSheet = "";
+    state.worthDetails = false;
+    state.statementDetails = false;
+    lastPaintKey = "";
+  }
+
   function onTab(tab) {
     if (tab === "income") tab = "budget";
+    clearToTabHome();
     if (tab === "worth") {
       state.tab = "stats";
       state.statsDoor = "worth";
