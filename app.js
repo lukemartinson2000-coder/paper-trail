@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.20. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.21. */
 (function () {
   "use strict";
 
@@ -3388,7 +3388,7 @@
       if (parsed.profile.birthday && !parsed.foo.birthday) parsed.foo.birthday = parsed.profile.birthday;
       parsed.compensation.filingStatus = parsed.profile.filingStatus;
       parsed.compensation.paychecksPerYear = checksForFrequency(parsed.profile.payFrequency);
-      if (parsed.insightsDoor !== "foo") parsed.insightsDoor = "";
+      parsed.insightsDoor = "";
       parsed.gradeSheet = "";
       if (parsed.worthScrubYear == null) parsed.worthScrubYear = parsed.worthYear || null;
       if (parsed.incomeYearsExpanded == null) parsed.incomeYearsExpanded = false;
@@ -4108,15 +4108,9 @@
     return html;
   }
 
+  /* v37.5.59.21: the Financial-order-of-operations strip is retired from Budget (grade-math and saved data stay). */
   function fooBudgetStripHtml(month) {
-    if (!window.GradeMath) return "";
-    var grade = window.GradeMath.evaluate(buildGradeInput(month));
-    var step = grade.foo.currentStep;
-    var name = window.GradeMath.fooNames[step] || "";
-    return '<button class="foo-strip" type="button" data-act="foo-explain" data-step="' + step + '">' +
-      "<span>Step " + step + " · " + esc(name) + "</span>" +
-      '<span class="caption">Why</span></button>' +
-      merchantHintHtml();
+    return merchantHintHtml();
   }
 
   function modeToggleHtml() {
@@ -5102,7 +5096,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       esc(grade.band.range) + "</div></div></div>" +
       "<p>" + esc(grade.diagnosis) + "</p>";
     grade.sections.forEach(function (section) { html += renderGradeBar(section); });
-    html += '<p class="caption">Tap a bar for that section only. The order of operations isn’t this number.</p></section>';
+    html += '<p class="caption">Tap a bar for that section only.</p></section>';
     return html;
   }
 
@@ -5111,12 +5105,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<section class="card insight-card">' +
       '<p class="kicker">What to do next</p>' +
       "<h3>" + esc(grade.nextAction.title) + "</h3>" +
-      "<p>" + esc(grade.nextAction.why) + "</p>" +
-      '<p class="caption">Step ' + grade.foo.currentStep + " · " +
-      esc(GM.fooNames[grade.foo.currentStep] || "") + "</p></section>";
+      "<p>" + esc(grade.nextAction.why) + "</p></section>";
   }
 
+  /* v37.5.59.21: FOO card retired from Insights; body kept below for reference, never rendered. */
   function fooRailHtml(grade, month) {
+    if (true) return "";
     var html = '<section class="card foo-rail">';
     html += '<p class="kicker" title="Often shortened to FOO">Financial order of operations</p><div class="foo-dots">';
     grade.foo.steps.forEach(function (step) {
@@ -5176,6 +5170,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function fooBasicsHtml(grade) {
+    if (true) return "";
     var current = grade.foo.steps.filter(function (s) { return s.status === "current"; })[0];
     return '<section class="card foo-rail">' +
       '<p class="kicker" title="Often shortened to FOO">Financial order of operations</p>' +
@@ -5918,7 +5913,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     });
     var grade = window.GradeMath.evaluate(buildGradeInput(month));
-    var done = grade.foo.steps.filter(function (step) { return step.status === "done" && !(step.number === 1 && !fooStep1Shown()); }).length;
+    var done = !(grade.foo && grade.foo.steps) ? 0 : grade.foo.steps.filter(function (step) { return step.status === "done" && !(step.number === 1 && !fooStep1Shown()); }).length;
     var priorAnchor = cadence === "year"
       ? { year: month.year - 1, month: month.month }
       : offsetMonth(month.year, month.month, cadence === "quarter" ? -3 : -1);
@@ -6017,8 +6012,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       biggestDate: biggest ? biggest.date : "",
       biggestDayDate: biggestDayDate,
       biggestDayAmount: biggestDayAmount,
-      fooStep: grade.foo.currentStep,
-      fooName: window.GradeMath.fooNames[grade.foo.currentStep] || "",
+      fooStep: grade.foo ? grade.foo.currentStep : 0,
+      fooName: grade.foo && window.GradeMath.fooNames ? (window.GradeMath.fooNames[grade.foo.currentStep] || "") : "",
       fooDone: done,
       cleanFoo: true,
       gradeScore: booksEmpty() ? null : grade.score,
@@ -6178,7 +6173,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     migrateCompensation(state.compensation);
     state.foo = migrateFoo(state.foo);
     state.matters = migrateMatters(state.matters);
-    if (state.insightsDoor === "foo") return renderFullFoo(month);
+    if (state.insightsDoor === "foo") state.insightsDoor = ""; // v37.5.59.21: full order-of-operations screen retired
     return renderGradeLanding(month);
   }
 
@@ -8522,6 +8517,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function nwFooBadge(line, year, amount) {
+    if (true) return ""; // v37.5.59.21: FOO prompts retired
     if (!line || line.kind !== "liability") return "";
     if (!(amount > 0) && !((Number(line.loanBalance) || 0) > 0)) return "";
     var GM = window.GradeMath;
@@ -8612,6 +8608,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
       "<h2>Details</h2>" +
       '<button class="text-btn" type="button" data-act="add-year">Add year</button></div>' +
+      /* v37.5.59.21: By-year tiles (+ prior year) sit directly under the Details title. */
+      renderWorthYearSlider(years) +
       (state.tab === "stats"
         ? ""
         : (years.length
@@ -8743,8 +8741,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add loan</button>' +
       '<p class="caption quiet">Adds a liability you can name and give a balance. Budget loan balances land here too — payment and balance stay separate.</p></div>';
     html += '<p class="empty">Add year copies every line item into a new empty column (amounts start at $0). Annual return is (ending − prior − net additions) / prior. IRR treats each year’s net additions as outflows, then this year’s ending value as a separate final inflow.</p>';
-    /* v37.5.59.20: the By-year tiles (with the prior-year +) sit last, after every account group. */
-    html += renderWorthYearSlider(years);
     return html;
   }
 
@@ -10224,6 +10220,131 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return rows + '<button class="planner-apply" type="button" data-act="add-post-tax">Add another</button>';
   }
 
+  /* v37.5.59.21: "From your pay stub" — how the confirmed stub(s) were read and how that fills Compensation.
+   * Reads only what's already in the app (confirmed stubs in Vault, payStubYearBasis). Shown only when a stub exists. */
+  function payStubDetailHtml(plan) {
+    var G = gm();
+    var stubs = confirmedPayStubs();
+    if (!stubs.length || !G.payStubCheckFigures) return "";
+    var latest = stubs[stubs.length - 1];
+    var fig = G.payStubCheckFigures(latest);
+    var ytdFig = G.payStubYtdFigures ? G.payStubYtdFigures(latest) : null;
+    var y = (latest.ytd && typeof latest.ytd === "object") ? latest.ytd : null;
+    var year = latest.payDate ? Number(String(latest.payDate).slice(0, 4)) : currentYearMonth().year;
+    var basis = payStubBasisFor(year);
+    var checks = Number(plan.paychecksPerYear) || 26;
+    function has(v) { return v != null && v !== "" && isFinite(Number(v)); }
+    function m(v) { return has(v) ? money(Number(v)) : "—"; }
+    function row(label, cur, ytd, tag, flag) {
+      if (!has(cur) && !has(ytd)) return "";
+      return '<div class="stub-row' + (flag ? " is-flag" : "") + '"><span class="stub-name">' + esc(label) +
+        (tag ? '<span class="caption">' + esc(tag) + "</span>" : "") + '</span><span class="mono">' + m(cur) +
+        '</span><span class="mono">' + m(ytd) + "</span></div>";
+    }
+    function sub(title) { return '<p class="stub-sub">' + esc(title) + "</p>"; }
+    var h = '<p class="sheet-label">From your pay stub</p>';
+    var dates = stubs.map(function (s) { return usDate(s.payDate); }).join(" · ");
+    h += '<p class="caption">Read from ' + stubs.length + " confirmed pay stub" + (stubs.length === 1 ? "" : "s") + " (pay date" +
+      (stubs.length === 1 ? "" : "s") + ": " + esc(dates) + "). Latest: " + esc(usDate(latest.payDate)) +
+      (latest.payPeriodStart && latest.payPeriodEnd ? ", period " + esc(usDate(latest.payPeriodStart)) + " → " + esc(usDate(latest.payPeriodEnd)) : "") +
+      (latest.employer ? ", " + esc(latest.employer) : "") + ".</p>";
+    h += '<div class="stub-table"><div class="stub-row stub-head"><span>Per check, latest stub</span><span>This check</span><span>Year to date</span></div>';
+    if (!y) h += '<p class="caption stub-note">This stub has no year-to-date column, so YTD shows —.</p>';
+    // earnings
+    h += sub("Earnings");
+    h += row("Gross pay", latest.gross, y && y.gross, "");
+    (latest.earningsLines || []).forEach(function (l) {
+      if (!l) return;
+      var k = G.earningsKind ? G.earningsKind(l) : "base";
+      var tag = k === "bonus" ? "bonus" : k === "variable" ? "variable pay" : k === "imputed" ? "non-cash, taxable" : "";
+      if (!(Number(l.amount) > 0) && !(Number(l.ytd) > 0)) return;
+      h += row(l.name || "Earnings", l.amount, l.ytd, tag, k === "imputed");
+    });
+    var imputed = has(latest.earnings) ? Math.round((Number(latest.earnings) - Number(latest.gross || 0)) * 100) / 100 : 0;
+    if (imputed > 0.005) {
+      h += row("Non-cash taxable earnings", imputed, y && has(y.earnings) && has(y.gross) ? Math.round((y.earnings - y.gross) * 100) / 100 : null,
+        "in Earnings, not in gross pay — taxable but not paid to you", true);
+    }
+    if (has(latest.earnings)) h += row("Total earnings", latest.earnings, y && y.earnings, "");
+    // pre-tax
+    h += sub("Pre-tax deductions");
+    h += row("401k (yours)", latest.employee401k, y && y.employee401k, "");
+    h += row("HSA", latest.hsa, y && y.hsa, "");
+    h += row("FSA", latest.fsa, y && y.fsa, "");
+    (latest.otherDeductions || []).forEach(function (d) {
+      if (d && d.preTax === true) h += row(d.name || "Other", d.amount, d.ytd, "pre-tax");
+    });
+    // taxes
+    h += sub("Taxes");
+    h += row("Federal income tax", latest.federalTax, y && y.federalTax, "");
+    h += row("State income tax", latest.stateTax, y && y.stateTax, "");
+    h += row("Social Security", latest.socialSecurity, y && y.socialSecurity, "");
+    h += row("Medicare", latest.medicare, y && y.medicare, "");
+    h += row("FICA", latest.fica, y && y.fica, "");
+    (latest.otherTaxes || []).forEach(function (t) { if (t) h += row(t.name || "Other tax", t.amount, t.ytd, "tax"); });
+    // after-tax / unmarked
+    var post = (latest.otherDeductions || []).filter(function (d) { return d && d.preTax !== true; });
+    if (post.length) {
+      h += sub("After-tax and other deductions");
+      post.forEach(function (d) {
+        h += row(d.name || "Other", d.amount, d.ytd, d.preTax === false ? "after-tax" : "not marked pre-tax — not counted", d.preTax == null);
+      });
+    }
+    h += sub("Net pay");
+    h += row("Net pay (take-home)", latest.net, y && y.net, "");
+    if (has(latest.employer401k) || has(latest.employer401kBase)) {
+      h += sub("Employer paid (not pay)");
+      h += row("Employer 401k match", latest.employer401k, y && y.employer401k, "");
+      h += row("Employer 401k base", latest.employer401kBase, y && y.employer401kBase, "employer money into your 401k");
+    }
+    h += "</div>";
+    // mapping into Compensation fields
+    h += '<p class="sheet-label">How the stub fills Compensation · per year</p><div class="stub-table">';
+    function map(label, perYear, how) {
+      if (!has(perYear) || !(Number(perYear) > 0)) return "";
+      return '<div class="stub-map"><div class="stub-map-top"><span>' + esc(label) + '</span><span class="mono">' + money(Number(perYear)) +
+        " / yr</span></div>" + '<p class="caption">' + esc(how) + "</p></div>";
+    }
+    var useY = basis && basis.hasYtd;
+    var yr = basis ? basis.total : null;
+    h += map("Base salary", useY && yr ? yr.gross : (Number(latest.gross) || 0) * checks, useY && yr
+      ? "Year gross: pay-stub YTD through " + usDate(basis.anchorDate) + " + checks since + projected checks (" + checks + " paychecks a year). Gross " + money(Number(latest.gross) || 0) + " per check."
+      : "Gross " + money(Number(latest.gross) || 0) + " per check × " + checks + " paychecks a year (no YTD column to anchor on).");
+    h += map("401k (yours)", basis ? basis.pretax.e401 : plan.employee401kValue, "Per check " + money(fig.e401) + (useY ? " → year total from YTD plus remaining checks" : " × " + checks + " checks") +
+      (basis && basis.capped && basis.capped.e401 > 0 ? "; stopped at the IRS deferral limit" : "") + ".");
+    h += map("HSA", basis ? basis.pretax.hsa : plan.hsaDeferral, "Per check " + money(fig.hsa) + " → " + (useY ? "year total from YTD plus remaining checks" : "× " + checks + " checks") +
+      (basis && basis.capped && basis.capped.hsa > 0 ? "; stopped at the IRS HSA limit" : "") + ".");
+    if (basis && basis.pretax.fsa > 0) h += map("FSA", basis.pretax.fsa, "Per check " + money(fig.fsa) + " → yearly total (capped at the FSA limit).");
+    if (basis && basis.pretax.otherPre > 0) h += map("Other pre-tax (medical, dental, etc.)", basis.pretax.otherPre,
+      "Lines marked pre-tax on the stub: " + (latest.otherDeductions || []).filter(function (d) { return d && d.preTax === true; }).map(function (d) { return d.name; }).join(", ") + ".");
+    h += map("Employer 401k match", useY && yr ? yr.er401 : fig.er401 * checks, "Per check " + money(fig.er401) + " → yearly total.");
+    h += map("Employer 401k base", useY && yr ? yr.er401Base : fig.er401Base * checks, "Per check " + money(fig.er401Base) + " → yearly total. Employer money, not pay.");
+    h += "</div>";
+    // flagged
+    var flags = [];
+    if (imputed > 0.005) flags.push("Non-cash taxable item of " + money(imputed) + " on the " + usDate(latest.payDate) + " stub (Earnings " + money(Number(latest.earnings)) + " vs gross pay " + money(Number(latest.gross) || 0) + "). It is taxable but not paid in cash" +
+      (basis && basis.notes && basis.notes.indexOf("one-off-imputed") >= 0 ? "; counted once, on that check, not on every remaining check." : "."));
+    if (fig.unflagged && fig.unflagged.length) flags.push("Not marked pre-tax on the stub, so not counted: " + fig.unflagged.join(", ") + ".");
+    if (!y && !(basis && basis.hasYtd)) flags.push("No year-to-date column found; earlier 2026 checks are not counted until a stub with YTD is confirmed.");
+    else if (!y && basis && basis.anchorDate) flags.push("The " + usDate(latest.payDate) + " stub has no year-to-date column. Year-to-date totals come from the " + usDate(basis.anchorDate) + " stub, then this check and projected checks are added.");
+    if (basis && basis.capped) {
+      if (basis.capped.hsa > 0) flags.push("HSA is limited to the yearly IRS maximum.");
+      if (basis.capped.e401 > 0) flags.push("401k is limited to the yearly IRS deferral maximum.");
+    }
+    if (flags.length) {
+      h += sub("Flagged");
+      h += '<ul class="stub-flags">' + flags.map(function (f) { return "<li>" + esc(f) + "</li>"; }).join("") + "</ul>";
+    }
+    if (basis && basis.long) h += '<details class="stub-how"><summary>How the year was built</summary><p class="caption">' + esc(basis.long) + "</p></details>";
+    // link to the stub card in Vault
+    var doc = ((state.profile && state.profile.documents) || []).filter(function (d) {
+      return d && d.payStubConfirmed && d.payStubPending && String(d.payStubPending.payDate || "") === String(latest.payDate || "");
+    })[0];
+    if (doc) h += '<button class="text-btn" type="button" data-act="comp-stub-open" data-id="' + esc(doc.id) + '">View this pay stub in Vault</button>';
+    h += '<p class="caption">Per check = the latest stub. Year to date = the stub’s own YTD column. Per year = what fills the fields below.</p>';
+    return h;
+  }
+
   function incomeStatementSheetHtml(plan) {
     plan = migrateCompensation(plan);
     var est = estimateCompensation(plan);
@@ -10245,6 +10366,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
         : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + "</p>" +
       '<div id="comp-estimates">' + compensationEstimateHtml(est) + "</div>" +
+      payStubDetailHtml(plan) +
       (stubMode
         ? '<details class="comp-whatif" id="comp-whatif"' + (compWhatIfOpen ? " open" : "") + '><summary class="sheet-label">What-if from typed compensation</summary>' +
           '<div id="comp-whatif-est">' + compWhatIfHtml(est, true) + "</div>"
@@ -12040,7 +12162,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.20";
+  var APP_VERSION = "37.5.59.21";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14873,6 +14995,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       vaultPickMode = false;
       saveState();
       render();
+    } else if (act === "comp-stub-open") {
+      closeModal();
+      state.statsDoor = "vault";
+      state.vaultDocId = actEl.getAttribute("data-id") || "";
+      state.tab = "stats";
+      saveState();
+      render();
     } else if (act === "vault-open") {
       state.statsDoor = "vault";
       state.vaultDocId = actEl.getAttribute("data-id") || "";
@@ -15045,9 +15174,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       wrapSlideIndex = Math.max(0, wrapSlideIndex - 1);
       renderWrapped(month);
     } else if (act === "open-full-foo") {
-      state.insightsDoor = "foo";
-      saveState();
-      render();
+      /* v37.5.59.21: retired */
     } else if (act === "insights-back") {
       state.insightsDoor = "";
       saveState();
@@ -15057,7 +15184,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "foo-explain") {
       event.preventDefault();
       event.stopPropagation();
-      openFooExplainer(Number(actEl.getAttribute("data-step")));
     } else if (act === "foo3-callout") {
       var callId = actEl.getAttribute("data-id") || "";
       var callSource = actEl.getAttribute("data-source") || "";

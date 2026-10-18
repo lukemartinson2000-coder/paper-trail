@@ -4397,8 +4397,9 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .ed-summary .row .mono { font-size: 12px; }
 .ed-summary { max-height: 80vh; overflow-y: auto; }
 
-/* v37.5.59.20: Net Worth By-year tiles now sit last — no longer a sticky header. */
-.year-slider-bar { position: static; border-bottom: 0; border-top: 1px solid var(--rule); box-shadow: none; margin: 16px 0 8px; padding: 12px 0 6px; top: auto; }
+/* v37.5.59.21: By-year tiles sit under the Details title; kept in flow (not sticky) so the page stays tidy. */
+.worth-details-nav + .year-slider-bar { position: static; top: auto; border-bottom: 0; box-shadow: none; margin: 0 0 8px; padding: 4px 0 2px; }
+
 /* v37.5.59.20: amounts beside envelope lines — UI sans, tabular numerals (beats the generic button font rule). */
 button.line-assigned-btn, .envelope-line button.line-assigned-btn {
   font-family: var(--ui);
@@ -4407,3 +4408,22 @@ button.line-assigned-btn, .envelope-line button.line-assigned-btn {
   font-size: 15px;
   font-weight: 500;
 }
+
+/* v37.5.59.21: Compensation › From your pay stub */
+.stub-table { margin: 0 0 8px; }
+.stub-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--rule); font-family: var(--ui); font-size: 14px; }
+.stub-row .mono { text-align: right; font-family: var(--ui); font-variant-numeric: tabular-nums; font-size: 13px; }
+.stub-row .caption { display: block; margin: 1px 0 0; font-size: 11px; }
+.stub-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--ink); }
+.stub-head span:nth-child(n+2) { text-align: right; }
+.stub-sub { margin: 12px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stub-row.is-flag .stub-name { color: var(--berry); }
+.stub-note { margin: 4px 0; }
+.stub-map { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.stub-map-top { display: flex; justify-content: space-between; gap: 8px; font-family: var(--ui); font-size: 14px; }
+.stub-map .caption { margin: 2px 0 0; }
+.stub-flags { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; line-height: 1.4; }
+.stub-how { margin: 6px 0; }
+.stub-how summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+body.night .stub-row.is-flag .stub-name { color: var(--rose, #e0a0b4); }
+body.night .stub-head { border-bottom-color: var(--muted); }
