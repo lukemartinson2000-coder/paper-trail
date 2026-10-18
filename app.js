@@ -9369,7 +9369,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return limit ? list.slice(0, limit) : list;
   }
 
-  /* v37.5.59.6 (QA): lead with the real payer from history ("Ampf Salary, …"), not a generic "Employer". */
+  /* v37.5.59.6 (QA): lead with the real payer from history ("Acme Salary, …"), not a generic "Employer". */
   function incomePayeePlaceholder() {
     var top = suggestedPayees(true, 2).map(function (it) { return it.payee; }).filter(Boolean);
     return top.length ? "e.g. " + top.join(", ") + ", …" : "Employer, client, …";
