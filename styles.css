@@ -4503,3 +4503,5 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .est-history{margin:6px 0;font-size:14px}.est-hist .est-row{grid-template-columns:.8fr 1.4fr 1fr}.est-hist .est-row .mono{font-size:12px}
 
 .est-ret .est-row{grid-template-columns:1.4fr 1fr}.est-ret .est-row .mono{font-size:13px}
+.row .mono .caption{display:inline;margin-left:6px}
+.profile-data-note,.stmt-pass > p.caption.quiet{padding:0 2px}
