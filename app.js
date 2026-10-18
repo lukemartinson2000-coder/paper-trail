@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.28. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.29. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.28: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.29: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -4032,6 +4032,7 @@
       demoBannerHtml() +
       onboardChecklistHtml() +
       setupNudgeHtml() +
+      backupNudgeHtml() +
       fooBudgetStripHtml(month) +
       '<p class="section-label">Income · take-home paychecks</p>' +
       '<p class="caption income-basis">What lands in your account after tax. Gross pay lives on your Income statement.</p>';
@@ -8120,6 +8121,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += "</div>" + renderYearTiles("income", years, highlight) +
       '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Type your pay, add pay stubs, deductions and taxes.</p>' +
+      payFreqMismatchHtml() +
       '<label class="field annual-filing">Filing status' +
       '<select data-act="annual-filing">' +
       '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
@@ -8395,7 +8397,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.28: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.29: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8590,7 +8592,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.28: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.29: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8670,7 +8672,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.28: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.29: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10398,7 +10400,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.28: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.29: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -10409,16 +10411,193 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           '<p class="caption">' + stubs.length + " confirmed · latest " + esc(usDate(latest.payDate)) + "</p>"
         : '<p class="caption">No pay stub yet. Import one and your taxes and deductions fill in.</p>') +
       '<button class="planner-apply" type="button" data-act="open-vault-paystubs">' + (latest ? "Add another" : "Add pay stub") + "</button></div>";
+    var stt = plan.stated || {};
+    function srcTag(id) { return (stt[id] && stt[id].mode === "manual") ? "Manual" : "Stub"; }
     var typedCard = '<div class="pay-card"><p class="pay-card-title">Type your pay</p>' +
-      '<label class="pay-field">Base salary / yr' +
-      '<input name="baseSalary" class="cents-input" data-dollars="1" data-act="comp-field" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(plan.baseSalary)) + '"></label>' +
-      '<label class="pay-field">Bonus target %' +
-      '<input name="bonusTargetPercent" data-act="comp-field" inputmode="decimal" type="text" value="' + esc(plan.bonusTargetPercent || 0) + '"></label>' +
+      '<p class="caption">Base salary / yr · <strong>' + srcTag("salary") + '</strong></p><p class="pay-card-fig mono">' + esc(money(plan.baseSalary)) + '</p>' +
+      '<p class="caption">Bonus target · <strong>' + srcTag("bonus") + '</strong> ' + esc(String(plan.bonusTargetPercent || 0)) + '%</p>' +
+      '<button class="planner-apply" type="button" data-act="sd-jump">Type or override</button>' +
       '<button class="text-btn pay-year-link" type="button" data-act="edit-annual-year" data-year="' + year + '">Type ' + year + ' income lines</button></div>';
     return '<div class="pay-cards">' + typedCard + stubCard + "</div>" +
       '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
   }
+
+  /* v37.5.59.29: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
+   * Manual values are cents-first (percent lines type hundredths of a percent) and drive the plan fields
+   * (and the full-year salary projection for Salary). Switching back to Stub keeps v stored and restores the prior plan value. */
+  var STATED_LINES = [
+    { id: "salary", label: "Salary", unit: "$" },
+    { id: "bonus", label: "Bonus target", unit: "%" },
+    { id: "k401", label: "401k employee", unit: "%" },
+    { id: "match", label: "Employer match", unit: "%" },
+    { id: "base", label: "Employer base", unit: "%" },
+    { id: "hsa", label: "HSA", unit: "$" }
+  ];
+
+  function statedStubValue(id) {
+    var f = compStubFigures();
+    if (!f) return null;
+    var inc = (f.metrics && f.metrics.income) || {};
+    var pay = Number(inc.salary) || f.gross || 0;
+    function pct(n) { return pay > 0 && n != null ? Math.round(Number(n) / pay * 10000) / 100 : null; }
+    if (id === "salary") return pay > 0 ? Math.round(pay) : null;
+    if (id === "bonus") return Number(inc.bonus) > 0 ? pct(inc.bonus) : null;
+    if (id === "k401") return f.employee401k ? pct(f.employee401k) : null;
+    if (id === "match") return f.employerMatch ? pct(f.employerMatch) : null;
+    if (id === "base") return f.employerBase ? pct(f.employerBase) : null;
+    if (id === "hsa") return f.hsa ? Math.round(f.hsa) : null;
+    return null;
+  }
+
+  function statedPlanRead(plan, id) {
+    var k401 = (plan.preTax || []).filter(function (r) { return r.id === "401k"; })[0];
+    if (id === "salary") return { salary: plan.baseSalary, target: incomeTargetFor(currentYearMonth().year).salaryTarget };
+    if (id === "bonus") return plan.bonusTargetPercent;
+    if (id === "k401") return k401 ? { v: k401.value, m: k401.method } : null;
+    if (id === "match") return { v: plan.employer401kMatch, p: plan.employer401kMatchIsPercent };
+    if (id === "base") return { v: plan.employer401kBase, p: plan.employer401kBaseIsPercent };
+    if (id === "hsa") return plan.hsaDeferral;
+    return null;
+  }
+
+  function statedPlanWrite(plan, id, val) { /* val: number, or snapshot from statedPlanRead to restore */
+    var k401 = (plan.preTax || []).filter(function (r) { return r.id === "401k"; })[0];
+    var hsa = (plan.preTax || []).filter(function (r) { return r.id === "hsa"; })[0];
+    var snap = val && typeof val === "object" ? val : null;
+    var yr = currentYearMonth().year;
+    if (id === "salary") {
+      plan.baseSalary = snap ? snap.salary : val;
+      writeIncomeTarget(yr, snap ? snap.target : val, incomeTargetFor(yr).notes);
+      payStubBasisCache = {};
+    } else if (id === "bonus") plan.bonusTargetPercent = snap ? snap : val;
+    else if (id === "k401" && k401) {
+      k401.method = snap ? snap.m : "percentGross"; k401.value = snap ? snap.v : val;
+      plan.employee401kValue = k401.value; plan.employee401kIsPercent = k401.method !== "fixed";
+    } else if (id === "match") { plan.employer401kMatchIsPercent = snap ? snap.p : true; plan.employer401kMatch = snap ? snap.v : val; }
+    else if (id === "base") { plan.employer401kBaseIsPercent = snap ? snap.p : true; plan.employer401kBase = snap ? snap.v : val; }
+    else if (id === "hsa") { plan.hsaDeferral = snap ? snap : val; if (hsa) { hsa.method = "fixed"; hsa.value = snap ? snap : val; } }
+  }
+
+  function statedFmt(unit, v) {
+    return v == null ? "—" : (unit === "$" ? money(v) : (Math.round(v * 100) / 100).toFixed(2) + "%");
+  }
+
+  function statedDetailsHtml(plan) {
+    var hasStub = !!compStubFigures();
+    var html = '<p class="sheet-label" id="sd-lines">Income lines · Stub or Manual</p>' +
+      '<p class="caption">Each line follows your pay stub unless you switch it to Manual. A Manual value is the one projections use. It stays saved if you switch back.</p>';
+    STATED_LINES.forEach(function (ln) {
+      var st = (plan.stated && plan.stated[ln.id]) || {};
+      var manual = st.mode === "manual";
+      var stub = statedStubValue(ln.id);
+      html += '<div class="sd-line' + (manual ? " is-manual" : "") + '"><div class="sd-top"><span class="sd-name">' + ln.label + "</span>" +
+        (manual ? '<span class="sd-tag is-manual">Manual</span>' : "") +
+        '<div class="sd-seg" role="group" aria-label="' + ln.label + ' source">' +
+        '<button type="button" class="' + (manual ? "" : "on") + '" data-sd="mode-stub" data-line="' + ln.id + '" aria-pressed="' + (manual ? "false" : "true") + '">Stub</button>' +
+        '<button type="button" class="' + (manual ? "on" : "") + '" data-sd="mode-manual" data-line="' + ln.id + '" aria-pressed="' + (manual ? "true" : "false") + '">Manual</button></div></div>';
+      if (!manual) {
+        if (stub != null) html += '<p class="sd-stubval"><span class="mono">' + esc(statedFmt(ln.unit, stub)) + '</span> <span class="caption">from your pay stub</span></p>';
+        else html += '<p class="sd-nostub">' + (hasStub ? "No stub data, " : "No pay stub yet, ") + '<button type="button" class="link-btn" data-sd="mode-manual" data-line="' + ln.id + '">switch to Manual</button></p>';
+        if (st.v != null) html += '<p class="caption quiet">Your saved Manual value: ' + esc(statedFmt(ln.unit, Number(st.v))) + "</p>";
+      } else {
+        var shown = st.v == null ? "" : (ln.unit === "$" ? money(Number(st.v)) : Number(st.v).toFixed(2) + "%");
+        html += (ln.unit === "$"
+          ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
+          : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
+          '<p class="sd-stub">Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
+          (stub != null ? ' · <button type="button" class="link-btn" data-sd="mode-stub" data-line="' + ln.id + '">use stub</button>' : "") + "</p>" +
+          '<input class="sd-note" data-sd="note" data-line="' + ln.id + '" type="text" maxlength="200" placeholder="Note (optional)" value="' + esc(st.note || "") + '" aria-label="' + ln.label + ' note">';
+      }
+      html += "</div>";
+    });
+    return html;
+  }
+
+  function planTermsHtml(plan) {
+    var t = plan.terms || {};
+    function f(key, label, val) {
+      var shown = val == null || val === "" ? "" : Number(val).toFixed(2) + "%";
+      return '<label class="sd-term">' + label + '<input data-sd="term" data-pctc="1" data-key="' + key + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '"></label>';
+    }
+    function p(v) { return v == null || v === "" ? "" : String(Math.round(Number(v) * 100) / 100); }
+    var sentence = (t.matchPct != null && t.matchPct !== "")
+      ? "Employer matches " + p(t.matchPct) + "% of pay" + (t.matchUpTo ? " when you contribute " + p(t.matchUpTo) + "%" : "") +
+        (t.basePct ? ", plus a " + p(t.basePct) + "% base" : "") + "."
+      : "";
+    return '<p class="sheet-label">Plan terms</p>' +
+      '<p class="caption">The rules of your employer plan, typed by you. These are not read from stubs.</p>' +
+      '<div class="sd-terms">' + f("matchPct", "Match (% of pay)", t.matchPct) + f("matchUpTo", "…when I put in", t.matchUpTo) + f("basePct", "Base (% of pay)", t.basePct) + "</div>" +
+      (sentence ? '<p class="sd-sentence">' + esc(sentence) + "</p>" : "") +
+      '<input class="sd-note" data-sd="term-note" type="text" maxlength="200" placeholder="Plan notes (vesting, cap, …)" value="' + esc(t.note || "") + '">';
+  }
+
+  function statedParse(el) {
+    if (el.getAttribute("data-pctc") === "1") {
+      var d = String(el.value).replace(/\D/g, "");
+      return d === "" ? null : Math.min(Number(d), 10000) / 100;
+    }
+    var digits = el.dataset.digits;
+    if (digits == null || digits === "") return null;
+    return moneyFromDigits(digits, true);
+  }
+
+  function statedHandle(el, kind) {
+    var plan = migrateCompensation(state.compensation || defaultCompensation());
+    plan.stated = plan.stated || {};
+    plan.terms = plan.terms || {};
+    var sd = el.getAttribute("data-sd");
+    var id = el.getAttribute("data-line");
+    var rerender = false;
+    if (sd === "term") {
+      plan.terms[el.getAttribute("data-key")] = statedParse(el);
+      rerender = kind === "change";
+    } else if (sd === "term-note") {
+      plan.terms.note = el.value;
+    } else {
+      var ln = STATED_LINES.filter(function (l) { return l.id === id; })[0];
+      if (!ln) return;
+      var st = plan.stated[id] = plan.stated[id] || {};
+      if (sd === "note") st.note = el.value;
+      else if (sd === "value") {
+        st.v = statedParse(el);
+        if (st.mode === "manual" && st.v != null) statedPlanWrite(plan, id, st.v);
+        rerender = kind === "change";
+      } else if (sd === "mode-manual") {
+        if (st.mode !== "manual") {
+          st.prev = statedPlanRead(plan, id);
+          st.mode = "manual";
+          if (st.v != null) statedPlanWrite(plan, id, st.v);
+        }
+        rerender = true;
+      } else if (sd === "mode-stub") {
+        if (st.mode === "manual") {
+          if (st.prev !== undefined && st.prev !== null) statedPlanWrite(plan, id, st.prev);
+          st.mode = "stub";
+        }
+        rerender = true;
+      } else return;
+    }
+    state.compensation = plan;
+    saveState();
+    if (rerender) { render(); openIncomeStatement({ preserveScroll: true }); }
+  }
+  document.addEventListener("change", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-sd")) statedHandle(t, "change"); });
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-sd") && t.getAttribute("data-dollars") === "1") { statedHandle(t, "input"); return; }
+    if (t && t.getAttribute && t.getAttribute("data-pctc") === "1") {
+      var d = String(t.value).replace(/\D/g, "");
+      t.value = d === "" ? "" : (Math.min(Number(d), 10000) / 100).toFixed(2) + "%";
+    }
+  }, true);
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-sd") === "value" && t.getAttribute("data-dollars") === "1") statedHandle(t, "input");
+  }, true);
+  document.addEventListener("click", function (e) {
+    var t = e.target && e.target.closest ? e.target.closest("button[data-sd]") : null;
+    if (t) { e.stopPropagation(); statedHandle(t, "click"); }
+  }, true);
 
   function payStubFoldHtml(plan) {
     var inner = payStubDetailHtml(plan);
@@ -10443,7 +10622,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="icon-btn income-back" type="button" data-act="close-modal" aria-label="Back">' +
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
       '<h3>Details</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
-      payEntryCardsHtml(plan) +
+      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) +
       '<p class="caption">' + (compStubFigures()
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
         : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + "</p>" +
@@ -11028,7 +11207,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.28: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.29: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11728,7 +11907,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* v37.5.59.28: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+  /* v37.5.59.29: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
    * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
   var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
   function nudgeRead() {
@@ -11775,6 +11954,59 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }
+  /* v37.5.59.29: backup reminder. Own localStorage key (never in state, backups or tester data). */
+  var BACKUP_NUDGE_KEY = "PaperTrail.backupNudge";
+  function backupInfo() {
+    var v = null;
+    try { v = JSON.parse(localStorage.getItem(BACKUP_NUDGE_KEY) || "null"); } catch (e) {}
+    if (!v || typeof v !== "object") v = {};
+    if (!v.first) { v.first = Date.now(); try { localStorage.setItem(BACKUP_NUDGE_KEY, JSON.stringify(v)); } catch (e) {} }
+    return v;
+  }
+  function backupWrite(patch) {
+    var v = backupInfo();
+    Object.keys(patch).forEach(function (k) { v[k] = patch[k]; });
+    try { localStorage.setItem(BACKUP_NUDGE_KEY, JSON.stringify(v)); } catch (e) {}
+  }
+  function markExported() { backupWrite({ lastExport: Date.now(), dismissedAt: 0 }); }
+  function backupNudgeHtml() {
+    if (!hasRealData()) return "";
+    var v = backupInfo();
+    var day = 86400000;
+    var base = Math.max(Number(v.first) || 0, Number(v.lastExport) || 0);
+    if (Date.now() - base < 7 * day) return "";
+    if (v.dismissedAt && Date.now() - Number(v.dismissedAt) < 7 * day) return "";
+    return '<section class="card setup-nudge backup-nudge" aria-label="Back up your data"><p><strong>Save a backup file.</strong></p>' +
+      '<p class="caption">' + (v.lastExport ? "Your last export was " + Math.max(7, Math.floor((Date.now() - v.lastExport) / day)) + " days ago." : "You haven’t exported a backup yet.") +
+      " Your data lives only in this browser.</p>" +
+      '<div class="setup-nudge-actions"><button class="primary" type="button" data-act="backup-now">Export backup</button>' +
+      '<button class="text-btn" type="button" data-act="backup-nudge-dismiss">Later</button></div></section>';
+  }
+
+  /* Guess pay frequency from the spacing of confirmed pay stubs (median days between pay dates). */
+  function stubSpacingGuess() {
+    var dates = confirmedPayStubs().map(function (st) { return Date.parse(st.payDate); }).filter(function (t) { return isFinite(t); }).sort(function (a, b) { return a - b; });
+    var uniq = dates.filter(function (t, i) { return i === 0 || t !== dates[i - 1]; });
+    if (uniq.length < 2) return null;
+    var gaps = [];
+    for (var i = 1; i < uniq.length; i++) gaps.push(Math.round((uniq[i] - uniq[i - 1]) / 86400000));
+    gaps.sort(function (a, b) { return a - b; });
+    var med = gaps[Math.floor(gaps.length / 2)];
+    var id = med >= 6 && med <= 8 ? "weekly" : med >= 13 && med <= 14 ? "biweekly" : med >= 15 && med <= 17 ? "semimonthly" : med >= 27 && med <= 32 ? "monthly" : null;
+    return id ? { id: id, days: med } : null;
+  }
+  function payFreqMismatchHtml() {
+    var g = stubSpacingGuess();
+    if (!g) return "";
+    var cur = payFrequencyOf(state.compensation || {});
+    if (g.id === cur) return "";
+    function lab(id) { var f = PAY_FREQUENCIES.filter(function (x) { return x.id === id; })[0]; return f ? f.label : id; }
+    return '<div class="pf-warn" role="alert"><p><strong>Pay frequency may not match your stubs.</strong></p>' +
+      '<p class="caption">Your stubs are about ' + g.days + " days apart, which looks " + esc(lab(g.id)) + ", but Profile says " + esc(lab(cur)) +
+      ". Projections use the Profile setting.</p>" +
+      '<button class="planner-apply" type="button" data-act="pf-switch" data-freq="' + g.id + '">Switch to ' + esc(lab(g.id)) + "</button></div>";
+  }
+
   function setupNudgeHtml() {
     if (!surveyIsPartial()) return "";
     var n = nudgeRead();
@@ -12334,7 +12566,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.28";
+  var APP_VERSION = "37.5.59.29";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -12464,6 +12696,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function exportXlsx() {
+    markExported();
     var kit = window.PaperTrailExport;
     var sheets = workbookSheets();
     try {
@@ -12623,6 +12856,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     buildBackup(function (backup) {
       var text = JSON.stringify(backup);
       downloadBlob(new Blob([text], { type: "application/json" }), "PaperTrail-backup-" + stampForFile() + ".json");
+      markExported();
       var n = Object.keys(backup.documents).length;
       setDataStatus("Backup saved · " + Object.keys(backup.state.months || {}).length + " months · " + n + " Vault file" + (n === 1 ? "" : "s") +
         (backup.excluded.length ? " · excluded: " + backup.excluded.join("; ") : " · nothing excluded"), !!backup.excluded.length);
@@ -13445,6 +13679,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="profile-data" id="profile-data">' +
       '<p class="profile-section">Data</p>' +
       '<p class="caption">Exports and backups are files you save yourself.</p>' +
+      '<button class="primary export-backup-main" type="button" data-act="export-backup">Export backup</button>' +
+      '<p class="caption quiet">' + (function () { var l = backupInfo().lastExport; return l ? "Last export: " + new Date(l).toLocaleDateString() + "." : "No export yet on this device."; })() + " A backup file is the only copy outside this browser.</p>" +
       '<button class="data-btn" type="button" data-act="export-xlsx"><strong>Export to Excel</strong><span class="caption">.xlsx · Budget by month, Transactions, Income, Net Worth</span></button>' +
       '<button class="data-btn" type="button" data-act="export-pdf"><strong>Monthly report (PDF)</strong><span class="caption">Budget vs spent, income planned vs received, net worth · opens Print → Save as PDF</span></button>' +
       '<button class="data-btn" type="button" data-act="export-backup"><strong>Full backup</strong><span class="caption">.json · all app data + Vault files inlined as base64</span></button>' +
@@ -14843,7 +15079,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.28: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.29: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
@@ -15584,8 +15820,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       exportXlsx();
     } else if (act === "export-pdf") {
       exportPdf();
-    } else if (act === "export-backup") {
+    } else if (act === "export-backup" || act === "backup-now") {
       exportBackup();
+      if (act === "backup-now") render();
+    } else if (act === "sd-jump") {
+      var sdl = document.getElementById("sd-lines");
+      if (sdl) sdl.scrollIntoView({ block: "start" });
+    } else if (act === "pf-switch") {
+      applyPayFrequency(actEl.getAttribute("data-freq"));
+      payStubBasisCache = {};
+      saveState();
+      var mm = document.getElementById("modal");
+      if (mm && !mm.hidden && mm.querySelector(".income-sheet")) { render(); openIncomeStatement({ preserveScroll: true }); } else render();
+    } else if (act === "backup-nudge-dismiss") {
+      backupWrite({ dismissedAt: Date.now() });
+      render();
     } else if (act === "restore-file") {
       var restoreInput = document.getElementById("restore-file");
       if (restoreInput) restoreInput.click();
