@@ -4496,3 +4496,8 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .est-head span{text-align:right;font-size:11px;letter-spacing:.04em}.est-head span:first-child{text-align:left}
 .est-assume{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 2px;font-size:13px;color:var(--muted)}
 .est-assume input{width:110px;box-sizing:border-box;border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:4px;padding:7px 8px;font-size:15px;text-align:right}
+
+/* v37.5.59.31 */
+.est-seg-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 2px}.est-seg-label{font-size:13px;color:var(--muted)}
+.est-seg-row .sd-seg button{font-size:12px;padding:5px 10px}.est-seg-row .sd-seg button:disabled{opacity:.4}
+.est-history{margin:6px 0;font-size:14px}.est-hist .est-row{grid-template-columns:.8fr 1.4fr 1fr}.est-hist .est-row .mono{font-size:12px}
