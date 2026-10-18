@@ -4485,3 +4485,14 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .sd-note{font-size:13px;padding:6px 10px}.sd-stub,.sd-stubval,.sd-nostub{margin:0;font-size:13px;color:var(--muted)}.sd-stubval .mono{color:var(--ink);font-size:15px}
 .sd-terms{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px}.sd-term{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
 .sd-sentence{margin:4px 0 8px;font-size:14px;color:var(--moss);font-weight:600}
+
+/* v37.5.59.30: estimates read as estimates: dashed, lighter, labeled. */
+.est-section{margin:12px 16px 8px;padding:10px;border:1px dashed var(--muted);border-radius:6px}
+.est-section .section-label{margin:0 0 8px}
+.est-tiles{display:flex;gap:8px}
+.est-tile{flex:1;min-width:0;padding:8px 6px;border:1px dashed var(--muted);background:transparent;text-align:center;display:flex;flex-direction:column;gap:3px;opacity:.85}
+.est-tile .mono{font-size:15px;color:var(--ink);font-style:italic}.est-tile em{font-style:italic;font-size:11px;color:var(--muted)}
+.est-rows{margin:8px 0 4px;font-size:13px}.est-row{display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr;gap:4px;padding:3px 0;color:var(--muted)}.est-row .mono{text-align:right;font-style:italic;color:var(--ink);font-size:12px}
+.est-head span{text-align:right;font-size:11px;letter-spacing:.04em}.est-head span:first-child{text-align:left}
+.est-assume{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 2px;font-size:13px;color:var(--muted)}
+.est-assume input{width:110px;box-sizing:border-box;border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:4px;padding:7px 8px;font-size:15px;text-align:right}

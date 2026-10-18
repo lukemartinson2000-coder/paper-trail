@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.29. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.30. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.29: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.30: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -8122,6 +8122,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Type your pay, add pay stubs, deductions and taxes.</p>' +
       payFreqMismatchHtml() +
+      estimatedSectionHtml("income") +
       '<label class="field annual-filing">Filing status' +
       '<select data-act="annual-filing">' +
       '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
@@ -8397,7 +8398,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.29: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.30: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8415,6 +8416,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="stmt-foot stmt-details-high">' +
       '<button class="text-btn details-btn" type="button" data-act="worth-details">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Line edits, tax triangle, and year-over-year live under Details.</p>' +
+      estimatedSectionHtml("worth") +
       '<div class="sheet-table stmt-sheet">' +
       balanceSheetLinesHtml(year) + statementHairline() +
       statementRowHtml("Net worth", current.equity, { total: true, underlined: true }) +
@@ -8592,7 +8594,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.29: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.30: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8672,7 +8674,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.29: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.30: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10400,7 +10402,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.29: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.30: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -10422,7 +10424,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
   }
 
-  /* v37.5.59.29: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
+  /* v37.5.59.30: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
    * Manual values are cents-first (percent lines type hundredths of a percent) and drive the plan fields
    * (and the full-year salary projection for Salary). Switching back to Stub keeps v stored and restores the prior plan value. */
   var STATED_LINES = [
@@ -11207,7 +11209,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.29: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.30: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11907,7 +11909,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* v37.5.59.29: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+  /* v37.5.59.30: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
    * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
   var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
   function nudgeRead() {
@@ -11954,7 +11956,101 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }
-  /* v37.5.59.29: backup reminder. Own localStorage key (never in state, backups or tester data). */
+  /* v37.5.59.30: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
+   * ({raisePct, growthPct}) on this device only: the tester payload is built from named fields and never includes them. */
+  function projAssump() {
+    var p = (state && state.projection) || {};
+    var raise = Number(p.raisePct), growth = Number(p.growthPct);
+    return { raisePct: isFinite(raise) && p.raisePct != null ? raise : 3, growthPct: isFinite(growth) && p.growthPct != null ? growth : 5 };
+  }
+
+  function incomeProjection() {
+    var book = ensureAnnualStatement();
+    var years = annualYearList(book);
+    if (!years.length) return null;
+    var cy = currentYearMonth().year;
+    var base = years.indexOf(cy) >= 0 ? cy : years[years.length - 1];
+    var row = syncedAnnualRow(annualRow(book.years[String(base)]), base);
+    var inc = annualMetrics(row, base).income || {};
+    var st = (state.compensation && state.compensation.stated) || {};
+    var salary = (st.salary && st.salary.mode === "manual" && st.salary.v != null) ? Number(st.salary.v) : Number(inc.salary) || 0;
+    var bonus = Number(inc.bonus) || 0;
+    var match = Number(inc.match) || 0;
+    if (!(salary + bonus + match > 0)) return null;
+    var r = projAssump().raisePct / 100;
+    var out = [];
+    for (var n = 1; n <= 3; n++) {
+      var f = Math.pow(1 + r, n);
+      var sal = salary * f, bon = bonus * f, mat = match * f;
+      out.push({ year: base + n, salary: sal, bonus: bon, match: mat, total: sal + bon + mat });
+    }
+    return { base: base, manualSalary: !!(st.salary && st.salary.mode === "manual" && st.salary.v != null), rows: out };
+  }
+
+  function netWorthProjection() {
+    var head = latestNetWorthHeadline();
+    if (head.year == null || !worthHasData()) return null;
+    var g = projAssump().growthPct / 100;
+    var contrib = 0, source = "";
+    (state.worth.lines || []).forEach(function (line) {
+      if (line.kind === "liability") return;
+      contrib += lineAddition(line, head.year);
+      if (is401k(line)) contrib += lineEmployerMatch(line, head.year) + lineEmployerBase(line, head.year);
+    });
+    if (contrib > 0) source = "from your " + head.year + " additions";
+    else {
+      var rate = null;
+      try { rate = monthSavingsRates().basic.rate; } catch (e) {}
+      var book = state.annualStatement && state.annualStatement.years && state.annualStatement.years[String(head.year)];
+      var tot = book ? annualMetrics(syncedAnnualRow(annualRow(book), head.year), head.year).total : null;
+      if (rate != null && isFinite(rate) && rate > 0 && tot > 0) { contrib = rate * tot; source = "from your savings rate × income"; }
+    }
+    var rows = [], v = head.amount;
+    for (var n = 1; n <= 3; n++) { v = v * (1 + g) + contrib; rows.push({ year: head.year + n, total: v }); }
+    return { base: head.year, start: head.amount, contrib: contrib, source: source, rows: rows };
+  }
+
+  function projInputHtml(kind, label, value) {
+    return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
+  }
+
+  function estimatedSectionHtml(kind) {
+    var proj = kind === "income" ? incomeProjection() : netWorthProjection();
+    if (!proj) return "";
+    var a = projAssump();
+    var html = '<section class="est-section" aria-label="Estimated next 3 years"><p class="section-label">Estimated · next 3 years</p><div class="est-tiles">';
+    proj.rows.forEach(function (r) {
+      html += '<div class="est-tile"><span class="year-slide-year">' + r.year + ' <em>est.</em></span><span class="mono">' + moneyWhole(r.total) + "</span></div>";
+    });
+    html += "</div>";
+    if (kind === "income") {
+      html += '<div class="est-rows"><div class="est-row est-head"><span></span>' + proj.rows.map(function (r) { return "<span>" + r.year + "</span>"; }).join("") + "</div>" +
+        '<div class="est-row"><span>Salary</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.salary) + "</span>"; }).join("") + "</div>" +
+        (proj.rows[0].bonus > 0 ? '<div class="est-row"><span>Bonus</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.bonus) + "</span>"; }).join("") + "</div>" : "") +
+        (proj.rows[0].match > 0 ? '<div class="est-row"><span>401k match</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.match) + "</span>"; }).join("") + "</div>" : "") + "</div>" +
+        projInputHtml("raise", "Raise per year", a.raisePct) +
+        '<p class="caption quiet">Starts from your ' + proj.base + (proj.manualSalary ? " Manual" : " stub") + " salary, bonus and 401k match. Variable pay isn’t projected. Estimate, not a guarantee.</p>";
+    } else {
+      html += projInputHtml("growth", "Growth per year", a.growthPct) +
+        '<p class="caption quiet">Starts from your ' + proj.base + " net worth of " + moneyWhole(proj.start) +
+        (proj.contrib > 0 ? ", adds " + moneyWhole(proj.contrib) + " a year " + proj.source : ", with no yearly additions assumed") +
+        ". Estimate, not a guarantee.</p>";
+    }
+    return html + "</section>";
+  }
+
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
+    var d = String(t.value).replace(/\D/g, "");
+    var v = d === "" ? null : Math.min(Number(d), 10000) / 100;
+    state.projection = state.projection || {};
+    state.projection[t.getAttribute("data-proj") === "raise" ? "raisePct" : "growthPct"] = v;
+    saveState();
+    render();
+  });
+
+  /* v37.5.59.30: backup reminder. Own localStorage key (never in state, backups or tester data). */
   var BACKUP_NUDGE_KEY = "PaperTrail.backupNudge";
   function backupInfo() {
     var v = null;
@@ -12566,7 +12662,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.29";
+  var APP_VERSION = "37.5.59.30";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15079,7 +15175,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.29: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.30: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
