@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.27. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.28. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.27: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.28: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -4031,6 +4031,7 @@
       '<button class="text-btn" type="button" data-act="add-category">Add</button></div>' +
       demoBannerHtml() +
       onboardChecklistHtml() +
+      setupNudgeHtml() +
       fooBudgetStripHtml(month) +
       '<p class="section-label">Income · take-home paychecks</p>' +
       '<p class="caption income-basis">What lands in your account after tax. Gross pay lives on your Income statement.</p>';
@@ -8394,7 +8395,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.27: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.28: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8589,7 +8590,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.27: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.28: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8669,7 +8670,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.27: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.28: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10397,7 +10398,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.27: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.28: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -11027,7 +11028,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.27: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.28: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11386,6 +11387,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       rows.forEach(function (row) { html += "<dt>" + esc(row.q) + "</dt><dd>" + esc(row.a) + "</dd>"; });
       html += "</dl>";
     }
+    if (surveyIsPartial()) html += '<button class="data-btn" type="button" data-act="ob-finish-survey"><strong>Finish survey</strong><span class="caption">Pick up where you left off</span></button>';
     html += '<button class="data-btn" type="button" data-act="retake-survey"><strong>Retake survey</strong><span class="caption">Pre-filled with these answers</span></button>' +
       '<div class="sheet-actions"><button type="button" data-act="about-back">Back</button>' +
       '<button class="primary" type="button" data-act="close-modal">Done</button></div></div>';
@@ -11597,6 +11599,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var inner = host.querySelector(".onboard-inner");
       if (inner) inner.insertAdjacentHTML("afterbegin", '<button class="text-btn onboard-cancel" type="button" data-act="ob-retake-cancel">Cancel retake</button>');
     }
+    if (!ob.retake) {
+      var scr = ob.screen;
+      var inner2 = host.querySelector(".onboard-inner");
+      if (inner2 && scr !== "welcome" && scr !== "welcome2" && scr !== "privacy") {
+        inner2.insertAdjacentHTML("beforeend", scr === "name"
+          ? '<button class="text-btn onboard-skipall" type="button" data-act="ob-skip-survey">Skip for now</button>'
+          : '<button class="text-btn onboard-later" type="button" data-act="ob-skip-survey">I’ll finish later</button>');
+      }
+    }
     bindMoneyInputs(host);
     wireSurveyInputs(host);
     host.scrollTop = 0;
@@ -11717,9 +11728,67 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
+  /* v37.5.59.28: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+   * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
+  var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
+  function nudgeRead() {
+    try { return JSON.parse(localStorage.getItem(NUDGE_KEY) || "null") || null; } catch (e) { return null; }
+  }
+  function nudgeWrite(v) {
+    try { if (v) localStorage.setItem(NUDGE_KEY, JSON.stringify(v)); else localStorage.removeItem(NUDGE_KEY); } catch (e) {}
+  }
+  function surveyIsPartial() {
+    var ob = state && state.onboarding;
+    return !!(ob && ob.surveySkipped && !ob.surveyCompletedAt && ob.status !== "survey");
+  }
+  function skipSurveyToBudget() {
+    var ob = onboarding();
+    if (ob.retake) return;
+    markWelcomeSeen();
+    var resume = ob.screen;
+    readOnboardInputs();
+    var a = ob.answers || {};
+    if (a.payFrequency) {
+      applyOnboardAnswers();
+    } else {
+      state.profile = migrateProfile(state.profile, state.foo, state.compensation);
+      if (a.birthday) syncBirthday(a.birthday);
+      if (a.name) state.profile.name = a.name;
+    }
+    ob.surveySkipped = { at: new Date().toISOString(), screen: resume };
+    ob.resumeScreen = resume === "welcome" || resume === "welcome2" ? "name" : resume;
+    ob.status = "active";
+    ob.error = "";
+    state.tab = "budget";
+    nudgeWrite({ skippedAt: Date.now(), dismissed: false });
+    saveState();
+    closeModal();
+    render();
+  }
+  function resumeSurvey() {
+    var ob = onboarding();
+    if (ob.retake || ob.status === "survey") return;
+    ob.status = "survey";
+    ob.screen = ob.resumeScreen || "name";
+    ob.error = "";
+    closeModal();
+    saveState();
+    render();
+  }
+  function setupNudgeHtml() {
+    if (!surveyIsPartial()) return "";
+    var n = nudgeRead();
+    if (!n || n.dismissed) return "";
+    if (Date.now() - Number(n.skippedAt || 0) < 3 * 86400000) return "";
+    return '<section class="card setup-nudge" aria-label="Finish your setup"><p><strong>Finish your setup for better numbers.</strong></p>' +
+      '<div class="setup-nudge-actions"><button class="primary" type="button" data-act="ob-finish-survey">Finish survey</button>' +
+      '<button class="text-btn" type="button" data-act="ob-nudge-dismiss">Not now</button></div></section>';
+  }
+
   function finishSurveyToBudget() {
     var ob = onboarding();
     if (ob.retake) { endSurveyRetake(true); return; }
+    delete ob.surveySkipped; delete ob.resumeScreen; nudgeWrite(null);
     markWelcomeSeen();
     readOnboardInputs();
     applyOnboardAnswers();
@@ -11914,6 +11983,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       saveState();
       renderOnboarding();
+    } else if (act === "ob-skip-survey") {
+      skipSurveyToBudget();
+    } else if (act === "ob-finish-survey") {
+      resumeSurvey();
+    } else if (act === "ob-nudge-dismiss") {
+      var nd = nudgeRead() || {}; nd.dismissed = true; nudgeWrite(nd); render();
     } else if (act === "ob-skip-q") {
       if (ob.screen === "best") ob.answers.bestPurchase = "";
       if (ob.screen === "worst") ob.answers.worstPurchase = "";
@@ -12050,6 +12125,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<p>Erase everything on this device, or clear one month’s spending, from the danger zone at the bottom of Profile. Each asks first. Single transactions are deleted on the Transactions tab.</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="danger"><strong>Go to the danger zone</strong><span class="caption">Erase all data · Clear this month’s spending</span></button>';
     html += '<p class="profile-section">Intro</p>' +
+      (surveyIsPartial() ? '<button class="data-btn" type="button" data-act="ob-finish-survey"><strong>Finish survey</strong><span class="caption">Pick up where you left off · your answers so far are saved</span></button>' : "") +
       '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>' +
       '<button class="data-btn" type="button" data-act="view-survey"><strong>View survey results</strong><span class="caption">Your saved answers, question by question</span></button>' +
       '<button class="data-btn" type="button" data-act="retake-survey"><strong>Retake survey</strong><span class="caption">Pre-filled with your answers · budget, income and net worth stay as they are</span></button>';
@@ -12258,7 +12334,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.27";
+  var APP_VERSION = "37.5.59.28";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14767,7 +14843,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.27: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.28: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}

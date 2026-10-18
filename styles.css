@@ -4466,3 +4466,8 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .welcome-splash.is-static{animation:none}
 @keyframes splash-out{to{opacity:0;visibility:hidden}}
 @media (prefers-reduced-motion: reduce){.welcome-splash{animation:none}}
+
+/* v37.5.59.28 */
+.onboard-skipall{display:block;margin:14px auto 0;font-size:15px;color:var(--ink)}
+.onboard-later{display:block;margin:10px auto 0;font-size:12px;color:var(--muted);opacity:.85}
+.setup-nudge{margin:8px 16px}.setup-nudge p{margin:0 0 8px}.setup-nudge-actions{display:flex;gap:10px;align-items:center}.setup-nudge-actions .primary{flex:1}
