@@ -2630,7 +2630,7 @@ body.night .refund-amt { color: rgb(196, 160, 212); border-color: rgb(196, 160, 
 .refund-note { margin: 6px 0 4px; }
 .sheet-error { font-weight: 600; margin: 8px 0 0; }
 
-/* Delete at the top of the transaction detail (danger, one confirm; no Undo, by design) */
+/* Delete at the top of the transaction detail (danger, one confirm; no Undo per owner) */
 .sheet button.danger-btn { color: var(--danger); }
 .danger-btn {
   display: block;
@@ -4430,3 +4430,6 @@ body.night .stub-head { border-bottom-color: var(--muted); }
 
 /* v37.5.59.22: bottom sheets leave the tab bar uncovered (tap a tab = clear the screen). Full-screen Wrapped keeps covering. */
 .modal:not(.wrap-open) { bottom: var(--tabbar-h, 0px); }
+
+/* v37.5.59.23: shared year tiles sit in flow under the big numbers on every screen (never sticky). */
+.year-slider-bar.year-tiles{position:static;top:auto;border-bottom:0;box-shadow:none;margin:0 0 8px;padding:4px 0 2px}

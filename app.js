@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.22. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.23. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.22: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.23: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -8071,7 +8071,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       try { saveState(); } catch (err) {}
     }
     var years = annualYearList(book);
-    var highlight = annualHighlightYear(years);
+    var highlight = sharedYearFor(years) || annualHighlightYear(years);
     var filing = annualFilingStatus(book);
     var rows = [
       { id: "total", label: "Total income", kind: "total" },
@@ -8102,8 +8102,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
        Salary and savings rate sit in that summary. Income is annualTotal, which already includes 401k match once. */
     var summaryRow = syncedAnnualRow(annualRow(book.years[String(highlight)]), highlight);
     var summary = annualMetrics(summaryRow, highlight);
-    html += '<p class="stmt-year stmt-year-quiet">' + highlight + "</p>" +
-      '<div class="sheet-table stmt-sheet">' +
+    html += '<div class="sheet-table stmt-sheet">' +
       '<div class="stmt-line is-total is-underlined"><span class="stmt-label">Income</span>' +
       '<span class="mono stmt-amt">' + annualMoney(summary.total) + "</span></div>" +
       '<div class="stmt-line"><span class="stmt-label">Salary</span>' +
@@ -8118,7 +8117,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         annualRateText(ytd.rate) + "</span></div>" +
         '<p class="caption quiet ytd-rate-note">' + esc(ytdSavingsNote(ytd)) + "</p>";
     }
-    html += "</div>" +
+    html += "</div>" + renderYearTiles("income", years, highlight) +
       '<label class="field annual-filing">Filing status' +
       '<select data-act="annual-filing">' +
       '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
@@ -8265,6 +8264,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function renderStatementDetails(month, totals) {
     var previousMonth = statementPreviousMonth(month);
     var year = selectedIncomeYear();
+    var sdYears = annualYearList(ensureAnnualStatement());
+    var sdYear = sharedYearFor(sdYears) || year;
     var takeHome = estimateCompensation(state.compensation).takeHome;
     var html =
       statsSegmentHtml("statement") +
@@ -8273,9 +8274,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
       "<h2>Details</h2></div>" +
       '<header class="stmt-header stmt-hero-center">' +
-      '<p class="stmt-year">' + (year || "") + "</p>" +
+      '<p class="stmt-year">' + (sdYear || "") + "</p>" +
       '<p class="stmt-hero-label">Net</p>' +
       '<p class="stmt-hero-amount">' + money(takeHome) + "</p></header>" +
+      renderYearTiles("income", sdYears, sdYear) +
       renderCompensation() +
       renderYearlyIncome() +
       '<section class="card"><p class="kicker">Plan</p><p class="caption">Share of income</p>' +
@@ -8394,9 +8396,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.22: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.23: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
-    var yearLine = '<p class="stmt-year stmt-year-quiet">' + worthAddPriorButton() + year + "</p>";
+    var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
       '<div class="sheet-table stmt-sheet">' +
       statementRowHtml("Net worth", current.equity, { total: true, underlined: true, whole: true });
@@ -8589,20 +8591,64 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  function renderWorthYearSlider(years) {
+  /* v37.5.59.23: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+   * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
+   * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
+  function sharedYearFor(years) {
+    var y = Number(state.worthYear);
+    if (years.indexOf(y) >= 0) return y;
+    var inc = Number(state.incomeYear);
+    if (years.indexOf(inc) >= 0) return inc;
+    return null;
+  }
+
+  function incomeAddPriorButton(years) {
+    var cy = new Date().getFullYear();
+    var open = false;
+    for (var y = cy - 1; y >= cy - 40; y--) if (years.indexOf(y) < 0) { open = true; break; }
+    return open
+      ? '<button class="year-add-prior" type="button" data-act="add-prior-income-year" aria-label="Add a prior year">+</button>'
+      : "";
+  }
+
+  function renderYearTiles(kind, years, selected) {
     if (!years || !years.length) return "";
-    /* One sticky unit: label, slider, and caption. CSS pins it; do not scroll it to the top. */
-    var html = '<div class="year-slider-bar"><p class="section-label">By year</p><div class="year-slider">' + worthAddPriorButton();
+    var book = kind === "income" ? ensureAnnualStatement() : null;
+    var html = '<div class="year-slider-bar year-tiles" data-kind="' + kind + '"><p class="section-label">By year</p><div class="year-slider">' +
+      (kind === "income" ? incomeAddPriorButton(years) : worthAddPriorButton());
     years.forEach(function (year) {
-      var equity = worthTotals(year).equity;
-      html += '<button class="year-slide' + (year === state.worthYear ? " on" : "") +
-        '" type="button" data-act="pick-worth-year" data-year="' + year + '">' +
+      var figure;
+      if (kind === "income") {
+        figure = annualMoney(annualMetrics(syncedAnnualRow(annualRow(book.years[String(year)]), year), year).total);
+      } else {
+        figure = moneyWhole(worthTotals(year).equity);
+      }
+      html += '<button class="year-slide' + (year === selected ? " on" : "") +
+        '" type="button" data-act="pick-year" data-year="' + year + '"' + (year === selected ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
         '<span class="year-slide-year">' + year + "</span>" +
-        '<span class="mono">' + moneyWhole(equity) + "</span></button>";
+        '<span class="mono">' + figure + "</span></button>";
     });
     html += "</div>" +
       '<p class="caption quiet">Swipe across the years. Tap one to open it.</p></div>';
     return html;
+  }
+
+  function renderWorthYearSlider(years) {
+    return renderYearTiles("worth", years, state.worthYear);
+  }
+
+  function openPriorIncomeYearSheet() {
+    var cy = new Date().getFullYear();
+    var have = annualYearList(ensureAnnualStatement());
+    var opts = "";
+    for (var y = cy - 1; y >= cy - 40; y--) {
+      if (have.indexOf(y) < 0) opts += '<option value="' + y + '">' + y + "</option>";
+    }
+    if (!opts) return;
+    openSheet("Add a prior year",
+      '<label class="field">Year<select name="priorYear">' + opts + "</select></label>" +
+      '<p class="caption">Adds an empty income column for that year. You’ll fill in salary, taxes and the rest next. Nothing is filled in for you.</p>',
+      "save-prior-income-year");
   }
 
   function renderWorthDetails(years) {
@@ -8625,7 +8671,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.22: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.23: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -9325,7 +9371,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return limit ? list.slice(0, limit) : list;
   }
 
-  /* v37.5.59.6 (QA): lead with the real payer from history ("Acme Salary, …"), not a generic "Employer". */
+  /* v37.5.59.6 (QA): lead with the real payer from history ("Ampf Salary, …"), not a generic "Employer". */
   function incomePayeePlaceholder() {
     var top = suggestedPayees(true, 2).map(function (it) { return it.payee; }).filter(Boolean);
     return top.length ? "e.g. " + top.join(", ") + ", …" : "Employer, client, …";
@@ -12170,7 +12216,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.22";
+  var APP_VERSION = "37.5.59.23";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14679,7 +14725,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.22: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.23: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
@@ -15564,8 +15610,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.worthYearsExpanded = !state.worthYearsExpanded;
       saveState();
       render();
-    } else if (act === "pick-worth-year") {
+    } else if (act === "pick-year" || act === "pick-worth-year") {
       state.worthYear = Number(actEl.getAttribute("data-year"));
+      state.incomeYear = state.worthYear;
       saveState();
       /* render() keeps #screen.scrollTop when the paint key is unchanged.
          Do not scroll the year bar to the top. */
@@ -15598,6 +15645,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openAnnualYear(clrYear);
     } else if (act === "add-prior-year") {
       openPriorYearSheet();
+    } else if (act === "add-prior-income-year") {
+      openPriorIncomeYearSheet();
     } else if (act === "add-year") {
       var max = state.worth.years.length ? Math.max.apply(null, state.worth.years) : new Date().getFullYear() - 1;
       var nextYear = max + 1;
@@ -15840,6 +15889,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (Object.prototype.hasOwnProperty.call(data, "loanApr")) {
       data.loanApr = Number(String(data.loanApr || "").replace(/[^0-9.]/g, "")) || 0;
     }
+    if (act === "save-prior-income-year") {
+      var piy = Number(data.priorYear);
+      ensureAnnualStatement();
+      if (piy && !state.annualStatement.years[String(piy)]) {
+        state.annualStatement.years[String(piy)] = {
+          salary: null, bonus: null, sideGig: null, other: null, match: null,
+          taxes: null, opex: null, investments: null,
+          taxFederal: null, taxState: null, taxFica: null, taxOther: null,
+          federalBracket: null, stateBracket: null, stateOtherPct: null
+        };
+        state.worthYear = piy;
+        state.incomeYear = piy;
+        saveState();
+      }
+      closeModal();
+      render();
+      if (piy) openAnnualYear(piy);
+      return;
+    }
     if (act === "save-prior-year") {
       var py = Number(data.priorYear);
       if (py && state.worth.years.indexOf(py) < 0) {
@@ -15855,6 +15923,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (state.worth.income[py] == null) state.worth.income[py] = 0;
         if (state.worth.notes[py] == null) state.worth.notes[py] = "";
         state.worthYear = py;
+        state.incomeYear = py;
         saveState();
       }
       closeModal();
