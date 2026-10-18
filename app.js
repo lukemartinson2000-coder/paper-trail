@@ -11965,9 +11965,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       growthMode: p.growthMode === "cagr" ? "cagr" : "manual" };
   }
 
-  /* v37.5.59.31: "Net worth growth" history. CAGR starts at the first year with positive net worth (earlier zero or
+  /* v37.5.59.31: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
    * negative years stay in the history list but not in the calc). Needs 3+ positive years (2+ growth periods). */
-  var CAGR_CAP = 0.10;
+  /* No cap: the true CAGR is used. A plain note shows when it is very high. */
+  var CAGR_NOTE_ABOVE = 0.25;
   function netWorthHistory() {
     var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var rows = years.map(function (y, i) {
@@ -11986,8 +11987,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (positives.length >= 3 && last.equity > 0 && n >= 2) {
       out.eligible = true;
       out.cagr = Math.pow(last.equity / first.equity, 1 / n) - 1;
-      out.used = Math.min(CAGR_CAP, Math.max(0, out.cagr));
-      out.capped = out.cagr > CAGR_CAP ? "high" : (out.cagr < 0 ? "low" : "");
+      out.used = out.cagr;
+      out.capped = out.cagr > CAGR_NOTE_ABOVE ? "high" : "";
     }
     return out;
   }
@@ -12041,6 +12042,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { base: head.year, start: head.amount, contrib: contrib, source: source, rows: rows, rate: g, useHist: useHist, hist: hist, mode: A.growthMode };
   }
 
+  /* Reuses the existing Net worth Details views: "Versus prior year" (change, $ and %) and the
+   * per-line annualReturn() (return with your additions taken out), here rolled up over investable lines. */
+  function investmentReturnLatest(year, priorYear) {
+    if (priorYear == null) return null;
+    var prior = 0, end = 0, adds = 0, any = false;
+    (state.worth.lines || []).forEach(function (line) {
+      if (line.kind === "liability" || (line.group !== "retirement" && line.group !== "taxable")) return;
+      any = true;
+      prior += lineAmount(line, priorYear);
+      end += lineAmount(line, year);
+      adds += lineAddition(line, year);
+      if (is401k(line)) adds += lineEmployerMatch(line, year) + lineEmployerBase(line, year);
+    });
+    return any ? annualReturn(end, prior, adds) : null;
+  }
+
+  function netWorthReturnRowsHtml(H) {
+    var rows = H.rows;
+    if (!rows.length) return "";
+    var last = rows[rows.length - 1];
+    var inv = investmentReturnLatest(last.year, rows.length > 1 ? rows[rows.length - 2].year : null);
+    var chg = last.change == null ? "—" : (last.change >= 0 ? "+" : "−") + moneyWhole(Math.abs(last.change)) +
+      (last.pct != null ? " (" + (last.pct >= 0 ? "+" : "") + (last.pct * 100).toFixed(1) + "%)" : "");
+    return '<div class="est-rows est-ret">' +
+      '<div class="est-row"><span>Investment return ' + last.year + '</span><span class="mono">' + (inv == null ? "—" : (inv >= 0 ? "+" : "") + (inv * 100).toFixed(1) + "%") + "</span></div>" +
+      '<div class="est-row"><span>Net worth change ' + last.year + '</span><span class="mono">' + chg + "</span></div></div>" +
+      '<p class="caption quiet">Investment return takes out what you added to retirement and taxable lines. Net worth change is everything, including savings and debt. Both also live under Details.</p>';
+  }
+
   function projInputHtml(kind, label, value) {
     return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
   }
@@ -12068,10 +12098,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<button type="button" class="' + (proj.useHist ? "on" : "") + '" data-proj-mode="cagr"' + (H.eligible ? "" : " disabled") + ' aria-pressed="' + (proj.useHist ? "true" : "false") + '">Use my history (CAGR)</button></div></div>' +
         projInputHtml("growth", "Manual growth per year", a.growthPct) +
         '<p class="est-history">' + (H.eligible
-          ? "Your history: <strong>" + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · Net worth growth, " + H.start.year + " to " + H.end.year +
-            (H.capped === "high" ? '<br><span class="caption">Projections cap this at 10%. Your history is skewed by early savings.</span>'
-              : H.capped === "low" ? '<br><span class="caption">Projections floor this at 0%.</span>' : "")
+          ? "Your history: <strong>" + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · net worth, " + H.start.year + " to " + H.end.year +
+            (H.capped === "high" ? '<br><span class="caption">That is very high. Early balances were small, so treat projections that use it with care.</span>' : "")
           : "Not enough history yet. <span class=\"caption\">CAGR needs 3 years with positive net worth.</span>") + "</p>" +
+        netWorthReturnRowsHtml(H) +
         '<div class="est-rows est-hist">' + H.rows.slice(-5).map(function (r) {
           var chg = r.change == null ? "—" : (r.pct != null ? (r.pct >= 0 ? "+" : "") + (r.pct * 100).toFixed(1) + "%" : (r.change >= 0 ? "+" : "−") + moneyWhole(Math.abs(r.change)));
           return '<div class="est-row est-hrow"><span>' + r.year + '</span><span class="mono">' + moneyWhole(r.equity) + '</span><span class="mono">' + chg + "</span></div>";

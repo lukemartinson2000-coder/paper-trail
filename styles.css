@@ -4501,3 +4501,5 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .est-seg-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 2px}.est-seg-label{font-size:13px;color:var(--muted)}
 .est-seg-row .sd-seg button{font-size:12px;padding:5px 10px}.est-seg-row .sd-seg button:disabled{opacity:.4}
 .est-history{margin:6px 0;font-size:14px}.est-hist .est-row{grid-template-columns:.8fr 1.4fr 1fr}.est-hist .est-row .mono{font-size:12px}
+
+.est-ret .est-row{grid-template-columns:1.4fr 1fr}.est-ret .est-row .mono{font-size:13px}
