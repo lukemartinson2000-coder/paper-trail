@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.23. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.24. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.23: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.24: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -4639,7 +4639,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           html += '<button class="text-btn" type="button" data-act="paystub-manual" data-id="' + esc(id) + '">Type pay stub numbers instead</button>';
         }
         if (doc.payStubConfirmed) {
-          html += '<button class="planner-apply" type="button" data-act="open-income-statement">Open Compensation</button>';
+          html += '<button class="planner-apply" type="button" data-act="open-income-statement">Income Details</button>';
         }
       }
     }
@@ -4825,7 +4825,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (bits.length) html += "<p>From Income: " + bits.join(" · ") + ".</p>";
     if (bits.length < 2) {
       html += '<p class="caption">Add employer match % and employer base % on Income / Stats. Paper Trail never invents a percent.</p>' +
-        '<button class="matters-btn" type="button" data-act="open-income-statement">Open Compensation</button>';
+        '<button class="matters-btn" type="button" data-act="open-income-statement">Income Details</button>';
     }
     html += "</div>";
     return html;
@@ -6884,7 +6884,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       gm().formatSavingsRate(monthSavingsRates().basic.rate) + "</span></div>" +
       '<div class="row"><span>Average tax</span><span class="mono">' +
       rateOrDash(compStubFigures() ? compStubFigures().avgTax : est.effectiveTaxRate) + "</span></div>" +
-      '<div class="doc-cue-row"><button class="planner-apply" type="button" data-act="open-income-statement">Open Compensation</button>' +
+      '<div class="doc-cue-row"><button class="planner-apply" type="button" data-act="open-income-statement">Income Details</button>' +
       docCueHtml("income") + docCueHtml("k401") + docCueHtml("payStubs") + "</div>" +
       (est.baseSalary > 0 ? "" : '<p class="caption empty-hint">Add your salary in the income statement to estimate take-home and taxes.</p>') +
       '<p class="caption">Estimates only — not tax advice. Budget paycheck amounts stay manual.</p></div>' +
@@ -8104,7 +8104,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var summary = annualMetrics(summaryRow, highlight);
     html += '<div class="sheet-table stmt-sheet">' +
       '<div class="stmt-line is-total is-underlined"><span class="stmt-label">Income</span>' +
-      '<span class="mono stmt-amt">' + annualMoney(summary.total) + "</span></div>" +
+      '<span class="mono stmt-amt">' + (summary.total == null ? "—" : moneyWhole(summary.total)) + "</span></div>" +
       '<div class="stmt-line"><span class="stmt-label">Salary</span>' +
       '<span class="mono stmt-amt">' + annualMoney(summary.income && summary.income.source === "stubs" ? summary.income.salary : summaryRow.salary) + "</span></div>" +
       '<div class="stmt-line"><span class="stmt-label">Savings rate</span>' +
@@ -8114,10 +8114,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (ytd.applies) {
       html += '<div class="stmt-line is-ytd"><span class="stmt-label">Savings rate so far this year</span>' +
         '<span class="mono stmt-amt' + (ytd.rate == null ? " is-empty" : "") + '">' +
-        annualRateText(ytd.rate) + "</span></div>" +
-        '<p class="caption quiet ytd-rate-note">' + esc(ytdSavingsNote(ytd)) + "</p>";
+        annualRateText(ytd.rate) + "</span></div>";
     }
     html += "</div>" + renderYearTiles("income", years, highlight) +
+      '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button></div>' +
+      '<p class="caption quiet stmt-details-note">Type your pay, add pay stubs, deductions and taxes.</p>' +
       '<label class="field annual-filing">Filing status' +
       '<select data-act="annual-filing">' +
       '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
@@ -8126,7 +8127,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "</select></label>" +
       annualStubBasisHtml(highlight) +
       annualSyncNoteHtml(highlight) +
-      '<p class="caption quiet annual-filing-hint">Used for marginal bracket estimates (2026 IRS / MN tables).</p>' +
       '<div class="annual-scroll"><table class="annual-table"><thead><tr>' +
       '<th class="annual-label" scope="row"></th>';
     years.forEach(function (year) {
@@ -8254,9 +8254,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += "</tbody></table></div>" +
       annualInfoPopoverHtml(book, years, highlight) +
       '<p class="caption quiet annual-hint">Tap a year to edit. Older years sit off to the left. Taxes can expand into federal, state, FICA, and other.</p>' +
-      // v37.5.59.6 (QA): Compensation was reachable only from a confirmed Vault stub card.
-      '<div class="annual-comp-link"><button class="matters-btn" type="button" data-act="open-income-statement">Open Compensation</button>' +
-      '<p class="caption quiet">' + (compStubFigures() ? "Your pay-stub breakdown plus a what-if calculator." : "Type salary, deductions and ZIP to estimate take-home and taxes.") + "</p></div></div>";
+      '';
     return html;
   }
 
@@ -8380,7 +8378,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!years.length) {
       return '<div class="stmt-pass">' + shell +
         '<div class="stmt-foot">' +
-        '<button class="text-btn" type="button" data-act="worth-details">Details</button></div>' +
+        '<button class="text-btn details-btn" type="button" data-act="worth-details">Details</button></div>' +
         '<p class="empty">No annual review yet. Open Details and add a year.</p></div>';
     }
     var year = state.worthYear;
@@ -8396,7 +8394,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.23: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.24: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8412,7 +8410,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.31: Details sits under the hero, before the account list — one control, not the footer. */
     html += "</div>" + yearLine +
       '<div class="stmt-foot stmt-details-high">' +
-      '<button class="text-btn" type="button" data-act="worth-details">Details</button></div>' +
+      '<button class="text-btn details-btn" type="button" data-act="worth-details">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Line edits, tax triangle, and year-over-year live under Details.</p>' +
       '<div class="sheet-table stmt-sheet">' +
       balanceSheetLinesHtml(year) + statementHairline() +
@@ -8591,7 +8589,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.23: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.24: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8671,7 +8669,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.23: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.24: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10399,6 +10397,34 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
+  /* v37.5.59.24: manual pay entry and the pay-stub import sit together at the top of Details. */
+  function payEntryCardsHtml(plan) {
+    var stubs = confirmedPayStubs();
+    var latest = stubs.length ? stubs[stubs.length - 1] : null;
+    var year = currentYearMonth().year;
+    var stubCard = '<div class="pay-card"><p class="pay-card-title">Pay stub</p>' +
+      (latest
+        ? '<p class="pay-card-fig mono">' + (latest.gross != null && isFinite(Number(latest.gross)) ? money(Number(latest.gross)) : "—") + '</p>' +
+          '<p class="caption">' + stubs.length + " confirmed · latest " + esc(usDate(latest.payDate)) + "</p>"
+        : '<p class="caption">No pay stub yet. Import one and your taxes and deductions fill in.</p>') +
+      '<button class="planner-apply" type="button" data-act="open-vault-paystubs">' + (latest ? "Add another" : "Add pay stub") + "</button></div>";
+    var typedCard = '<div class="pay-card"><p class="pay-card-title">Type your pay</p>' +
+      '<label class="pay-field">Base salary / yr' +
+      '<input name="baseSalary" class="cents-input" data-dollars="1" data-act="comp-field" inputmode="numeric" autocomplete="off" type="text" value="' +
+      esc(money(plan.baseSalary)) + '"></label>' +
+      '<label class="pay-field">Bonus target %' +
+      '<input name="bonusTargetPercent" data-act="comp-field" inputmode="decimal" type="text" value="' + esc(plan.bonusTargetPercent || 0) + '"></label>' +
+      '<button class="text-btn pay-year-link" type="button" data-act="edit-annual-year" data-year="' + year + '">Type ' + year + ' income lines</button></div>';
+    return '<div class="pay-cards">' + typedCard + stubCard + "</div>" +
+      '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
+  }
+
+  function payStubFoldHtml(plan) {
+    var inner = payStubDetailHtml(plan);
+    if (!inner) return "";
+    return '<details class="stub-fold"><summary class="sheet-label">Pay stub breakdown</summary>' + inner + "</details>";
+  }
+
   function incomeStatementSheetHtml(plan) {
     plan = migrateCompensation(plan);
     var est = estimateCompensation(plan);
@@ -10415,22 +10441,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="income-sheet-head">' +
       '<button class="icon-btn income-back" type="button" data-act="close-modal" aria-label="Back">' +
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
-      '<h3>Compensation</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
+      '<h3>Details</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
+      payEntryCardsHtml(plan) +
       '<p class="caption">' + (compStubFigures()
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
         : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + "</p>" +
       '<div id="comp-estimates">' + compensationEstimateHtml(est) + "</div>" +
-      payStubDetailHtml(plan) +
+      payStubFoldHtml(plan) +
       (stubMode
         ? '<details class="comp-whatif" id="comp-whatif"' + (compWhatIfOpen ? " open" : "") + '><summary class="sheet-label">What-if from typed compensation</summary>' +
           '<div id="comp-whatif-est">' + compWhatIfHtml(est, true) + "</div>"
         : "") +
       '<p class="sheet-label">Compensation · per year</p>' +
       '<p class="caption annual-note">Every dollar amount on this screen is a yearly (annual) total, not per paycheck. Per-paycheck figures are only the suggested paycheck below.</p>' +
-      moneyRow("Base salary (per year)", "baseSalary", plan.baseSalary) +
-      '<div class="planner-row"><label>Bonus target (% of base salary)</label>' +
-      '<input name="bonusTargetPercent" data-act="comp-field" inputmode="decimal" type="text" value="' +
-      esc(plan.bonusTargetPercent || 0) + '"></div>' +
+      '<p class="caption">Base salary and bonus target are in “Type your pay” above.</p>' +
       incomeSyncSectionHtml() +
       '<p class="sheet-label">Employer · per year</p>' +
       employerToggleRow("Employer 401k base", "employer401kBase", "employer401kBaseIsPercent", plan, est.employerBase) +
@@ -12216,7 +12240,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.23";
+  var APP_VERSION = "37.5.59.24";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14725,7 +14749,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.23: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.24: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}

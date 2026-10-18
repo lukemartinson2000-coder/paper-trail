@@ -4433,3 +4433,19 @@ body.night .stub-head { border-bottom-color: var(--muted); }
 
 /* v37.5.59.23: shared year tiles sit in flow under the big numbers on every screen (never sticky). */
 .year-slider-bar.year-tiles{position:static;top:auto;border-bottom:0;box-shadow:none;margin:0 0 8px;padding:4px 0 2px}
+
+/* v37.5.59.24 */
+.stmt-foot .text-btn.details-btn,.details-btn{display:block;width:calc(100% - 32px);max-width:360px;margin:6px auto 2px;padding:13px 20px;min-height:48px;font-size:18px;font-weight:700;letter-spacing:.02em;color:var(--ink);background:var(--card);border:2px solid var(--ink);border-radius:6px;text-align:center;text-decoration:none}
+.details-btn:active{background:var(--rule)}
+.stmt-details-high{display:block;margin:10px 0 4px}
+.pay-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 6px}
+.pay-card{border:1px solid var(--rule);background:var(--card);border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pay-card-title{margin:0;font-weight:700;font-size:15px}
+.pay-card-fig{margin:0;font-size:20px;font-weight:700}
+.pay-card .caption{margin:0}
+.pay-card .planner-apply{margin-top:auto;font-size:14px}
+.pay-field{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.pay-field input{width:100%;box-sizing:border-box;border:1px solid var(--rule);background:var(--paper);border-radius:4px;padding:8px;font-size:15px;color:var(--ink)}
+.pay-year-link{font-size:13px;text-align:left;padding:2px 0;margin-top:auto}
+.stub-fold{margin:8px 0}.stub-fold>summary{cursor:pointer;padding:10px 0}
+.annual-pass .stmt-sheet .stmt-line{padding-top:8px;padding-bottom:8px}
