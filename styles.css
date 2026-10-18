@@ -4459,3 +4459,10 @@ body.night .fab-add{background:rgb(82,199,158);color:rgb(12,20,17);border:2px so
 .fab-add::before,.fab-add::after{content:"";position:absolute;left:50%;top:50%;background:#fff;border-radius:1px;transform:translate(-50%,-50%)}
 .fab-add::before{width:18px;height:3px}.fab-add::after{width:3px;height:18px}
 body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
+
+/* v37.5.59.27: welcome splash. 1s hold, 0.5s fade. */
+.welcome-splash{position:absolute;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:var(--paper);padding:0 28px;box-sizing:border-box;animation:splash-out .5s ease 1s forwards}
+.welcome-splash h1{margin:0;text-align:center;font-family:var(--serif);font-size:44px;line-height:1.1;font-weight:800;letter-spacing:-.01em;color:var(--ink)}
+.welcome-splash.is-static{animation:none}
+@keyframes splash-out{to{opacity:0;visibility:hidden}}
+@media (prefers-reduced-motion: reduce){.welcome-splash{animation:none}}

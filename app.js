@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.26. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.27. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.26: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.27: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -8394,7 +8394,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.26: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.27: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8589,7 +8589,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.26: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.27: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8669,7 +8669,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.26: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.27: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10397,7 +10397,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.26: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.27: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -11005,7 +11005,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   var WELCOME_SEEN_KEY = "PaperTrail.welcomeSeen";
   var WELCOME_PAGES = {
     welcome: {
-      kicker: "Welcome to Paper Trail!",
+      kicker: "",
       title: "People who don’t track tend to fare worse.",
       cta: "See the difference",
       /* stat = [big number, one short plain sentence, optional small note, source name + year] */
@@ -11026,6 +11026,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ]
     }
   };
+
+  /* v37.5.59.27: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+   * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
+  function showWelcomeSplash() {
+    try {
+      if (document.getElementById("welcome-splash")) return;
+      var host = document.querySelector(".phone") || document.body;
+      var el = document.createElement("div");
+      el.id = "welcome-splash";
+      el.className = "welcome-splash";
+      el.setAttribute("role", "status");
+      el.innerHTML = '<h1>Welcome to Paper Trail</h1>';
+      host.appendChild(el);
+      var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduce) el.classList.add("is-static");
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, reduce ? 700 : 1650);
+    } catch (e) {}
+  }
 
   function welcomeSeen() {
     try { return localStorage.getItem(WELCOME_SEEN_KEY) === "1"; } catch (err) { return true; }
@@ -12240,7 +12258,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.26";
+  var APP_VERSION = "37.5.59.27";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14749,7 +14767,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.26: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.27: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
@@ -15037,7 +15055,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (act === "open-about") { openAbout(); return; }
-    if (act === "show-intro") { openIntroSheet(0); return; }
+    if (act === "show-intro") { showWelcomeSplash(); openIntroSheet(0); return; }
     if (act === "intro-next") { openIntroSheet(1); return; }
     if (act === "intro-prev") { openIntroSheet(0); return; }
     if (act === "view-survey") { openSurveyResults(); return; }
@@ -16839,5 +16857,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (gradeErrors.length) console.error("Grade fixtures failed", gradeErrors);
   }
   render();
+  try {
+    if (!welcomeSeen() && state.onboarding && state.onboarding.status === "survey" && state.onboarding.screen === "welcome") showWelcomeSplash();
+  } catch (e) {}
   startTesterSchedule();
 })();
