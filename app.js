@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.18. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.19. */
 (function () {
   "use strict";
 
@@ -3185,9 +3185,9 @@
 
   var BS_ASSET_SECTIONS = [
     { id: "cash", title: "Cash", groups: ["cash"] },
-    /* "investment" is the brokerage group — same bucket as taxable, not a made-up account. */
+    /* "investment" is Amber's brokerage group — same bucket as taxable, not a made-up account. */
     { id: "investments", title: "Investments", groups: ["taxable", "retirement", "investment"] },
-    /* Cars and other lifestyle assets read as property, not investments (owner). */
+    /* Cars and other lifestyle assets read as property, not investments (owner 2026-10-04). */
     { id: "property", title: "Property", groups: ["realEstate", "lifestyle"] }
   ];
   /* Session-only. First pass stays collapsed; not written to the books. */
@@ -4974,7 +4974,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var annual = currentAnnualIncomeHeadline().amount;
     var income = monthIncome > 0 ? monthIncome : (annual > 0 ? annual / 12 : 0);
     /* v37.5.16: grade Spending bar = Basic savings rate (same as Income/Insights/Wrapped). */
-    /* v37.5.59: planned until every planned paycheck this month is received (the owner's rule). */
+    /* v37.5.59: planned until every planned paycheck this month is received (owner's rule). */
     var thInfo = GM.monthTakeHome(sums(used).income, used.transactions || [], used.incomes || [], takeHomeOpts(used));
     var takeHome = thInfo.amount;
     if (!(takeHome > 0) && income > 0) takeHome = income; // fall back to planned/annualized income already resolved
@@ -6694,7 +6694,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       html += '<p class="caption">Savings envelopes ' + money(r.basic.savings) + " ÷ take-home " + money(r.basic.takeHome) +
         " (this month’s " + esc(r.takeHomeLabel || "planned paychecks") + " · after tax, not gross).</p>" +
-        /* v37.5.59: say which denominator and why (the owner's rule). */
+        /* v37.5.59: say which denominator and why (owner's rule). */
         '<p class="caption basic-denominator">' +
         (r.takeHomePeriod === "past"
           ? (r.takeHomeSource === "received"
@@ -6948,7 +6948,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* Whole dollars from the Finances IS! tab. Blank cells stay null. Bonus is null every year.
      401k deferral is not folded into salary or total. */
-  /* v37.5.57: the owner's historical income statement. Used for demo seed + one-time
+  /* v37.5.57: owner's historical income statement. Used for demo seed + one-time
    * migration for existing devices that never persisted annualStatement. Fresh
    * users get emptyAnnualStatement() instead. */
   function sampleAnnualStatementSeed() {
@@ -6986,7 +6986,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { filingStatus: "single", years: {} };
   }
 
-  /* Kept as an alias for call sites that still say seed; demo/fresh restore use the sample book. */
+  /* Kept as an alias for call sites that still say seed; demo/fresh restore use owner's book. */
   function seedAnnualStatement() {
     return sampleAnnualStatementSeed();
   }
@@ -7024,7 +7024,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (book && typeof book === "object" && book.years && typeof book.years === "object") {
       return book;
     }
-    /* v37.5.57: missing book → empty years, never sample history. */
+    /* v37.5.57: missing book → empty years, never owner's history. */
     host.annualStatement = emptyAnnualStatement();
     return host.annualStatement;
   }
@@ -9279,7 +9279,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* ---- v37.5.59.2 (owner): add-transaction suggests the MERCHANT / payer, never the envelope ----
    * Suggestions = this device's past transactions of the same kind (expense or income) merged with
    * merchant seeds an import left in state.merchantSeeds (EveryDollar history, e.g. the employer payroll payee).
-   * Seeds live only in local state (written by the import page) — nothing about any user's merchants is
+   * Seeds live only in local state (written by the import page) — nothing about owner's merchants is
    * baked into app.js. Ranking: merchants seen in the last 45 days (vs. the newest activity) first,
    * then most frequent, then most recent. */
   function seedMerchantStats(kind) {
@@ -9321,7 +9321,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return limit ? list.slice(0, limit) : list;
   }
 
-  /* v37.5.59.6 (QA): lead with the real payer from history ("Acme Payroll, …"), not a generic "Employer". */
+  /* v37.5.59.6 (QA): lead with the real payer from history ("Acme Salary, …"), not a generic "Employer". */
   function incomePayeePlaceholder() {
     var top = suggestedPayees(true, 2).map(function (it) { return it.payee; }).filter(Boolean);
     return top.length ? "e.g. " + top.join(", ") + ", …" : "Employer, client, …";
@@ -9781,7 +9781,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 delete (Transactions tab only) ----
-   * Spec change: no Undo toast. Detail-view Delete (top) and the swipe/hover trash can both go
+   * Spec change from owner: no Undo toast. Detail-view Delete (top) and the swipe/hover trash can both go
    * through one confirm, then remove the whole transaction (splits, refund pieces, income link). */
   function findTx(month, txId) {
     var list = month.transactions || [];
@@ -10491,7 +10491,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="profile-section">Basics</p>' +
       '<label class="field">Name' +
       '<input data-act="profile-name" type="text" autocomplete="name" value="' +
-      esc(profile.name || "") + '" placeholder="Your name"></label>' +
+      esc(profile.name || "") + '" placeholder="owner"></label>' +
       '<label class="field">Phone' +
       '<input data-act="profile-phone" type="tel" autocomplete="tel" inputmode="tel" value="' +
       esc(profile.phone || "") + '" placeholder="(555) 010-0100"></label>' +
@@ -12040,7 +12040,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.18";
+  var APP_VERSION = "37.5.59.19";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -12335,6 +12335,88 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
+  /* ---- v37.5.59.19: Profile > Data > Import EveryDollar file ---------------------------------------
+   * The app ships with no imported data. The file the user picks carries an `edMerge` section
+   * ({ months: {"YYYY-M": month}, sources: {...}, merchantSeeds }). Each month goes through
+   * PaperTrailImport.mergeMonth: soft-merge by row id / source tag, hand-entered rows are never removed,
+   * re-importing the same file adds nothing. Merged on a copy; state is only replaced if every month merges. */
+  function readEdFile(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed = null;
+      try { parsed = JSON.parse(String(reader.result || "")); } catch (err) { parsed = null; }
+      applyEdImport(parsed, file.name || "file.json");
+    };
+    reader.onerror = function () { setDataStatus("Couldn’t read that file. Nothing was changed.", true); };
+    reader.readAsText(file);
+  }
+
+  function applyEdImport(parsed, fileName) {
+    var PI = window.PaperTrailImport;
+    var em = parsed && typeof parsed === "object" ? (parsed.edMerge || (parsed.kind === "PaperTrail.edMerge" ? parsed : null)) : null;
+    if (!PI) { setDataStatus("Import unavailable. Nothing was changed.", true); return; }
+    if (!em || typeof em !== "object" || !em.months || typeof em.months !== "object" || Array.isArray(em.months)) {
+      setDataStatus("Can’t import: that file has no EveryDollar data (edMerge). Nothing was changed.", true);
+      return;
+    }
+    var keys = Object.keys(em.months).filter(function (k) { return /^\d{4}-\d{1,2}$/.test(k); });
+    if (!keys.length) { setDataStatus("Can’t import: no months found in that file. Nothing was changed.", true); return; }
+    for (var vi = 0; vi < keys.length; vi++) {
+      var vm = em.months[keys[vi]];
+      if (!vm || typeof vm !== "object" || !Array.isArray(vm.categories) || (vm.transactions != null && !Array.isArray(vm.transactions))) {
+        setDataStatus("Can’t import: month " + keys[vi] + " is malformed. Nothing was changed.", true);
+        return;
+      }
+    }
+    keys.sort(function (a, b) { var x = a.split("-"), y = b.split("-"); return (Number(x[0]) - Number(y[0])) || (Number(x[1]) - Number(y[1])); });
+    var sources = em.sources && typeof em.sources === "object" ? em.sources : {};
+    function sourceFor(key) {
+      var found = "";
+      Object.keys(sources).forEach(function (rng) {
+        var m = /^(\d{4})-(\d{1,2})(?:\.\.(\d{1,2}))?$/.exec(rng);
+        var kb = /^(\d{4})-(\d{1,2})$/.exec(key);
+        if (!m || !kb || m[1] !== kb[1]) return;
+        var lo = Number(m[2]), hi = Number(m[3] || m[2]), mo = Number(kb[2]);
+        if (mo >= lo && mo <= hi) found = String(sources[rng]);
+      });
+      return found || "ed-import";
+    }
+    var work = { months: JSON.parse(JSON.stringify(state.months || {})) };
+    var rows = [], totalAdded = 0, totalPresent = 0, totalKept = 0, failed = "";
+    try {
+      keys.forEach(function (key) {
+        var src = JSON.parse(JSON.stringify(em.months[key]));
+        var source = sourceFor(key);
+        var cur = work.months[key];
+        var ours = !cur || cur.importedFrom === source || PI.isBlankMonth(cur);
+        var refresh = !ours || key === keys[keys.length - 1];
+        var r = PI.mergeMonth(work, key, src, { source: source, refreshPlan: refresh, keepAssigned: !ours, skipIncomeIfManual: !ours });
+        if (r.rejected) throw new Error("month " + key + " was rejected");
+        totalAdded += r.added; totalPresent += r.present; totalKept += r.kept;
+        var kb = key.split("-");
+        rows.push({ label: new Date(Number(kb[0]), Number(kb[1]) - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" }), r: r });
+      });
+    } catch (err) { failed = err && err.message ? err.message : "merge failed"; }
+    if (failed) { setDataStatus("Can’t import: " + failed + ". Nothing was changed.", true); return; }
+    state.months = work.months;
+    if (em.merchantSeeds && typeof em.merchantSeeds === "object") state.merchantSeeds = em.merchantSeeds;
+    saveState();
+    var html = '<div class="sheet ed-summary"><h3>EveryDollar import</h3>' +
+      '<p class="caption">' + esc(fileName) + " · " + PI.plural(totalAdded, "row") + " added, " + PI.plural(totalPresent, "row") + " already here, " + PI.plural(totalKept, "row") + " you entered kept.</p>" +
+      '<div class="sheet-table">' + rows.map(function (x) {
+        var r = x.r;
+        var note = r.skippedIncome ? "income skipped (you logged your own)" : (r.created ? "month added" : "updated");
+        return '<div class="row dense"><span>' + esc(x.label) + '</span><span class="mono">' + r.added + " added · " + r.present + " there · " + r.kept + " kept</span></div>" +
+          '<div class="caption ed-note">' + esc(note) + "</div>";
+      }).join("") + "</div>" +
+      '<div class="sheet-actions"><button class="primary" type="button" data-act="ed-summary-done">Done</button></div></div>';
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = html;
+    var sh = modal.querySelector(".sheet");
+    if (sh) sh.scrollTop = 0;
+  }
+
   function readRestoreFile(file) {
     // v37.5.59.12 (QA NEW-H1): no whole-file size precheck — Vault PDFs live in IndexedDB;
     // only the localStorage state payload matters, and applyRestore tests that write.
@@ -12506,7 +12588,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.57 Tester data sharing ----
-   * the owner's locked rules:
+   * owner's locked rules:
    *  ALWAYS (no opt-out): rates and changes — Basic/True savings rate, average tax, marginal brackets,
    *    YoY changes, plan-vs-spent % per category, category share % of spending, grade, streaks,
    *    feature usage counts, survey answers (choice answers only).
@@ -13074,6 +13156,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="data-btn" type="button" data-act="export-backup"><strong>Full backup</strong><span class="caption">.json · all app data + Vault files inlined as base64</span></button>' +
       '<button class="data-btn" type="button" data-act="restore-file"><strong>Restore from file…</strong><span class="caption">Checks the file first, then asks before replacing anything</span></button>' +
       '<input id="restore-file" data-act="restore-file-input" type="file" accept="application/json,.json" hidden>' +
+      '<button class="data-btn" type="button" data-act="ed-file"><strong>Import EveryDollar file…</strong><span class="caption">Adds months and transactions from a file you picked. Nothing you entered is removed; importing the same file again changes nothing</span></button>' +
+      '<input id="ed-file" data-act="ed-file-input" type="file" accept="application/json,.json" hidden>' +
       '<p class="caption" id="data-status" aria-live="polite"></p>' +
       '<p class="caption">Backup includes budgets, transactions (type, splits, refunds), income, Net Worth, Income statement / pay-stub snapshot, goals, settings, and Vault cards + files. Not included: nothing else is stored. A Vault file that can’t be read on this device is listed by name after export.</p>' +
       "</div>";
@@ -15183,6 +15267,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "restore-file") {
       var restoreInput = document.getElementById("restore-file");
       if (restoreInput) restoreInput.click();
+    } else if (act === "ed-file") {
+      var edInput = document.getElementById("ed-file");
+      if (edInput) edInput.click();
+    } else if (act === "ed-summary-done") {
+      closeModal();
+      openProfile();
     } else if (act === "restore-cancel") {
       pendingRestore = null;
       openProfile();
@@ -15263,7 +15353,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ensureAnnualStatement();
       var addY = currentYearMonth().year;
       ensureAnnualYearFromPrior(state.annualStatement, addY);
-      /* Fresh empty year — do not copy prior numbers into a first year. */
+      /* Fresh empty year — do not copy owner/prior numbers into a first year. */
       if (annualYearList(state.annualStatement).length === 1) {
         state.annualStatement.years[String(addY)] = {
           salary: null, bonus: null, sideGig: null, other: null, match: null,
@@ -16323,6 +16413,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (el.getAttribute("data-act") === "profile-doc" || el.getAttribute("data-act") === "profile-doc-file") {
       var file = el.files && el.files[0];
       if (file) addProfileDocument(file);
+      el.value = "";
+    } else if (el.getAttribute("data-act") === "ed-file-input") {
+      var edFile = el.files && el.files[0];
+      if (edFile) readEdFile(edFile);
       el.value = "";
     } else if (el.getAttribute("data-act") === "restore-file-input") {
       var restoreFile = el.files && el.files[0];
