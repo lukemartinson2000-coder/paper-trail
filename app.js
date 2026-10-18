@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.17. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.18. */
 (function () {
   "use strict";
 
@@ -339,7 +339,7 @@
     }
     plan.preTax = ensurePreTax(plan.preTax);
     if (plan.filingStatus !== "married") plan.filingStatus = "single";
-    /* v37.5.59.17: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
+    /* v37.5.59.18: employer base/match default to % entry. Saved dollar values keep $ mode; an empty $0 flips to %. */
     if (plan.employer401kBaseIsPercent == null) plan.employer401kBaseIsPercent = !(Number(plan.employer401kBase) > 0);
     if (plan.employer401kMatchIsPercent == null) plan.employer401kMatchIsPercent = !(Number(plan.employer401kMatch) > 0);
     plan.postTax = (plan.postTax || []).map(function (row) {
@@ -1006,7 +1006,7 @@
   }
 
   function defaultLineNames(envelope) {
-    /* v37.5.59.17: new-user default. Existing users' months are never rewritten. */
+    /* v37.5.59.18: new-user default. Existing users' months are never rewritten. */
     if (envelope === "Giving") return ["Tithes / Charity"];
     return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
   }
@@ -1229,7 +1229,7 @@
     render();
   }
 
-  /* ---- v37.5.59.17: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
+  /* ---- v37.5.59.18: press-and-hold menu on envelopes (Move / Delete) ---------------------------- */
   function txsTouchingLine(month, lineId) {
     return (month.transactions || []).filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
@@ -7244,7 +7244,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.3 (owner): actual YTD + projected remaining checks, capped at 2026 IRS limits.
    * Replaces stub × paychecks/year everywhere (brackets, Taxes, average tax, True). Cached per render input. */
   var payStubBasisCache = {};
-  /* ---- v37.5.59.17: Compensation → income statement sync, year-end salary target, line notes ----
+  /* ---- v37.5.59.18: Compensation → income statement sync, year-end salary target, line notes ----
    * Stored on this device only, in state.incomeSync / state.incomeTargets. Tester sharing is an allow-list
    * (buildTesterPayload) that never reads these, so targets and free-text notes are never shared.
    * Sync is an overlay: it never rewrites or deletes what the user typed on the income statement. */
@@ -8551,7 +8551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
 
 
-  /* v37.5.59.17: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
+  /* v37.5.59.18: "+" ahead of the timeline adds a prior year. Hidden until the current calendar year has balances. */
   function worthCurrentYearFilled() {
     var cy = new Date().getFullYear();
     if (state.worth.years.indexOf(cy) < 0) return false;
@@ -10808,10 +10808,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       kicker: "Welcome to Paper Trail!",
       title: "People who don’t track tend to fare worse.",
       cta: "See the difference",
+      /* stat = [big number, one short plain sentence, optional small note, source name + year] */
       stats: [
-        ["15.5%", "less than people actually spent: predicted vs. actual monthly spending · Journal of Marketing Research, 2022"],
-        ["58%", "of people too time-pressed or overwhelmed to budget carry a credit-card balance, vs. 45% of budgeters · FCAC Financial Capability Survey, 2019"],
-        ["39%", "of those same people have emergency savings, vs. 65% of budgeters · FCAC Financial Capability Survey, 2019"]
+        ["15.5%", "Spending predictions fell this far short of actual spending.", "", "Journal of Marketing Research, 2022"],
+        ["58%", "carry a credit-card balance, vs. 45% of budgeters.", "Among people too time-pressed or overwhelmed to budget.", "FCAC Financial Capability Survey, 2019"],
+        ["39%", "have emergency savings, vs. 65% of budgeters.", "Among those same people.", "FCAC Financial Capability Survey, 2019"]
       ]
     },
     welcome2: {
@@ -10819,9 +10820,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       title: "People who track tend to do better.",
       cta: "Continue",
       stats: [
-        ["72%", "of high-net-worth respondents track a portfolio or net worth · Long Angle survey, 2026"],
-        ["62%", "of high-net-worth respondents track a budget · Long Angle survey, 2026"],
-        ["$236", "less spent in a month, on average, by adults who wrote down their own spending self-control strategies, vs. a comparison group · Peetz & Davydenko, 2021"]
+        ["72%", "of high-net-worth respondents track a portfolio or net worth.", "", "Long Angle survey, 2026"],
+        ["62%", "of high-net-worth respondents track a budget.", "", "Long Angle survey, 2026"],
+        ["$236", "less spent per month, on average, by people using their own spending strategies.", "Versus a comparison group.", "Peetz & Davydenko, 2021"]
       ]
     }
   };
@@ -10837,13 +10838,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function welcomeCardsHtml(page) {
     return page.stats.map(function (st, i) {
       return '<div class="welcome-stat" style="animation-delay:' + (i * 90) + 'ms"><span class="welcome-num">' + esc(st[0]) +
-        '</span><span class="welcome-cap">' + esc(st[1]) + "</span></div>";
+        '</span><span class="welcome-cap">' + esc(st[1]) + "</span>" +
+        (st[2] ? '<span class="welcome-note-line">' + esc(st[2]) + "</span>" : "") +
+        '<span class="welcome-src">' + esc(st[3]) + "</span></div>";
     }).join("");
   }
 
   /* Profile › About & Privacy › "Replay intro" */
   function openIntroSheet(page) {
-    /* v37.5.59.17: the replay is two pages, same as first launch: page 1 = the "worse" stats only, page 2 = the "better" stats only. */
+    /* v37.5.59.18: the replay is two pages, same as first launch: page 1 = the "worse" stats only, page 2 = the "better" stats only. */
     page = page === 1 ? 1 : 0;
     if (page === 0) captureModalReturnScreenTop();
     var key = page === 0 ? "welcome" : "welcome2";
@@ -11118,7 +11121,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       };
   }
 
-  /* v37.5.59.17: readable survey results + retake. Answers live in state.onboarding.answers (saved state,
+  /* v37.5.59.18: readable survey results + retake. Answers live in state.onboarding.answers (saved state,
    * backups and export/import). Retake pre-fills them, skips the welcome pages, never touches budget, income
    * or net worth data, and puts the user back where they were. */
   function surveyResultRows() {
@@ -12037,7 +12040,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.17";
+  var APP_VERSION = "37.5.59.18";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14042,7 +14045,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.59.12 (QA M3): hard cap so a 20-digit paste can't become $1.22 or overflow totals. */
   var MONEY_MAX = 9999999.99;
-  /* v37.5.59.17 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
+  /* v37.5.59.18 (owner): no on-screen entry hints. Cents-mode behavior is unchanged; only the helper text is gone. */
   var MONEY_HINT_HTML = "";
   var moneyCapWarned = false;
 
@@ -15409,7 +15412,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         lineSpendList(month, found.line.id) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
-      /* v37.5.59.17 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
+      /* v37.5.59.18 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
       if (actEl.getAttribute("data-focus") === "assigned") {
         var focusAmount = function () {
           var amt = document.querySelector('#modal input[name="assigned"]');
