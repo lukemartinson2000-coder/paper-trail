@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.19. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.20. */
 (function () {
   "use strict";
 
@@ -133,7 +133,8 @@
     { id: "semiannual", title: "Semiannual", suffix: "/ 6 mo" },
     { id: "annual", title: "Annual", suffix: "/ yr" }
   ];
-  var LINE_SCRIPT_STYLE = "font-family:'PaperTrailScript','PaperTrailScriptAlt',cursive !important;font-size:24px;font-weight:500;font-style:normal;letter-spacing:0.02em;line-height:1.15";
+  /* v37.5.59.20: envelope line names use the clean UI sans from styles.css (no inline script font). */
+  var LINE_SCRIPT_STYLE = "";
   var DOC_SLOTS = [
     { id: "payStubs", title: "Pay stubs" },
     { id: "insurance", title: "Insurance" },
@@ -8661,9 +8662,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     html += "</div>";
 
-    /* v37.5.30: year slider sits once, immediately above the first asset group (Cash), and sticks only after scroll reaches it. */
-    html += renderWorthYearSlider(years);
-
     GROUPS.forEach(function (g) {
       var items = state.worth.lines.filter(function (l) { return l.group === g.id; });
       if (!items.length) return;
@@ -8745,6 +8743,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add loan</button>' +
       '<p class="caption quiet">Adds a liability you can name and give a balance. Budget loan balances land here too — payment and balance stay separate.</p></div>';
     html += '<p class="empty">Add year copies every line item into a new empty column (amounts start at $0). Annual return is (ending − prior − net additions) / prior. IRR treats each year’s net additions as outflows, then this year’s ending value as a separate final inflow.</p>';
+    /* v37.5.59.20: the By-year tiles (with the prior-year +) sit last, after every account group. */
+    html += renderWorthYearSlider(years);
     return html;
   }
 
@@ -12040,7 +12040,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.19";
+  var APP_VERSION = "37.5.59.20";
   var pendingRestore = null;
 
   function storagePayload() {
