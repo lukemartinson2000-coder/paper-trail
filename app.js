@@ -1205,13 +1205,13 @@
     var spendCount = month.transactions.filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
-    var message = "Delete " + cat.name + "?";
+    var message = "Delete " + cat.name + "?\n\n";
     if (spendCount === 0) {
-      message += " This envelope has no spending.";
+      message += "This envelope has no spending.";
     } else if (spendCount === 1) {
-      message += " This also deletes 1 spend on this envelope. Spends are not left behind without a category.";
+      message += "This also deletes 1 spend on this envelope. Spends are not left behind without a category.";
     } else {
-      message += " This also deletes " + spendCount + " spends on this envelope. Spends are not left behind without a category.";
+      message += "This also deletes " + spendCount + " spends on this envelope. Spends are not left behind without a category.";
     }
     if (!window.confirm(message)) return;
     month.transactions = month.transactions.filter(function (t) {
@@ -1368,7 +1368,7 @@
           html += '<button type="button" data-act="envmenu-line-to" data-id="' + esc(id) + '" data-to="' + esc(c.id) + '">Move to ' + esc(c.name) + "</button>";
         });
       }
-      html += '<button class="danger" type="button" data-act="envmenu-line-delete" data-id="' + esc(id) + '">Delete…</button></div>';
+      html += deleteBtnHtml("envmenu-line-delete", "Delete line", ' data-id="' + esc(id) + '"') + '</div>';
     } else {
       var cat = month.categories.filter(function (c) { return c.id === id; })[0];
       if (!cat) return;
@@ -1377,7 +1377,7 @@
       html += "<h3>" + esc(cat.name) + '</h3><div class="env-menu-list">' +
         '<button type="button" data-act="envmenu-cat-up" data-id="' + esc(id) + '"' + (ci <= 0 ? " disabled" : "") + ">Move up</button>" +
         '<button type="button" data-act="envmenu-cat-down" data-id="' + esc(id) + '"' + (ci >= cats.length - 1 ? " disabled" : "") + ">Move down</button>" +
-        '<button class="danger" type="button" data-act="envmenu-cat-delete" data-id="' + esc(id) + '">Delete…</button></div>';
+        deleteBtnHtml("envmenu-cat-delete", "Delete envelope", ' data-id="' + esc(id) + '"') + '</div>';
     }
     html += '<div class="sheet-actions"><button type="button" data-act="close-modal">Cancel</button></div></div>';
     var modal = document.getElementById("modal");
@@ -1454,13 +1454,13 @@
     var spendCount = month.transactions.filter(function (t) {
       return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
     }).length;
-    var message = "Delete " + found.line.name + "?";
+    var message = "Delete " + found.line.name + "?\n\n";
     if (spendCount === 0) {
-      message += " This line has no spending. Assigned dollars return to leftover.";
+      message += "This line has no spending. Assigned dollars return to leftover.";
     } else if (spendCount === 1) {
-      message += " This also deletes 1 spend on this line.";
+      message += "This also deletes 1 spend on this line.";
     } else {
-      message += " This also deletes " + spendCount + " spends on this line.";
+      message += "This also deletes " + spendCount + " spends on this line.";
     }
     if (!window.confirm(message)) return;
     var wasDebt = found.cat && /^debt$/i.test(found.cat.name);
@@ -2124,7 +2124,7 @@
         ") is already in Vault as “" + esc(dupOf.title || "Pay stub") + "”, confirmed. Nothing was added to Income.</p>" +
         '<div class="sheet-actions">' +
         '<button class="planner-apply" type="button" data-act="paystub-dup-open" data-id="' + esc(doc.id) + '" data-keep="' + esc(dupOf.id) + '">Open the saved one</button>' +
-        '<button class="text-btn" type="button" data-act="paystub-dup-discard" data-id="' + esc(doc.id) + '">Remove this copy</button>' +
+        deleteBtnHtml("paystub-dup-discard", "Delete this copy", ' data-id="' + esc(doc.id) + '"', true) +
         "</div></section>";
     }
     var failed = !!doc.payStubReadFailed || !!doc.payStubManual || (!(stub.gross > 0) && !(stub.net > 0));
@@ -4071,7 +4071,7 @@
           (index === 0 ? " disabled" : "") + ">Move up</button>" +
           '<button type="button" data-act="move-down" data-id="' + cat.id + '" aria-label="Move ' + esc(cat.name) + ' down"' +
           (index === ordered.length - 1 ? " disabled" : "") + ">Move down</button>" +
-          '<button class="danger" type="button" data-act="delete-category" data-id="' + cat.id + '">Delete</button></div>';
+          '' + deleteBtnHtml("delete-category", "Delete", ' data-id="' + cat.id + '"', true) + '</div>';
       }
       sortedLines(cat).forEach(function (line, lineIndex) {
         var lineSpent = spentOnLine(month, line.id);
@@ -4095,7 +4095,7 @@
             (lineIndex === 0 ? " disabled" : "") + ">Move up</button>" +
             '<button type="button" data-act="move-line-down" data-id="' + line.id + '"' +
             (lineIndex + 1 >= lines.length ? " disabled" : "") + ">Move down</button>" +
-            '<button class="danger" type="button" data-act="delete-line" data-id="' + line.id + '">Delete</button></div>';
+            '' + deleteBtnHtml("delete-line", "Delete", ' data-id="' + line.id + '"', true) + '</div>';
         }
         html += "</div>";
       });
@@ -4261,8 +4261,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<input type="hidden" name="goalReturn" value="' + esc(opts.returnTo || "stats") + '">';
     if (opts.error) html += '<p class="caption rust">' + esc(opts.error) + "</p>";
     if (!opts.isNew && selected) {
-      html += '<button class="text-btn danger" type="button" data-act="remove-goal" data-id="' +
-        esc(opts.id || "") + '" data-return="' + esc(opts.returnTo || "stats") + '">Remove</button>';
+      html += deleteBtnHtml("remove-goal", "Delete goal", ' data-id="' + esc(opts.id || "") + '" data-return="' + esc(opts.returnTo || "stats") + '"');
     }
     openSheet(opts.isNew ? "Add a goal" : "Edit goal", html, "save-goal");
   }
@@ -4441,8 +4440,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           '<input data-act="vault-field" data-id="' + esc(doc.id) + '" data-field="title" name="' +
           esc(vaultControlName(doc.id, "title")) + '" autocomplete="off" type="text" value="' +
           esc(doc.title || "") + '"></label>' +
-          '<button class="text-btn danger vault-row-delete" type="button" data-act="vault-delete" data-id="' +
-          esc(doc.id) + '">Delete</button></div>';
+          '' + deleteBtnHtml("vault-delete", "Delete", ' data-id="' + esc(doc.id) + '"', true) + '</div>';
       });
     }
     VAULT_TYPES.forEach(function (group) {
@@ -4478,8 +4476,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           '<input data-act="vault-field" data-id="' + esc(doc.id) + '" data-field="title" name="' +
           esc(vaultControlName(doc.id, "title")) + '" autocomplete="off" type="text" value="' +
           esc(doc.title || "") + '"></label>' +
-          '<button class="text-btn danger vault-row-delete" type="button" data-act="vault-delete" data-id="' +
-          esc(doc.id) + '">Delete</button></div>';
+          '' + deleteBtnHtml("vault-delete", "Delete", ' data-id="' + esc(doc.id) + '"', true) + '</div>';
       });
     });
     return html;
@@ -4640,8 +4637,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }
       }
     }
-    html += '<button class="text-btn danger vault-delete" type="button" data-act="vault-delete" data-id="' +
-      esc(id) + '">Delete</button>';
+    html += deleteBtnHtml("vault-delete", "Delete this card", ' data-id="' + esc(id) + '"');
     return html + "</div>";
   }
 
@@ -9809,8 +9805,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             html += field("Refund piece (this envelope)", "legRefund" + i, String(leg.refund || 0), "number");
           }
           html += field("Optional note", "legNote" + i, leg.note || "");
-          html += '<button class="text-btn danger" type="button" data-act="remove-split-leg" data-index="' +
-            i + '">Remove this split</button>';
+          html += deleteBtnHtml("remove-split-leg", "Delete this split", ' data-index="' + i + '"', true);
         });
         html += '<button class="planner-apply" type="button" data-act="add-split-leg">Add another envelope</button>';
         // Splits: remaining/chips still track primary (first) leg envelope.
@@ -9838,8 +9833,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<input type="hidden" name="id" value="' + esc(spendDraft.id) + '">';
       // v37.5.14 (owner): Delete lives at the TOP of the transaction detail, Transactions tab only.
       if (state.tab === "spend") {
-        html = '<div class="sheet-top-delete"><button class="danger-btn danger-top" type="button" data-act="delete-spend" data-id="' +
-          esc(spendDraft.id) + '">' + TRASH_SVG + '<span>Delete transaction</span></button></div>' + html;
+        html += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(spendDraft.id) + '"');
       }
     }
     openSheet(spendDraft.id ? "Edit transaction" : "Add transaction", html, "save-spend-sheet");
@@ -10342,8 +10336,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         methodOptions(row.method, true) + "</select>" +
         deductionValueInput("postTax", row) +
         '<span class="mono deduct-amt">' + money(deductionAmount(row, est.cashPay, net)) + "</span>" +
-        '<button class="text-btn danger" type="button" data-act="remove-post-tax" data-id="' +
-        esc(row.id) + '">Remove</button></div>';
+        deleteBtnHtml("remove-post-tax", "Delete", ' data-id="' + esc(row.id) + '"', true) + '</div>';
     }).join("");
     return rows + '<button class="planner-apply" type="button" data-act="add-post-tax">Add another</button>';
   }
@@ -10577,7 +10570,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += (ln.unit === "$"
           ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
           : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
-          '<p class="sd-stub"><button type="button" class="link-btn" data-sd="clear" data-line="' + ln.id + '">Clear manual value</button> · Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
+          '<p class="sd-stub">' + deleteBtnHtml("", "Clear manual value", ' data-sd="clear" data-line="' + ln.id + '"', true) + ' · Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
           (stub != null ? ' · <button type="button" class="link-btn" data-sd="mode-stub" data-line="' + ln.id + '">use stub</button>' : "") + "</p>" +
           '<input class="sd-note" data-sd="note" data-line="' + ln.id + '" type="text" maxlength="200" placeholder="Note (optional)" value="' + esc(st.note || "") + '" aria-label="' + ln.label + ' note">';
       }
@@ -10883,6 +10876,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function removePostTaxRow(id) {
+    if (!confirmDelete("this deduction", "It is removed from your post-tax deductions.")) return;
     var plan = migrateCompensation(state.compensation || defaultCompensation());
     plan.postTax = (plan.postTax || []).filter(function (row) { return row.id !== id; });
     state.compensation = plan;
@@ -12185,78 +12179,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeHelpPopup(); });
 
-  /* v37.5.59.40: visible Clear chip on the focused number field. Money fields empty to $0.00, % fields empty,
-   * and estimate assumptions go back to their default. */
-  var clearChipEl = null, clearChipTarget = null;
-  function isNumberEntry(t) {
-    return !!(t && t.getAttribute && t.tagName === "INPUT" && !t.readOnly &&
-      (t.hasAttribute("data-cents") || t.hasAttribute("data-dollars") || t.hasAttribute("data-pctc")));
+  /* v37.5.59.41: ONE delete component for the whole app: same look, same "Delete <thing>" label, same confirm. */
+  function deleteBtnHtml(act, label, attrs, inline) {
+    return '<button class="sheet-delete' + (inline ? " inline" : "") + '" type="button" ' + (act ? 'data-act="' + act + '"' : "") + (attrs || "") + ">" + label + "</button>";
   }
-  function placeClearChip() {
-    if (!clearChipEl || !clearChipTarget) return;
-    var el = clearChipTarget;
-    var r = el.getBoundingClientRect();
-    var cw = clearChipEl.offsetWidth || 64, ch = clearChipEl.offsetHeight || 28;
-    var cs = window.getComputedStyle(el);
-    var rightAligned = cs.textAlign === "right" || cs.textAlign === "end";
-    if (r.width >= 150 && rightAligned) {
-      /* Wide, right-aligned field: chip sits inside on the empty left; padding keeps the number clear of it. */
-      if (!el.dataset.chipPad) { el.dataset.chipPad = el.style.paddingLeft || "-"; }
-      el.style.paddingLeft = (cw + 18) + "px";
-      clearChipEl.style.left = (r.left + 8) + "px";
-      clearChipEl.style.top = (r.top + r.height / 2 - ch / 2) + "px";
-    } else {
-      /* Narrow or left-aligned field: chip hangs just below it, right-aligned, never over the number. */
-      clearChipEl.style.left = Math.max(4, Math.min(window.innerWidth - cw - 4, r.right - cw)) + "px";
-      clearChipEl.style.top = (r.bottom + 4) + "px";
-    }
+  function confirmDelete(thing, detail) {
+    return window.confirm("Delete " + thing + "?\n\n" + (detail || "This can’t be undone."));
   }
-  function hideClearChip() {
-    if (clearChipTarget && clearChipTarget.dataset && clearChipTarget.dataset.chipPad) {
-      var pad = clearChipTarget.dataset.chipPad;
-      clearChipTarget.style.paddingLeft = pad === "-" ? "" : pad;
-      delete clearChipTarget.dataset.chipPad;
-    }
-    if (clearChipEl) { clearChipEl.remove(); clearChipEl = null; }
-    clearChipTarget = null;
-  }
-  document.addEventListener("focusin", function (e) {
-    var t = e.target;
-    if (!isNumberEntry(t)) { if (!(clearChipEl && e.target === clearChipEl)) hideClearChip(); return; }
-    hideClearChip();
-    clearChipTarget = t;
-    clearChipEl = document.createElement("button");
-    clearChipEl.type = "button";
-    clearChipEl.className = "clear-chip";
-    clearChipEl.setAttribute("aria-label", "Clear this field");
-    clearChipEl.textContent = "Clear";
-    document.body.appendChild(clearChipEl);
-    placeClearChip();
-    clearChipEl.addEventListener("pointerdown", function (ev) { ev.preventDefault(); });
-    clearChipEl.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
-    clearChipEl.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      var el = clearChipTarget;
-      if (!el) return;
-      if (el.hasAttribute("data-proj")) { el.dataset.edited = "1"; resetProjAssumption(el); hideClearChip(); return; }
-      el.focus();
-      if (el.hasAttribute("data-pctc")) {
-        el.value = "";
-        el.dataset.pd = "";
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else {
-        try { el.select(); } catch (err) {}
-        el.dispatchEvent(new InputEvent("beforeinput", { inputType: "deleteContentBackward", cancelable: true, bubbles: true }));
-      }
-    });
-  }, true);
-  document.addEventListener("focusout", function (e) {
-    var t = e.target;
-    if (t === clearChipTarget) setTimeout(function () { if (document.activeElement !== clearChipTarget) hideClearChip(); }, 120);
-  }, true);
-  window.addEventListener("scroll", placeClearChip, true);
-  window.addEventListener("resize", placeClearChip);
 
   function projInputHtml(kind, label, value) {
     return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Math.round(Number(value)) + "%") + '" data-full="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
@@ -14128,8 +14057,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="doc-file-actions">' +
         '<button class="text-btn" type="button" data-act="open-profile-doc" data-id="' + esc(doc.id) + '">Open</button>' +
         '<button class="text-btn" type="button" data-act="edit-profile-doc" data-id="' + esc(doc.id) + '">Rename / tag</button>' +
-        '<button class="text-btn danger" type="button" data-act="remove-profile-doc" data-id="' +
-        esc(doc.id) + '">Delete</button></div></div>';
+        '' + deleteBtnHtml("remove-profile-doc", "Delete", ' data-id="' + esc(doc.id) + '"', true) + '</div></div>';
     });
     html += "</div>";
     return html;
@@ -14298,9 +14226,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function confirmDeleteVaultDoc(doc) {
     var label = (doc && String(doc.title || doc.fileName || "").replace(/^\s+|\s+$/g, "")) || "this card";
     if (findLinkedNwLiability(doc)) {
-      return window.confirm("Delete " + label + "? This removes the Vault card and unlinks it from Net Worth. The Net Worth row stays.");
+      return confirmDelete(label, "This removes the Vault card and unlinks it from Net Worth. The Net Worth row stays.");
     }
-    return window.confirm("Delete " + label + "? This removes only this Vault card.");
+    return confirmDelete(label, "This removes only this Vault card.");
   }
 
   function isEmptyVaultDraft(doc) {
@@ -14977,7 +14905,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<input name="salaryTarget" class="cents-input" data-cents="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" placeholder="—" value="' +
       esc(tg.salaryTarget ? money(tg.salaryTarget) : "") + '"></label>' +
       '<p class="caption">Optional. With pay stubs, remaining paychecks = (target − salary already paid) ÷ checks left, within IRS limits. Blank means no target.</p>' +
-      (tg.salaryTarget ? '<button class="text-btn" type="button" data-act="clear-salary-target" data-year="' + year + '">Clear year-end target</button>' : "") +
+      (tg.salaryTarget ? deleteBtnHtml("clear-salary-target", "Clear year-end target", ' data-year="' + year + '"', true) : "") +
       '<p class="section-label">Notes</p>' +
       NOTE_LINES.map(function (l) {
         return '<label class="field">' + esc(l.label) + ' note<input name="note_' + l.id + '" type="text" maxlength="300" placeholder="Optional" value="' + esc(tg.notes[l.id] || "") + '"></label>';
@@ -14989,7 +14917,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       taxParts +
       '<p class="caption">Blank stays blank. Pay-stub estimates stay live estimates when you Save — only a line you type over becomes yours. If you type a tax sub-line, Taxes = your typed lines + the estimate for the rest (read-only). Bracket picks are reference-only and never change Taxes. Saving writes only ' +
       year + '.</p>' +
-      '<button class="text-btn danger sheet-delete" type="button" data-act="delete-annual-year" data-year="' + year + '">Delete ' + year + ' column</button>' +
+      deleteBtnHtml("delete-annual-year", "Delete " + year + " column", ' data-year="' + year + '"') +
       '<input type="hidden" name="year" value="' + year + '">',
       "save-annual-year");
     var modal = document.getElementById("modal");
@@ -15894,6 +15822,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "vault-pdf-retry") {
       retryVaultPdfRead(actEl.getAttribute("data-id") || state.vaultDocId || "");
     } else if (act === "paystub-dup-open" || act === "paystub-dup-discard") {
+      if (act === "paystub-dup-discard" && !confirmDelete("this copy", "The original pay stub stays.")) return;
       // v37.5.59.6: drop the duplicate copy (or put the card back as it was, if it was an existing card).
       var dupId = actEl.getAttribute("data-id") || "";
       var dupDoc = findProfileDoc(dupId);
@@ -15991,6 +15920,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         });
       }
     } else if (act === "remove-goal") {
+      if (!confirmDelete("this goal", "Its plan is removed too.")) return;
       state.matters = migrateMatters(state.matters);
       var removeId = actEl.getAttribute("data-id") || "";
       state.matters.goals = (state.matters.goals || []).filter(function (id) { return id !== removeId; });
@@ -16073,6 +16003,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "remove-profile-doc") {
       var docId = actEl.getAttribute("data-id") || "";
       if (!docId) return;
+      var rpDoc = findProfileDoc(docId);
+      if (rpDoc && !confirmDeleteVaultDoc(rpDoc)) return;
       removeVaultDocumentById(docId);
       openProfile({ preserveScroll: true });
     } else if (act === "profile-doc-plus") {
@@ -16176,6 +16108,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         renderSpendSheet(month);
       }
     } else if (act === "remove-split-leg") {
+      if (!confirmDelete("this split", "Its amount is removed from the transaction.")) return;
       var rmForm = actEl.closest("form");
       readSpendDraft(rmForm);
       var rmIndex = Number(actEl.getAttribute("data-index"));
@@ -16481,6 +16414,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet((found.cat ? found.cat.name + " · " : "") + found.line.name,
         lineFields +
         lineSpendList(month, found.line.id) +
+        deleteBtnHtml("delete-line", "Delete " + esc(found.line.name), ' data-id="' + esc(found.line.id) + '"') +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
       /* v37.5.59.18 (owner): tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
@@ -16506,18 +16440,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       deleteEnvelopeKeepHistory(month, actEl.getAttribute("data-id"));
     } else if (act === "delete-income") {
       var delInc = actEl.getAttribute("data-id");
-      if (!window.confirm("Delete this paycheck from this month? Transactions already logged stay.")) return;
+      if (!confirmDelete("this paycheck", "It is removed from this month. Transactions already logged stay.")) return;
       month.incomes = (month.incomes || []).filter(function (i) { return i.id !== delInc; });
       saveState(); closeModal(); render();
     } else if (act === "delete-nw-line") {
       var delNw = actEl.getAttribute("data-id");
       var delNwLine = state.worth.lines.filter(function (l) { return l.id === delNw; })[0];
-      if (!delNwLine || !window.confirm("Delete " + delNwLine.name + " from your net worth? Every year of this line is removed.")) return;
+      if (!delNwLine || !confirmDelete(delNwLine.name, "Every year of this line is removed from your net worth.")) return;
       state.worth.lines = state.worth.lines.filter(function (l) { return l.id !== delNw; });
       saveState(); closeModal(); render();
     } else if (act === "delete-annual-year") {
       var delYr = String(actEl.getAttribute("data-year"));
-      if (!window.confirm("Delete the " + delYr + " column from your income statement? This can’t be undone.")) return;
+      if (!confirmDelete("the " + delYr + " column", "It is removed from your income statement.")) return;
       if (state.annualStatement && state.annualStatement.years) delete state.annualStatement.years[delYr];
       saveState(); closeModal(); render();
     } else if (act === "delete-line") {
@@ -16543,7 +16477,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet("Edit income",
         field("Name", "name", income.name) + field("Amount", "amount", String(income.amount), "money") +
         field("Date", "date", income.date, "date") +
-        '<button class="text-btn danger sheet-delete" type="button" data-act="delete-income" data-id="' + esc(income.id) + '">Delete paycheck</button>' +
+        deleteBtnHtml("delete-income", "Delete " + esc(income.name || "paycheck"), ' data-id="' + esc(income.id) + '"') +
         '<input type="hidden" name="id" value="' + esc(income.id) + '">',
         "save-income");
       /* v37.5.59.39: tapping the $ lands on Amount; tapping the row/name keeps Name first. */
@@ -16635,7 +16569,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           debtTypeSelect("loanDebtType", line.loanDebtType || "", line.name) +
           '<p class="caption">No matching Debt envelope line. Insights uses APR, min payment and type for payoff estimates (Money Guy order of operations — estimates, not advice).</p>';
       }
-      fields += '<button class="text-btn danger sheet-delete" type="button" data-act="delete-nw-line" data-id="' + esc(line.id) + '">Delete this line</button>';
+      fields += deleteBtnHtml("delete-nw-line", "Delete " + esc(line.name), ' data-id="' + esc(line.id) + '"');
       fields += '<input type="hidden" name="id" value="' + esc(line.id) + '">';
       openSheet("Edit " + line.name, fields, "save-line");
       /* v37.5.59.36: tapping the $ amount focuses the amount field; the Edit button keeps the name first. */
