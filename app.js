@@ -13028,13 +13028,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var docs = ((state.profile && state.profile.documents) || []).length > 0;
     var surveyDone = !!(ob.surveyCompletedAt || ob.surveyYear);
     var steps = [
-      { id: "envelopes", n: 1, title: "Build your budget", done: hasEnvelopes, go: "add-category" },
-      { id: "income", n: 2, title: "Add your income", done: hasIncome, go: "add-income" }
+      { id: "envelopes", n: 1, title: "Build your budget", done: hasEnvelopes, go: "ob-cl-go-budget" },
+      { id: "income", n: 2, title: "Add your income", done: hasIncome, go: "ob-cl-go-income" }
     ];
     if (ob.needsWorth !== false || worthHasData()) {
       steps.push({ id: "worth", n: 3, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
     }
-    steps.push({ id: "paystub", n: 4, title: "Add to the Vault", done: hasStub || docs, go: "vault-add-paystub" });
+    steps.push({ id: "paystub", n: 4, title: "Add to the Vault", done: hasStub || docs, go: "ob-cl-go-vault" });
     steps.push({ id: "survey", n: 5, title: "Complete the welcome survey", done: surveyDone, go: "ob-finish-survey" });
     steps.forEach(function (st) { st.skipped = !!(ob.skipped || {})[st.id] && !st.done; });
     return steps;
@@ -14490,6 +14490,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
     } else if (act === "ob-cl-go-worth") {
       onTab("worth");
+    } else if (act === "ob-cl-go-income") {
+      /* v37.5.59.63: income step opens the Income statement (salary, deductions, pay stub upload), not a paycheck editor. */
+      closeModal();
+      onTab("budget");
+      var scr0 = document.getElementById("screen"); if (scr0) scr0.scrollTop = 0;
+      openIncomeStatement();
+      [].forEach.call(document.querySelectorAll("#modal, #modal .sheet, #modal .sheet-body"), function (el) { el.scrollTop = 0; });
+    } else if (act === "ob-cl-go-budget") {
+      /* v37.5.59.63: checklist Go just takes you to Budget (no editor opens); scroll to the right section. */
+      closeModal();
+      onTab("budget");
+      var tgt = document.querySelector(act === "ob-cl-go-income" ? ".income-add" : "[data-act=add-category]");
+      if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: "center" });
+    } else if (act === "ob-cl-go-vault") {
+      closeModal();
+      state.tab = "stats"; state.statsDoor = "vault"; state.vaultDocId = "";
+      saveState(); render();
     } else if (act === "ob-hide") {
       ob.hidden = true;
       saveState();
@@ -14762,7 +14779,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.62";
+  var APP_VERSION = "37.5.59.63";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
