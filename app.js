@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.44. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.45. */
 (function () {
   "use strict";
 
@@ -2282,7 +2282,7 @@
           // v37.5.59.3: deductions from actual YTD + projected remaining checks (all confirmed stubs)
           stubs: confirmedPayStubs(),
           frequency: payFrequencyOf(plan),
-          hsaCoverage: hsaCoverageOf(),
+          hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(),
           ageAtYearEnd: ageAtYearEnd(stub.payDate ? Number(String(stub.payDate).slice(0, 4)) : currentYearMonth().year),
           bonusMonth: bonusMonthOf(),
           bonusTargetPercent: Number(plan.bonusTargetPercent) || 0
@@ -6951,7 +6951,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var b = payStubBasisFor(new Date().getFullYear());
         return b ? roundCents(b.actual.hsa + b.actual.erHsa) : (Number(est && est.hsa) || 0);
       })(),
-      hsaCoverage: hsaCoverageOf(),
+      hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(),
       year: new Date().getFullYear()
     });
     var bits = [];
@@ -7414,7 +7414,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function hsaCoverageOf() {
     var c = state.compensation && state.compensation.hsaCoverage;
     if (c === "family" || c === "self") return c;
-    return filingStatusOf(state.compensation) === "married" ? "family" : "self";
+    return "self"; // v37.5.59.45: Single (self-only) until you pick Family (the lower, safer limit)
+  }
+  /* v37.5.59.45: 55+ HSA catch-up. true/false = your choice on the HSA line; null = from your birthday. */
+  function hsaCatchUpOf() {
+    var v = state.compensation && state.compensation.hsaCatchUp;
+    return v === true || v === false ? v : null;
   }
 
   function ageAtYearEnd(year) {
@@ -7510,7 +7515,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       year: Number(year),
       frequency: payFrequencyOf(plan),
       paychecksPerYear: plan.paychecksPerYear,
-      hsaCoverage: hsaCoverageOf(),
+      hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(),
       ageAtYearEnd: ageAtYearEnd(year),
       // v37.5.59.4: a bonus is projected only if its month is still ahead (bonusMonth); amount = typed bonus, else target %.
       bonusMonth: bonusMonthOf(),
@@ -7549,7 +7554,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var plan = state.compensation || {};
       var noBonus = gm().payStubYearBasis(stubs, {
         year: year, frequency: payFrequencyOf(plan), paychecksPerYear: plan.paychecksPerYear,
-        hsaCoverage: hsaCoverageOf(), ageAtYearEnd: ageAtYearEnd(year), bonusMonth: bonusMonthOf(),
+        hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(), ageAtYearEnd: ageAtYearEnd(year), bonusMonth: bonusMonthOf(),
         bonusAmount: null, bonusTargetPercent: Number(plan.bonusTargetPercent) || 0
       });
       var candidates = [];
@@ -10788,24 +10793,56 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out.map(function (r) { r.kind = perCheckKind(r.name); r.ficaExempt = r.preTax && r.kind !== "retirement"; r.source = "stub"; return r; });
   }
   /* Max out HSA: per check = (IRS limit for your coverage − YTD in, employee + employer − employer HSA still to come) ÷ checks left. */
-  function hsaMaxInfo(plan) {
-    var year = currentYearMonth().year;
-    var limits = gm().pretaxLimitsFor ? gm().pretaxLimitsFor(year, { hsaCoverage: hsaCoverageOf(), ageAtYearEnd: ageAtYearEnd(year) }) : null;
-    if (!limits) return null;
+  /* v37.5.59.45: employer HSA for the year. Stub = employer HSA already in (stub YTD) + this stub's employer
+   * per check × checks left; Manual = what you type. plan.hsaEmployer = { mode: "stub"|"manual", v }. */
+  function hsaEmployerStub(year) {
+    var basis = payStubBasisFor(currentYearMonth().year, true);
+    if (!basis) return null;
+    var stubs = confirmedPayStubs();
+    var erPer = stubs.length && gm().payStubCheckFigures ? (gm().payStubCheckFigures(stubs[stubs.length - 1]).erHsa || 0) : 0;
+    var erYtd = basis.hasYtd ? (basis.actual.erHsa || 0) : 0;
+    if (!(erPer > 0) && !(erYtd > 0)) return null;
+    var plan = state.compensation || {};
     var checks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
-    var basis = payStubBasisFor(year, true);
+    if (Number(year) !== currentYearMonth().year) return { year: roundCents(erPer * checks), ytd: 0, ahead: roundCents(erPer * checks), perCheck: erPer };
+    var left = (basis.projected || []).length;
+    return { year: roundCents(erYtd + erPer * left), ytd: roundCents(erYtd), ahead: roundCents(erPer * left), perCheck: erPer };
+  }
+  function hsaEmployerInfo(plan, year) {
+    var stub = hsaEmployerStub(year);
+    var e = plan.hsaEmployer || (state.compensation && state.compensation.hsaEmployer) || {};
+    var mode = e.mode === "manual" || e.mode === "stub" ? e.mode : (stub ? "stub" : "manual");
+    if (mode === "stub" && !stub) mode = "manual";
+    var manualV = Math.max(0, Number(e.v) || 0);
+    return { mode: mode, stub: stub, manual: manualV, year: mode === "stub" ? stub.year : manualV };
+  }
+  /* Max out HSA = (IRS limit for your coverage [+ $1,000 at 55+] − your HSA so far this year − employer HSA
+   * for the whole year, already paid included) ÷ paychecks left. The limit is the plan year's (2026, 2027…). */
+  function hsaMaxInfo(plan, year) {
+    var thisYear = currentYearMonth().year;
+    year = Number(year) || thisYear;
+    var limits = gm().pretaxLimitsFor ? gm().pretaxLimitsFor(year, { hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(), ageAtYearEnd: ageAtYearEnd(year) }) : null;
+    var H = gm().hsaLimitFor ? gm().hsaLimitFor(year, { hsaCoverage: hsaCoverageOf(), hsaCatchUp: hsaCatchUpOf(), ageAtYearEnd: ageAtYearEnd(year) }) : null;
+    if (!limits && !H) return null;
+    var limit = H ? H.limit : limits.hsa;
+    var checks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
+    var er = hsaEmployerInfo(plan, year);
+    var yourMax = roundCents(Math.max(0, limit - er.year));
+    var basis = year === thisYear ? payStubBasisFor(year, true) : null;
+    var out = { year: year, limit: limit, coverage: H ? H.coverage : limits.hsaCoverage, catchUp: H ? H.catchUp > 0 : false,
+      source: H ? H.source : "", provisional: H ? H.provisional : false, employer: er.year, employerMode: er.mode, yourMax: yourMax };
     if (basis && basis.hasYtd) {
       var left = (basis.projected || []).length;
-      var ytd = roundCents((basis.actual.hsa || 0) + (basis.actual.erHsa || 0));
-      var stubs = confirmedPayStubs();
-      var erPer = gm().payStubCheckFigures ? (gm().payStubCheckFigures(stubs[stubs.length - 1]).erHsa || 0) : 0;
-      var room = Math.max(0, limits.hsa - ytd - erPer * left);
+      var yourYtd = roundCents(basis.actual.hsa || 0);
+      var room = Math.max(0, yourMax - yourYtd);
       var pcMax = left > 0 ? Math.floor(room / left * 100) / 100 : 0;
-      return { year: year, limit: limits.hsa, coverage: limits.hsaCoverage, ytd: ytd, employerAhead: roundCents(erPer * left), left: left,
-        perCheck: pcMax, fromStub: true, yearEmployee: roundCents((basis.actual.hsa || 0) + pcMax * left) };
+      out.ytd = yourYtd; out.left = left; out.perCheck = pcMax; out.fromStub = true;
+      out.yearEmployee = roundCents(yourYtd + pcMax * left);
+      return out;
     }
-    return { year: year, limit: limits.hsa, coverage: limits.hsaCoverage, ytd: null, employerAhead: 0, left: checks,
-      perCheck: Math.floor(limits.hsa / checks * 100) / 100, fromStub: false, yearEmployee: roundCents(Math.floor(limits.hsa / checks * 100) / 100 * checks) };
+    var pc = Math.floor(yourMax / checks * 100) / 100;
+    out.ytd = null; out.left = checks; out.perCheck = pc; out.fromStub = false; out.yearEmployee = roundCents(pc * checks);
+    return out;
   }
   function perCheckManualResolved(plan) {
     var mx = null;
@@ -10911,7 +10948,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "Dollars taken out of each paycheck. Lines from your confirmed pay stub show here; add your own line to change or add one (same name replaces the stub line). " +
       "Pre-tax lowers federal and state taxable wages. Medical, dental and vision through a Section 125 plan, plus HSA and FSA through payroll, also skip Social Security and Medicare (7.65%). " +
       "Pre-tax retirement (401k) doesn’t skip FICA. Post-tax lines just lower take-home. Yearly totals = per check × " + checks + " paychecks. " +
-      "Max out HSA = (IRS HSA limit for your coverage − already in this year, yours + employer − employer HSA still to come) ÷ paychecks left, held to the yearly limit. Estimates, not tax advice.") + "</p>";
+      "Max out HSA = (IRS HSA limit for your coverage and year, +$1,000 if 55+ − employer HSA for the whole year, already paid included − your HSA so far) ÷ paychecks left. Limits: 2026 $4,400 single / $8,750 family (IRS Rev. Proc. 2025-19); 2027 $4,500 / $9,000 (Rev. Proc. 2026-24). Estimates, not tax advice.") + "</p>";
     if (m.stub.length) {
       html += '<p class="caption pc-sub">From your pay stub</p>';
       m.stub.forEach(function (s) {
@@ -10937,11 +10974,33 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         deleteBtnHtml("", "Delete", ' data-pc="delete" data-id="' + esc(r.id) + '"', true) + "</div>";
       if (kind === "hsa") {
         var mx = hsaMaxInfo(plan);
-        html += '<label class="check pc-max"><input type="checkbox" data-pc="maxhsa" data-id="' + esc(r.id) + '"' + (r.maxHsa ? " checked" : "") + "> Max out HSA</label>";
-        if (r.maxHsa && mx) {
-          html += '<p class="caption pc-maxnote">' + money(mx.perCheck) + " per check = (" + moneyWhole(mx.limit) + " " + mx.year + " " + (mx.coverage === "family" ? "family" : "self-only") + " limit" +
-            (mx.fromStub ? " − " + money(mx.ytd) + " in so far" + (mx.employerAhead > 0 ? " − " + money(mx.employerAhead) + " employer still to come" : "") : "") +
-            ") ÷ " + mx.left + " paycheck" + (mx.left === 1 ? "" : "s") + (mx.fromStub ? " left" : " a year") + ".</p>";
+        var cov = hsaCoverageOf(), er = hsaEmployerInfo(plan, currentYearMonth().year), rid = esc(r.id);
+        var cuOn = mx ? mx.catchUp : false;
+        html += '<div class="pc-hsa">' +
+          '<div class="pc-hsa-row"><span class="pc-hsa-lab">Coverage</span><div class="sd-seg" role="group" aria-label="HSA coverage">' +
+          '<button type="button" class="' + (cov === "self" ? "on" : "") + '" data-pc="cov-self" data-id="' + rid + '" aria-pressed="' + (cov === "self") + '">Single</button>' +
+          '<button type="button" class="' + (cov === "family" ? "on" : "") + '" data-pc="cov-family" data-id="' + rid + '" aria-pressed="' + (cov === "family") + '">Family</button></div></div>' +
+          '<label class="check pc-max pc-catchup"><input type="checkbox" data-pc="catchup" data-id="' + rid + '"' + (cuOn ? " checked" : "") + "> Age 55+ catch-up (+$1,000)" +
+          (hsaCatchUpOf() == null ? ' <span class="caption">· from your birthday</span>' : "") + "</label>" +
+          '<div class="pc-hsa-row"><span class="pc-hsa-lab">Employer adds per year</span><div class="sd-seg" role="group" aria-label="Employer HSA source">' +
+          '<button type="button" class="' + (er.mode === "stub" ? "on" : "") + '" data-pc="er-stub" data-id="' + rid + '"' + (er.stub ? "" : " disabled") + ' aria-pressed="' + (er.mode === "stub") + '">Stub</button>' +
+          '<button type="button" class="' + (er.mode === "manual" ? "on" : "") + '" data-pc="er-manual" data-id="' + rid + '" aria-pressed="' + (er.mode === "manual") + '">Manual</button></div></div>' +
+          '<input class="pc-amt-in pc-er-in cents-input mono" data-pc="er-amt" data-dollars="1" data-id="' + rid + '" inputmode="numeric" autocomplete="off" type="text" value="' +
+          esc(money(er.year)) + '"' + (er.mode === "stub" ? " readonly" : "") + ' aria-label="Employer HSA per year">' +
+          (er.mode === "stub" && er.stub ? '<p class="caption pc-ernote">From your stub: ' + money(er.stub.ytd) + " in so far + " + money(er.stub.ahead) + " still to come.</p>" : "") +
+          "</div>";
+        html += '<label class="check pc-max"><input type="checkbox" data-pc="maxhsa" data-id="' + rid + '"' + (r.maxHsa ? " checked" : "") + "> Max out HSA</label>";
+        if (mx) {
+          html += '<p class="pc-hsa-sum" id="hsa-sum">Your max: <b>' + moneyWhole(mx.yourMax) + "/yr</b> · Employer <b>" + moneyWhole(mx.employer) + "</b> · Limit <b>" + moneyWhole(mx.limit) + "</b></p>";
+          if (r.maxHsa) {
+            html += '<p class="caption pc-maxnote">' + money(mx.perCheck) + " per check = (" + moneyWhole(mx.limit) + " " + mx.year + " " + (mx.coverage === "family" ? "family" : "self-only") + " limit" +
+              (mx.catchUp ? " incl. $1,000 catch-up" : "") + " − " + money(mx.employer) + " employer" +
+              (mx.fromStub ? " − " + money(mx.ytd) + " yours so far" : "") +
+              ") ÷ " + mx.left + " paycheck" + (mx.left === 1 ? "" : "s") + (mx.fromStub ? " left" : " a year") + ".</p>";
+          }
+          var nx = hsaMaxInfo(plan, mx.year + 1);
+          if (nx) html += '<p class="caption pc-nextyr" id="hsa-next">' + nx.year + ": your max " + moneyWhole(nx.yourMax) + "/yr · limit " + moneyWhole(nx.limit) +
+            (nx.provisional ? " (" + nx.year + " IRS limit not out yet; " + (nx.year - 1) + " used)" : "") + ".</p>";
         }
       }
       html += "</div>";
@@ -10984,6 +11043,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       rerender = kind === "change";
     } else if (pc === "pre" || pc === "post") row.preTax = pc === "pre";
     else if (pc === "maxhsa") row.maxHsa = !!el.checked;
+    else if (pc === "cov-self" || pc === "cov-family") plan.hsaCoverage = pc === "cov-family" ? "family" : "self";
+    else if (pc === "catchup") plan.hsaCatchUp = !!el.checked;
+    else if (pc === "er-stub" || pc === "er-manual") {
+      var erNow = hsaEmployerInfo(plan, currentYearMonth().year);
+      plan.hsaEmployer = { mode: pc === "er-stub" ? "stub" : "manual", v: plan.hsaEmployer && plan.hsaEmployer.v != null ? plan.hsaEmployer.v : (erNow.stub ? erNow.stub.year : 0) };
+    } else if (pc === "er-amt") {
+      if (el.readOnly) return;
+      var ev = statedParse(el);
+      plan.hsaEmployer = { mode: "manual", v: ev == null ? 0 : ev };
+      rerender = kind === "change";
+    }
     else if (pc === "delete") {
       if (!confirmDelete(row.name || "this deduction", "It is removed from your per-check deductions.")) return;
       plan.perCheck = plan.perCheck.filter(function (r) { return r.id !== id; });
@@ -10999,7 +11069,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   document.addEventListener("change", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-pc")) perCheckHandle(t, "change"); });
   document.addEventListener("input", function (e) {
     var t = e.target;
-    if (t && t.getAttribute && (t.getAttribute("data-pc") === "amount" || t.getAttribute("data-pc") === "name")) perCheckHandle(t, "input");
+    if (t && t.getAttribute && (t.getAttribute("data-pc") === "amount" || t.getAttribute("data-pc") === "name" || t.getAttribute("data-pc") === "er-amt")) perCheckHandle(t, "input");
   });
   document.addEventListener("focusout", function (e) {
     var t = e.target;
@@ -11008,6 +11078,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var v0 = statedParse(t);
       if (r0 && (v0 == null ? 0 : v0) !== Number(r0.amount)) setTimeout(function () { if (document.body.contains(t)) perCheckHandle(t, "change"); }, 0);
     }
+    if (t && t.getAttribute && t.getAttribute("data-pc") === "er-amt" && !t.readOnly) setTimeout(function () { if (document.body.contains(t)) perCheckHandle(t, "change"); }, 0);
   }, true);
   document.addEventListener("click", function (e) {
     var t = e.target && e.target.closest ? e.target.closest("button[data-pc]") : null;
@@ -13381,7 +13452,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.44";
+  var APP_VERSION = "37.5.59.45";
   var pendingRestore = null;
 
   function storagePayload() {

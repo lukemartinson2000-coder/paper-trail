@@ -407,8 +407,7 @@
     var rothLimit = year >= 2026 ? 7500 : 7000;
     var rothCatchup = year >= 2026 ? 1100 : 1000;
     if (age != null && age >= 50) rothLimit += rothCatchup;
-    var hsaLimit = familyHsa ? (year >= 2026 ? 8750 : 8550) : (year >= 2026 ? 4400 : 4300);
-    if (age != null && age >= 55) hsaLimit += 1000;
+    var hsaLimit = hsaLimitFor(year, { hsaCoverage: familyHsa ? "family" : "self", ageAtYearEnd: age, hsaCatchUp: input.hsaCatchUp }).limit;
     var phaseLow = filing === "married" ? 242000 : 153000;
     var phaseHigh = filing === "married" ? 252000 : 168000;
     if (year < 2026) {
@@ -3229,12 +3228,12 @@
       withThis.push(snapCopy);
       basis = payStubYearBasis(withThis, {
         year: stubYear, frequency: opts.frequency, paychecksPerYear: checks,
-        hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd,
+        hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd, hsaCatchUp: opts.hsaCatchUp,
         bonusMonth: opts.bonusMonth, bonusAmount: opts.bonusAmount, bonusTargetPercent: opts.bonusTargetPercent
       });
     }
-    var limits = (basis && basis.limits) || pretaxLimitsFor(stubYear, { hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd }) ||
-      pretaxLimitsFor(2026, { hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd });
+    var limits = (basis && basis.limits) || pretaxLimitsFor(stubYear, { hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd, hsaCatchUp: opts.hsaCatchUp }) ||
+      pretaxLimitsFor(2026, { hsaCoverage: opts.hsaCoverage, ageAtYearEnd: opts.ageAtYearEnd, hsaCatchUp: opts.hsaCatchUp });
     var fig = payStubCheckFigures(stub);
     function cappedAnnual(perCheck, cap) {
       var a = annualizePayStubAmount(perCheck, checks);
@@ -3343,7 +3342,44 @@
    * Limits (2026): 401k elective deferral $24,500 (+$8,000 age 50+, $11,250 ages 60–63) — IRS Notice
    * 2025-67 / IR-2025-111. HSA $4,400 self-only, $8,750 family (+$1,000 age 55+) — IRS Rev. Proc. 2025-19.
    * Health FSA salary reduction $3,400 — IRS Rev. Proc. 2025-32 §3.15. Social Security wage base $184,500. */
+  /* v37.5.59.45: HSA limits by year (IRS § 223(b)(2) inflation adjustments; +$1,000 at 55+ is statutory,
+   * § 223(b)(3)(B), not indexed). 2025 Rev. Proc. 2024-25; 2026 Rev. Proc. 2025-19; 2027 Rev. Proc. 2026-24.
+   * A year past the table uses the latest year and says so (provisional). */
+  var HSA_LIMITS = {
+    2025: { self: 4300, family: 8550, source: "IRS Rev. Proc. 2024-25" },
+    2026: { self: 4400, family: 8750, source: "IRS Rev. Proc. 2025-19" },
+    2027: { self: 4500, family: 9000, source: "IRS Rev. Proc. 2026-24" }
+  };
+  var HSA_CATCH_UP_55 = 1000;
+  function hsaLimitFor(year, opts) {
+    opts = opts || {};
+    var y = Number(year) || new Date().getFullYear();
+    var years = Object.keys(HSA_LIMITS).map(Number).sort(function (a, b) { return a - b; });
+    var use = HSA_LIMITS[y] ? y : (y > years[years.length - 1] ? years[years.length - 1] : years[0]);
+    var L = HSA_LIMITS[use];
+    var family = opts.hsaCoverage === "family";
+    var age = opts.ageAtYearEnd == null || opts.ageAtYearEnd === "" ? null : Number(opts.ageAtYearEnd);
+    var catchUp = opts.hsaCatchUp === true || opts.hsaCatchUp === false ? opts.hsaCatchUp : (age != null && age >= 55);
+    return { year: y, limitYear: use, provisional: use !== y, coverage: family ? "family" : "self", base: family ? L.family : L.self,
+      catchUp: catchUp ? HSA_CATCH_UP_55 : 0, limit: (family ? L.family : L.self) + (catchUp ? HSA_CATCH_UP_55 : 0), source: L.source };
+  }
+
   var PRETAX_LIMITS = {
+    /* 2027: HSA (Rev. Proc. 2026-24) and Social Security wage base $192,300 (SSA, Oct 2026) are published.
+     * The 2027 401k and health FSA figures were not yet published by the IRS when this was built,
+     * so the 2026 figures stand in (marked provisional). */
+    2027: {
+      k401: 24500, k401CatchUp50: 8000, k401CatchUp6063: 11250,
+      hsaCatchUp55: 1000,
+      healthFsa: 3400, ssWageBase: 192300,
+      provisional: { k401: true, fsa: true },
+      sources: {
+        k401: "2026 figure (IRS 2027 notice not yet out)",
+        hsa: "IRS Rev. Proc. 2026-24",
+        fsa: "2026 figure (IRS 2027 Rev. Proc. not yet out)",
+        ssWageBase: "SSA 2027 contribution and benefit base"
+      }
+    },
     2026: {
       k401: 24500, k401CatchUp50: 8000, k401CatchUp6063: 11250,
       hsaSelf: 4400, hsaFamily: 8750, hsaCatchUp55: 1000,
@@ -3365,10 +3401,12 @@
     var k401 = L.k401;
     if (age != null && age >= 60 && age <= 63) k401 += L.k401CatchUp6063;
     else if (age != null && age >= 50) k401 += L.k401CatchUp50;
-    var hsa = (family ? L.hsaFamily : L.hsaSelf) + (age != null && age >= 55 ? L.hsaCatchUp55 : 0);
+    var H = hsaLimitFor(year, { hsaCoverage: opts.hsaCoverage, ageAtYearEnd: age, hsaCatchUp: opts.hsaCatchUp });
+    var hsa = H.limit;
     return {
       year: Number(year), k401: k401, hsa: hsa, fsa: L.healthFsa, ssWageBase: L.ssWageBase,
-      hsaCoverage: family ? "family" : "self", ageKnown: age != null, sources: L.sources
+      hsaCoverage: family ? "family" : "self", hsaCatchUp: H.catchUp > 0, hsaBase: H.base, ageKnown: age != null, sources: L.sources,
+      provisional: L.provisional || null
     };
   }
 
@@ -6749,6 +6787,7 @@
     applyPayStubToCompensation: applyPayStubToCompensation,
     PRETAX_LIMITS: PRETAX_LIMITS,
     pretaxLimitsFor: pretaxLimitsFor,
+    hsaLimitFor: hsaLimitFor,
     payStubCheckFigures: payStubCheckFigures,
     payStubYtdFigures: payStubYtdFigures,
     payStubYearBasis: payStubYearBasis,
