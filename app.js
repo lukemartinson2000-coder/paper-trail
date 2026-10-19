@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.49. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.50. */
 (function () {
   "use strict";
 
@@ -6866,7 +6866,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var gh = wrapNwHeadline(sl.graph.end - sl.graph.start, sl.graph.start);
       o.title = gh.title;
       o.sub = "Your net worth this year";
-      o.help = wrapHelp([gh.help, sl.footnote]);
+      o.help = wrapHelp([gh.help, facts.debtDelta != null ? "Debt " + (facts.debtDelta <= 0 ? "down " : "up ") + moneyWhole(Math.abs(facts.debtDelta)) + " this year." : "", sl.footnote]);
     } else if (id === "merchants") {
       var top = (facts.merchants || [])[0];
       o.sub = top ? "Most at " + top.name + " · " + moneyWhole(top.amount) : "";
@@ -6921,6 +6921,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       deck.slides.forEach(function (sl, i) { if (sl.id === "deltas") at = i; });
       if (at < 0) at = Math.max(0, deck.slides.length - 1);
       deck.slides.splice.apply(deck.slides, [at + 1, 0].concat(gSlides));
+      /* v37.5.59.50 (owner): the net worth graph slide carries net worth; the old deltas slide is gone. */
+      deck.slides = deck.slides.filter(function (sl) { return sl.id !== "deltas"; });
       /* v37.5.59.47: one savings-rate slide. The merged slide takes the graph slide's place; the old
        * end-of-deck compare slide goes away. */
       var rateAt = -1, cmpAt = -1;
@@ -14119,7 +14121,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.49";
+  var APP_VERSION = "37.5.59.50";
   var pendingRestore = null;
 
   function storagePayload() {
