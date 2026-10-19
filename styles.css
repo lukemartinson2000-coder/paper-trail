@@ -4713,3 +4713,4 @@ body.night .sheet-delete,.night .sheet-delete{border-color:#ff8a80;color:#ff8a80
 .wrap-preview-tag{align-self:flex-start;margin:0 0 8px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb,var(--plum) 14%,transparent);color:var(--plum);font:700 12px/1.3 system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase}
 .wrap-soft-btn{margin-top:18px;align-self:flex-start;padding:10px 16px;border-radius:999px;border:1.5px solid var(--plum);background:transparent;color:var(--plum);font:600 15px/1.2 var(--serif,serif)}
 .dash-trend{margin-top:12px}.dash-trend .card{margin:0}
+[data-nw-scrub] svg{-webkit-user-select:none;user-select:none}

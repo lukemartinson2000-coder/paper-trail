@@ -3857,8 +3857,8 @@
     var highlight = selectedYear == null ? years[years.length - 1] : selectedYear;
     return '<div class="nw-scrubber" data-nw-scrub="1" data-years=\'' + JSON.stringify(years) + "'" + attrs + ">" +
       svg +
-      '<p class="scrub-readout">' + highlight + " · Net worth " + money(seriesAt("Net worth", highlight)) +
-      " · Income " + money(seriesAt("Income", highlight)) + "</p></div>" + legend;
+      '<p class="scrub-readout">' + highlight + " · Net worth " + moneyWhole(Math.round(seriesAt("Net worth", highlight))) +
+      " · Income " + moneyWhole(Math.round(seriesAt("Income", highlight))) + "</p></div>" + legend;
   }
 
   function barChart(rows) {
@@ -14507,7 +14507,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.53";
+  var APP_VERSION = "37.5.59.54";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15976,7 +15976,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var nw = Number(wrap.getAttribute("data-nw-" + year)) || 0;
       var inc = Number(wrap.getAttribute("data-inc-" + year)) || 0;
       if (readout) {
-        readout.textContent = year + " · Net worth " + money(nw) + " · Income " + money(inc);
+        readout.textContent = year + " · Net worth " + moneyWhole(Math.round(nw)) + " · Income " + moneyWhole(Math.round(inc));
       }
     }
     wrap.addEventListener("pointerdown", function (event) {
@@ -17714,7 +17714,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var readout = wrap.querySelector(".scrub-readout");
         var nw = Number(wrap.getAttribute("data-nw-" + year)) || 0;
         var inc = Number(wrap.getAttribute("data-inc-" + year)) || 0;
-        if (readout) readout.textContent = year + " · Net worth " + money(nw) + " · Income " + money(inc);
+        if (readout) readout.textContent = year + " · Net worth " + moneyWhole(Math.round(nw)) + " · Income " + moneyWhole(Math.round(inc));
       }
     } else if (act === "add-foo-debt") {
       addFooDebt(actEl.closest(".foo-step") || document.getElementById("screen"));
