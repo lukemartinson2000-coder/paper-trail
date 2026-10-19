@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.41. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.42. */
 (function () {
   "use strict";
 
@@ -12771,7 +12771,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     canvas.height = SHARE_H;
     var ctx = canvas.getContext("2d");
     var PAPER = "rgb(250, 250, 248)", INK = "rgb(28, 30, 33)", MUTED = "rgb(92, 96, 102)";
-    var MOSS = "rgb(31, 122, 97)", GOLD = "rgb(196, 163, 90)", PLUM = "rgb(107, 76, 122)", RULE = "rgb(226, 228, 231)";
+    var MOSS = "rgb(31, 122, 97)", GOLD = "rgb(196, 163, 90)", PLUM = "#7A4FD0", RULE = "rgb(226, 228, 231)";
     ctx.fillStyle = PAPER;
     ctx.fillRect(0, 0, SHARE_W, SHARE_H);
     ctx.strokeStyle = RULE;
@@ -12901,7 +12901,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.41";
+  var APP_VERSION = "37.5.59.42";
   var pendingRestore = null;
 
   function storagePayload() {

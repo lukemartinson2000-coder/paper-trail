@@ -7,7 +7,7 @@
   --muted: rgb(92, 96, 102);
   --moss: rgb(31, 122, 97);
   --gold: rgb(196, 163, 90);
-  --plum: rgb(107, 76, 122);
+  --plum: #7A4FD0;
   /* Light danger is berry. Night --danger switches to rose, not a brighter berry. */
   --berry: rgb(139, 58, 92);
   --danger: var(--berry);
@@ -1052,7 +1052,7 @@ body.night {
   --muted: rgb(158, 162, 168);
   --moss: rgb(82, 199, 158);
   --gold: rgb(212, 184, 120);
-  --plum: rgb(142, 107, 158);
+  --plum: #A585F0;
   /* Dim rose rgb(161, 77, 106) is ~3:1 on night cards. Readable rose is the dark-mode danger. */
   --rose: rgb(210, 130, 150);
   --berry: rgb(210, 130, 150);
@@ -2624,7 +2624,7 @@ body.mouse-hover .tx-swipe:not(:hover):not(.dragging):not(.open) .tx-row { trans
 .income-chip { color: var(--moss); border: 1.4px solid var(--moss); }
 .refund-chip { color: var(--plum); border: 1.4px solid var(--plum); }
 body.night .refund-chip,
-body.night .refund-amt { color: rgb(196, 160, 212); border-color: rgb(196, 160, 212); }
+body.night .refund-amt { color: #CDB4FF; border-color: #CDB4FF; }
 .income-received { font-size: 12px; }
 .swipe-hint { padding: 8px 16px 16px; }
 .refund-note { margin: 6px 0 4px; }
@@ -2693,7 +2693,7 @@ body.night .toast { background: rgb(236, 237, 240); color: rgb(18, 19, 21); }
 }
 .savings-rates .rate-row strong { font-size: 22px; }
 .savings-rates .plum { color: var(--plum); }
-body.night .savings-rates .plum { color: rgb(196, 160, 212); }
+body.night .savings-rates .plum { color: #CDB4FF; }
 .savings-rates .true-rate {
   margin-top: 10px;
   padding-top: 8px;
@@ -3027,7 +3027,7 @@ body.night .onboard-step.is-done .onboard-mark { color: rgb(18, 19, 21); }
   font-weight: 600;
   color: var(--plum);
 }
-body.night .plan-test-label { color: rgb(196, 160, 212); }
+body.night .plan-test-label { color: #CDB4FF; }
 
 /* Share card */
 .share-stage .wrap-top { display: flex; align-items: center; justify-content: space-between; }
@@ -3158,10 +3158,10 @@ body.night .remaining-chip {
 }
 body.night .remaining-chip .rem-label { color: rgb(160, 200, 180); }
 body.night .remaining-chip.over {
-  border-color: rgba(196, 160, 212, 0.4);
-  background: rgba(196, 160, 212, 0.08);
+  border-color: rgba(205, 180, 255, 0.4);
+  background: rgba(205, 180, 255, 0.08);
 }
-body.night .remaining-chip.over .rem-label { color: rgb(196, 160, 212); }
+body.night .remaining-chip.over .rem-label { color: #CDB4FF; }
 body.night .spend-accessory-label { color: rgb(168, 172, 178); }
 
 
