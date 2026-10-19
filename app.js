@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.32. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.33. */
 (function () {
   "use strict";
 
@@ -107,7 +107,7 @@
   var modalReturnScreenTop = null;
   /* v37.5.59.6 (QA): the row a sheet was opened from, and where it sat in the viewport. After Save we
    * put that row back at the same offset — a raw scrollTop jumps when content above it changes
-   * (e.g. the first Net worth save adds Equity returns / Trend / Allocation above the Cash rows). */
+   * (e.g. the first Net worth save adds Net worth / Trend / Allocation above the Cash rows). */
   var modalReturnAnchor = null;
   var payStubUndo = {};
   var compWhatIfOpen = false;
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.32: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.33: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -8398,7 +8398,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.32: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.33: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8500,7 +8500,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ? equityCagr(worthTotals(startYear).equity, current.equity, year - startYear)
       : null;
     html +=
-      '<p class="section-label">Equity returns</p>' +
+      '<p class="section-label">Net worth</p>' +
       '<div class="row"><span>Y/Y</span><span class="mono ' + tone(ratio) + '">' +
       (ratio == null ? "—" : percent(ratio)) + "</span></div>" +
       '<div class="row"><span>Since inception</span><span class="mono ' + tone(since) + '">' +
@@ -8595,7 +8595,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.32: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.33: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8675,7 +8675,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.32: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.33: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10403,7 +10403,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.32: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.33: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -10425,7 +10425,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
   }
 
-  /* v37.5.59.32: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
+  /* v37.5.59.33: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
    * Manual values are cents-first (percent lines type hundredths of a percent) and drive the plan fields
    * (and the full-year salary projection for Salary). Switching back to Stub keeps v stored and restores the prior plan value. */
   var STATED_LINES = [
@@ -11210,7 +11210,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.32: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.33: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11910,7 +11910,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* v37.5.59.32: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+  /* v37.5.59.33: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
    * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
   var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
   function nudgeRead() {
@@ -11957,7 +11957,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }
-  /* v37.5.59.32: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
+  /* v37.5.59.33: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
    * ({raisePct, growthPct}) on this device only: the tester payload is built from named fields and never includes them. */
   function projAssump() {
     var p = (state && state.projection) || {};
@@ -11966,7 +11966,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       growthMode: p.growthMode === "cagr" ? "cagr" : "manual" };
   }
 
-  /* v37.5.59.32: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
+  /* v37.5.59.33: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
    * negative years stay in the history list but not in the calc). Needs 3+ positive years (2+ growth periods). */
   /* No cap: the true CAGR is used. A plain note shows when it is very high. */
   var CAGR_NOTE_ABOVE = 0.25;
@@ -12059,7 +12059,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return any ? annualReturn(end, prior, adds) : null;
   }
 
-  /* Net worth Details: rows next to "Versus prior year" and "Equity returns". */
+  /* Net worth Details: rows next to "Versus prior year" and "Net worth". */
   function netWorthReturnRowsHtml(year, priorYear) {
     var H = netWorthHistory();
     var row = H.rows.filter(function (r) { return r.year === year; })[0];
@@ -12071,8 +12071,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (inv == null ? "—" : (inv >= 0 ? "+" : "") + (inv * 100).toFixed(1) + "%") + "</span></div>" +
       '<div class="row"><span>Net worth change</span><span class="mono ' + tone(row.change) + '">' + chg + "</span></div>" +
       '<p class="caption quiet">Investment return takes out what you added to retirement and taxable lines. Net worth change is everything, including savings and debt. Percent is shown only when the prior year was above $0.</p>';
-    html += '<p class="section-label">Net worth history</p>';
-    H.rows.slice(-6).forEach(function (r) {
+    html += '<p class="est-history details-cagr">' + (H.eligible
+      ? "Your history: <strong>" + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · " + H.start.year + " to " + H.end.year +
+        (H.capped === "high" ? '<br><span class="caption">That is very high. Early balances were small, so treat it with care.</span>' : "")
+      : 'Not enough history yet. <span class="caption">CAGR needs 3 years with positive net worth.</span>') + "</p>" +
+      '<p class="section-label">Net worth history</p>';
+    H.rows.slice(-6).reverse().forEach(function (r) {
       var c = r.change == null ? "—" : (r.pct != null ? (r.pct >= 0 ? "+" : "") + (r.pct * 100).toFixed(1) + "%" : (r.change >= 0 ? "+" : "−") + moneyWhole(Math.abs(r.change)));
       html += '<div class="row"><span>' + r.year + '</span><span class="mono">' + moneyWhole(r.equity) + ' <span class="caption">' + c + "</span></span></div>";
     });
@@ -12136,7 +12140,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     render();
   });
 
-  /* v37.5.59.32: backup reminder. Own localStorage key (never in state, backups or tester data). */
+  /* v37.5.59.33: backup reminder. Own localStorage key (never in state, backups or tester data). */
   var BACKUP_NUDGE_KEY = "PaperTrail.backupNudge";
   function backupInfo() {
     var v = null;
@@ -12748,7 +12752,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.32";
+  var APP_VERSION = "37.5.59.33";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15261,7 +15265,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.32: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.33: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}

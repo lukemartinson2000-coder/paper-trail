@@ -4505,3 +4505,4 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .est-ret .est-row{grid-template-columns:1.4fr 1fr}.est-ret .est-row .mono{font-size:13px}
 .row .mono .caption{display:inline;margin-left:6px}
 .profile-data-note,.stmt-pass > p.caption.quiet{padding:0 2px}
+.details-cagr{margin:10px 0 2px;padding:0 2px}
