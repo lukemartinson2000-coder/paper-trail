@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.33. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.34. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.33: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.34: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -8398,7 +8398,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.33: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.34: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8455,6 +8455,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       close;
   }
 
+  var nwOpenLines = {};
+
+  /* v37.5.59.34: compact Returns by account table (annual return + IRR, "—" without a prior year). */
+  function returnsByAccountHtml(year, priorYear) {
+    var lines = state.worth.lines.filter(function (l) { return tracksContributions(l); });
+    if (!lines.length) return "";
+    var cell = function (v) {
+      return '<span class="mono ' + (v == null ? "ink" : tone(v)) + '">' + (v == null ? "—" : percent(v)) + "</span>";
+    };
+    var html = '<p class="section-label">Returns by account</p><div class="ret-table">' +
+      '<div class="ret-row ret-head"><span>Account</span><span>Annual return</span><span>IRR</span></div>';
+    lines.forEach(function (line) {
+      var cur = lineAmount(line, year);
+      var pri = priorYear == null ? null : lineAmount(line, priorYear);
+      var ann = pri == null ? null : annualReturn(cur, pri, treatedAdditions(line, year, true));
+      var irr = pri == null ? null : irrCashflows(contributionCashflows(line, year, true));
+      html += '<div class="ret-row"><span class="name">' + esc(line.name) + "</span>" + cell(ann) + cell(irr) + "</div>";
+    });
+    return html + '<p class="caption">401(k) employer money is counted as gains. Open an account below for both ways.</p></div>';
+  }
+
   function renderWorthAnalytics(years, year, current) {
     var priorYear = years.indexOf(year - 1) >= 0 ? year - 1 : null;
     var prior = priorYear == null ? null : worthTotals(priorYear);
@@ -8506,6 +8527,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="row"><span>Since inception</span><span class="mono ' + tone(since) + '">' +
       (since == null ? "—" : percent(since)) + "</span></div>" +
       netWorthReturnRowsHtml(year, priorYear) +
+      returnsByAccountHtml(year, priorYear) +
       '<p class="section-label">Trend</p>' +
       (years.filter(function (y) { var t = worthTotals(y); return t.assets !== 0 || t.liabilities !== 0; }).length < 2
         ? '<p class="empty">Your trend line appears once a second year has balances.</p>'
@@ -8595,7 +8617,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.33: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.34: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8675,7 +8697,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.33: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.34: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -8738,30 +8760,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var yoy = prior == null ? null : current - prior;
         // Only show % when the prior year was positive.
         var yoyPct = (prior != null && prior > 0) ? (current - prior) / prior : null;
-        html += '<div class="worth-line">';
+        var open = !!nwOpenLines[line.id];
+        var chev = '<span class="nw-chev" aria-hidden="true"></span>';
+        var amtAttr = ' role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + line.id +
+          '" aria-label="Edit ' + esc(line.name) + ' amount"';
+        html += '<div class="worth-line' + (open ? " open" : "") + '" data-nw-id="' + line.id + '">';
         html += '<div class="worth-line-head">';
         if (priorYear != null) {
-          html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="edit-line" data-id="' + line.id + '">' +
-            '<span class="worth-years-name"><span class="name">' + esc(line.name) + "</span>" +
-            '<span class="caption">' + esc(worthLineCaption(line, year)) + "</span>" +
-            nwFooBadge(line, year, current) +
-            "</span>" +
+          html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
+            '<span class="worth-years-name">' + chev + '<span class="name">' + esc(line.name) + "</span></span>" +
             '<span class="mono worth-col">' + moneyWhole(prior) + "</span>" +
-            '<span class="mono worth-col">' + moneyWhole(current) + "</span>" +
+            '<span class="mono worth-col nw-amt"' + amtAttr + '>' + moneyWhole(current) + "</span>" +
             '<span class="mono worth-delta ' + tone(yoy) + '">' + worthDeltaText(yoy, yoyPct) + "</span></button>";
         } else {
-          html += '<button class="row-btn worth-line-main" type="button" data-act="edit-line" data-id="' + line.id + '">' +
-            "<div><div class='name'>" + esc(line.name) + "</div>" +
-            '<span class="caption">' + esc(worthLineCaption(line, year)) + "</span>" +
-            nwFooBadge(line, year, current) +
-            "</div>" +
-            '<span class="mono">' + money(current) + "</span></button>";
+          html += '<button class="row-btn worth-line-main" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
+            "<div>" + chev + "<span class='name'>" + esc(line.name) + "</span></div>" +
+            '<span class="mono nw-amt"' + amtAttr + '>' + money(current) + "</span></button>";
         }
+        html += "</div>";
+        html += '<div class="nw-panel"><div class="nw-panel-in">';
+        html += '<span class="caption">' + esc(worthLineCaption(line, year)) + "</span>" + nwFooBadge(line, year, current);
         if (is401k(line)) html += docCueHtml("k401", line.id, line.name);
         if (line.kind === "liability") html += docCueHtml("loan", line.id, line.name);
         if (/insurance/i.test(line.name || "")) html += docCueHtml("insurance", line.id, line.name);
-        html += "</div>";
-        /* YoY percent sits in the year columns when a prior year exists. No stacked year row. */
         if (tracksContributions(line)) {
           var add = lineAddition(line, year);
           var match = lineEmployerMatch(line, year);
@@ -8792,6 +8813,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
               (irrGains == null ? "ink" : tone(irrGains)) + '">' + (irrGains == null ? "—" : percent(irrGains)) + "</span></div>";
           }
         }
+        html += '<button class="text-btn nw-edit-btn" type="button" data-act="edit-line" data-id="' + line.id + '">Edit</button>';
+        html += "</div></div>";
         html += "</div>";
       });
     });
@@ -10403,7 +10426,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.33: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.34: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -10425,7 +10448,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
   }
 
-  /* v37.5.59.33: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
+  /* v37.5.59.34: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
    * Manual values are cents-first (percent lines type hundredths of a percent) and drive the plan fields
    * (and the full-year salary projection for Salary). Switching back to Stub keeps v stored and restores the prior plan value. */
   var STATED_LINES = [
@@ -11210,7 +11233,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.33: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.34: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11910,7 +11933,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* v37.5.59.33: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+  /* v37.5.59.34: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
    * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
   var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
   function nudgeRead() {
@@ -11957,7 +11980,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }
-  /* v37.5.59.33: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
+  /* v37.5.59.34: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
    * ({raisePct, growthPct}) on this device only: the tester payload is built from named fields and never includes them. */
   function projAssump() {
     var p = (state && state.projection) || {};
@@ -11966,7 +11989,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       growthMode: p.growthMode === "cagr" ? "cagr" : "manual" };
   }
 
-  /* v37.5.59.33: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
+  /* v37.5.59.34: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
    * negative years stay in the history list but not in the calc). Needs 3+ positive years (2+ growth periods). */
   /* No cap: the true CAGR is used. A plain note shows when it is very high. */
   var CAGR_NOTE_ABOVE = 0.25;
@@ -12140,7 +12163,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     render();
   });
 
-  /* v37.5.59.33: backup reminder. Own localStorage key (never in state, backups or tester data). */
+  /* v37.5.59.34: backup reminder. Own localStorage key (never in state, backups or tester data). */
   var BACKUP_NUDGE_KEY = "PaperTrail.backupNudge";
   function backupInfo() {
     var v = null;
@@ -12752,7 +12775,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.33";
+  var APP_VERSION = "37.5.59.34";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15265,7 +15288,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.33: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.34: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
@@ -16339,6 +16362,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         field("Balance", "loanBalance", "0", "number") +
         '<p class="caption">Creates a liability on this year’s statement. Name it and enter what you still owe.</p>',
         "save-nw-loan");
+    } else if (act === "toggle-nw-line") {
+      var nwRow = actEl.closest(".worth-line");
+      if (nwRow) {
+        var nwId = nwRow.getAttribute("data-nw-id");
+        var nowOpen = !nwRow.classList.contains("open");
+        nwRow.classList.toggle("open", nowOpen);
+        if (nowOpen) nwOpenLines[nwId] = true; else delete nwOpenLines[nwId];
+        actEl.setAttribute("aria-expanded", String(nowOpen));
+      }
     } else if (act === "edit-line") {
       var line = state.worth.lines.filter(function (l) { return l.id === actEl.getAttribute("data-id"); })[0];
       if (!line) return;
@@ -16377,6 +16409,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       fields += '<input type="hidden" name="id" value="' + esc(line.id) + '">';
       openSheet("Edit " + line.name, fields, "save-line");
+      /* v37.5.59.34: tapping the $ amount focuses the amount field; the Edit button keeps the name first. */
+      if (actEl.getAttribute("data-focus") === "amount") {
+        var focusNwAmount = function () {
+          var amt = document.querySelector('#modal input[name="amount"]');
+          if (amt) { amt.focus(); try { amt.select(); } catch (err) {} }
+        };
+        focusNwAmount();
+        setTimeout(focusNwAmount, 60);
+      }
     }
   }
 

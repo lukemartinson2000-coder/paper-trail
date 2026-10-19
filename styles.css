@@ -4506,3 +4506,24 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .row .mono .caption{display:inline;margin-left:6px}
 .profile-data-note,.stmt-pass > p.caption.quiet{padding:0 2px}
 .details-cagr{margin:10px 0 2px;padding:0 2px}
+
+/* v37.5.59.34 accordion + returns table */
+.nw-chev{display:inline-block;width:8px;height:8px;margin-right:9px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .2s ease;opacity:.6;vertical-align:middle}
+.worth-line.open .nw-chev{transform:rotate(45deg)}
+.worth-line .nw-amt{cursor:pointer;padding:10px 4px;margin:-10px -4px;border-radius:8px;text-decoration:underline dotted;text-underline-offset:4px}
+.nw-panel{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease}
+.worth-line.open .nw-panel{grid-template-rows:1fr}
+.nw-panel-in{overflow:hidden;min-height:0}
+.worth-line.open .nw-panel-in{padding:4px 0 8px}
+.nw-edit-btn{margin:8px 0 4px}
+.ret-table{margin:0 0 8px}
+.ret-row{display:grid;grid-template-columns:1fr 92px 64px;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line,rgba(128,128,128,.25));font-size:14px}
+.ret-row span:nth-child(n+2){text-align:right}
+.ret-row.ret-head{font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.65}
+.ret-row .name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.worth-years-name .nw-chev,.worth-line-main .nw-chev{flex:none}
+.worth-years-name{display:flex!important;align-items:center}
+.worth-years-name .name{display:inline!important}
+.worth-line-main>div:first-child{display:flex;align-items:center}
+.ret-table{padding:0 20px}
+.nw-panel-in{padding-left:20px;padding-right:20px}
