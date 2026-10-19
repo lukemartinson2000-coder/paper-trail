@@ -5193,6 +5193,40 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     state.worth.lines.push(line);
     return line;
   }
+  /* v37.5.59.59: gentle double-count check. A counted Vault vehicle and a manual asset line that looks like a
+   * vehicle (generic words, or the vehicle's own make/model words) in the same year may be the same car.
+   * Dismissals are saved per vehicle + line + year in state.worth.vehicleDupDismissed (so backups carry them). */
+  var VEHICLE_WORDS = /\b(car|cars|truck|trucks|vehicle|vehicles|auto|autos|automobile|suv|van|minivan|pickup|motorcycle|motorbike|scooter|rv|camper)\b/i;
+  var VEHICLE_STOP = { the: 1, and: 1, my: 1, our: 1, new: 1, used: 1, vehicle: 1, car: 1 };
+  function vehicleNameTokens(name) {
+    return String(name || "").toLowerCase().split(/[^a-z0-9-]+/).filter(function (t) { return t.length >= 3 && !/^(19|20)\d\d$/.test(t) && !VEHICLE_STOP[t]; });
+  }
+  function vehicleDupKey(v, m, year) { return v.id + "|" + m.id + "|" + year; }
+  function vehicleDupMatches(year, vehicleId) {
+    var lines = (state.worth && state.worth.lines) || [];
+    var dismissed = (state.worth && state.worth.vehicleDupDismissed) || {};
+    var out = [];
+    lines.forEach(function (v) {
+      if (!v.vehicle || nwLeftOut(v) || (vehicleId && v.id !== vehicleId) || !(lineAmount(v, year) > 0)) return;
+      var toks = vehicleNameTokens(v.name);
+      lines.forEach(function (m) {
+        if (m === v || m.vehicle || m.kind !== "asset" || nwLeftOut(m) || !(lineAmount(m, year) > 0)) return;
+        var nm = String(m.name || "").toLowerCase();
+        var hit = VEHICLE_WORDS.test(nm) || VEHICLE_MAKES.test(nm) || toks.some(function (t) { return new RegExp("\\b" + t.replace(/[-]/g, "\\-") + "\\b").test(nm); });
+        if (hit && !dismissed[vehicleDupKey(v, m, year)]) out.push({ v: v, m: m, key: vehicleDupKey(v, m, year) });
+      });
+    });
+    return out;
+  }
+  function vehicleDupHtml(year, vehicleId) {
+    return vehicleDupMatches(year, vehicleId).map(function (d) {
+      return '<div class="vehicle-dup" role="note"><p><span>Your Vault vehicle “' + esc(d.v.name) + '” may also be counted in “' + esc(d.m.name) +
+        '”. Leave one out of net worth.</span> ' +
+        helpQ("Vehicles you add in the Vault count toward net worth at their estimated value, unless “Leave out of net worth” is checked.\n\n“" + d.m.name + "” is a Net worth line you entered yourself, and its name looks like a vehicle (" + year + ": " + moneyWhole(lineAmount(d.m, year)) + "). If both describe the same car, it’s counted twice.\n\nThis is a guess from the names only. If they’re different vehicles, tap Dismiss. Either way, nothing changes until you choose.") +
+        '</p><div class="vehicle-dup-acts"><button type="button" class="planner-apply" data-act="vehicle-dup-out" data-id="' + esc(d.v.id) + '">Leave Vault vehicle out</button>' +
+        '<button type="button" class="ghost" data-act="vehicle-dup-dismiss" data-key="' + esc(d.key) + '">Dismiss</button></div></div>';
+    }).join("");
+  }
   function vehicleLeaveOutHtml(line) {
     return '<label class="check vehicle-out"><input type="checkbox" data-act="vehicle-exclude" data-id="' + esc(line.id) + '"' +
       (nwLeftOut(line) ? " checked" : "") + "> Leave out of net worth</label>";
@@ -5206,7 +5240,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="vehicle-row' + (nwLeftOut(line) ? " nw-left-out" : "") + '"><div class="vehicle-main"><span class="name">' + esc(line.name) +
         '</span><span class="mono nw-amt" role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + esc(line.id) +
         '" aria-label="Edit ' + esc(line.name) + ' value">' + moneyWhole(lineAmount(line, year)) + "</span></div>" +
-        '<div class="vehicle-tools">' + vehicleLeaveOutHtml(line) + deleteBtnHtml("delete-nw-line", "Delete", ' data-id="' + esc(line.id) + '"', true) + "</div></div>";
+        '<div class="vehicle-tools">' + vehicleLeaveOutHtml(line) + deleteBtnHtml("delete-nw-line", "Delete", ' data-id="' + esc(line.id) + '"', true) + "</div>" + vehicleDupHtml(year, line.id) + "</div>";
     });
     var have = {};
     lines.forEach(function (l) { have[String(l.name || "").toLowerCase()] = true; });
@@ -10137,7 +10171,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             '<span class="mono nw-amt"' + amtAttr + '>' + money(current) + "</span></button>";
         }
         html += "</div>";
-        if (line.vehicle) html += vehicleLeaveOutHtml(line);
+        if (line.vehicle) html += vehicleLeaveOutHtml(line) + vehicleDupHtml(year, line.id);
         html += '<div class="nw-panel"><div class="nw-panel-in">';
         if (is401k(line)) html += contribSummaryHtml(line, year);
         html += '<span class="caption">' + esc(worthLineCaption(line, year)) + "</span>" + nwFooBadge(line, year, current);
@@ -14584,7 +14618,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.58";
+  var APP_VERSION = "37.5.59.59";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -17772,6 +17806,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.foo[actEl.getAttribute("data-field")] = !!actEl.checked;
       saveState();
       render();
+    } else if (act === "vehicle-dup-out") {
+      var dv = (state.worth.lines || []).filter(function (l) { return l.id === actEl.getAttribute("data-id"); })[0];
+      if (dv) { dv.excludeFromNw = true; saveState(); renderVaultPreserve(); }
+    } else if (act === "vehicle-dup-dismiss") {
+      if (!state.worth.vehicleDupDismissed) state.worth.vehicleDupDismissed = {};
+      state.worth.vehicleDupDismissed[actEl.getAttribute("data-key")] = true;
+      saveState();
+      renderVaultPreserve();
     } else if (act === "trend-range") {
       state.worthTrendRange = actEl.getAttribute("data-range") || "all";
       saveState();

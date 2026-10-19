@@ -4721,3 +4721,10 @@ body.night .sheet-delete,.night .sheet-delete{border-color:#ff8a80;color:#ff8a80
 .scrub-readout{white-space:pre-line}
 .trend-cagr{flex-wrap:wrap;row-gap:2px}
 .trend-cagr span{white-space:nowrap}
+.vehicle-dup{margin:8px 0 4px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--plum) 9%,transparent);border:1px solid color-mix(in srgb,var(--plum) 30%,transparent)}
+.vehicle-dup p{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;font-size:14px;line-height:1.35}
+.vehicle-dup-acts{display:flex;flex-wrap:wrap;gap:8px}
+.vehicle-dup-acts button{margin:0}
+.vehicle-dup .help-q{flex:0 0 auto}
+.vehicle-dup-acts button{flex:1 1 auto;width:auto;padding:9px 14px;border-radius:999px;font:600 14px/1.2 inherit;border:1.5px solid var(--plum);background:transparent;color:var(--plum)}
+.vehicle-dup-acts button[data-act=vehicle-dup-out]{background:var(--plum);color:#fff}
