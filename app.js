@@ -4534,7 +4534,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             ' <span class="caption">' + esc(nw.label) + "</span></p>") +
         '<button type="button" class="dash-go" data-act="stats-door" data-door="worth">Net worth ›</button>';
     } else html += '<p class="caption">Add your accounts to see net worth.</p><button type="button" class="dash-go" data-act="stats-door" data-door="worth">Start your net worth ›</button>';
-    html += "</section>";
+    html += "</section>" + dashTrendHtml();
     // 2
     var inc = dashIncome();
     html += '<section class="dash-card dash-inc" id="dash-inc"><p class="dash-k">Income ' + (inc ? inc.year : currentYearMonth().year) + " · estimated full year</p>";
@@ -7159,14 +7159,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (rr != null && bag.takeHomePlanned > 0) rows.push({ mo: mo, rate: rr, saved: bag.savingsPlanned, th: bag.takeHomePlanned });
     }
     if (rows.length < 2) return null;
-    var best = rows.slice().sort(function (a, c) { return c.rate - a.rate; })[0], worst = rows.slice().sort(function (a, c) { return a.rate - c.rate; })[0];
+    // v37.5.59.53: ranked by net $ saved; savings rate is secondary and capped at 100% (savings funded from cash on hand can exceed a month's take-home).
+    var best = rows.slice().sort(function (a, c) { return c.saved - a.saved; })[0], worst = rows.slice().sort(function (a, c) { return a.saved - c.saved; })[0];
     if (best === worst) return null;
     var mn = function (x) { return MONTH_NAMES[x.mo - 1]; };
+    var cap = function (r) { return wrapRatePct(Math.min(1, r)); };
     return { id: "a-bestworst", tidy: true, kicker: "Head to head",
-      title: mn(best).slice(0, 3) + " " + wrapRatePct(best.rate) + " vs " + mn(worst).slice(0, 3) + " " + wrapRatePct(worst.rate),
-      sub: "Best vs worst month, by savings rate",
-      graph: { type: "pair", bars: [{ label: mn(best), value: best.rate, text: wrapRatePct(best.rate), ink: "var(--moss)" }, { label: mn(worst), value: worst.rate, text: wrapRatePct(worst.rate), ink: "var(--berry)" }] },
-      help: wrapHelp(["Ranked by Basic savings rate (savings envelopes ÷ take-home), so a big-paycheck month doesn’t win just for being big.",
+      title: mn(best).slice(0, 3) + " " + moneyWhole(Math.round(best.saved)) + " vs " + mn(worst).slice(0, 3) + " " + moneyWhole(Math.round(worst.saved)),
+      sub: "Best vs worst month, by net saved · savings rate " + cap(best.rate) + " vs " + cap(worst.rate),
+      graph: { type: "pair", bars: [{ label: mn(best), value: Math.max(0, best.saved), text: moneyWhole(Math.round(best.saved)), ink: "var(--moss)" }, { label: mn(worst), value: Math.max(0, worst.saved), text: moneyWhole(Math.round(worst.saved)), ink: "var(--berry)" }] },
+      help: wrapHelp(["Ranked by net dollars saved (savings envelopes funded that month). Savings rate (saved ÷ take-home) is shown second and capped at 100%; a month can save more than it took home when savings come from cash already on hand.",
         mn(best) + ": " + moneyWhole(best.saved) + " saved of " + moneyWhole(best.th) + " take-home. " + mn(worst) + ": " + moneyWhole(worst.saved) + " of " + moneyWhole(worst.th) + ".",
         rows.length + " months with paychecks on file this year."]) };
   }
@@ -9742,6 +9744,28 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html + '<p class="caption">401(k) employer money is counted as gains. Open an account below for both ways.</p></div>';
   }
 
+  /* v37.5.59.53: one Trend chart, shared by the Net worth page and the Dashboard (same lineChart, same data, same empty state). */
+  function worthTrendSeries(years) {
+    return [
+      { name: "Net worth", color: CHART_INKS[0], points: years.map(function (y) { return { year: y, y: worthTotals(y).equity }; }) },
+      { name: "Income", color: CHART_INKS[1], points: years.map(function (y) { return { year: y, y: Number((state.worth.income || {})[y]) || 0 }; }) }
+    ];
+  }
+  function worthTrendHtml(years, year, trend, compact) {
+    if (years.filter(function (y) { var t = worthTotals(y); return t.assets !== 0 || t.liabilities !== 0; }).length < 2)
+      return '<p class="empty">Your trend line appears once a second year has balances.</p>';
+    return '<section class="card' + (compact ? " dash-card dash-trend" : "") + '"' + (compact ? ' id="dash-trend"' : "") + ">" +
+      (compact ? '<p class="dash-k">Trend · net worth and income</p>' : "") +
+      lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: state.worthScrubYear || year }) +
+      '<p class="caption">' + (compact ? "Drag the line to a year." : "Drag the vertical line to a year. That year’s net worth and income appear under the graph.") + "</p></section>";
+  }
+  function dashTrendHtml() {
+    var years = (state.worth && state.worth.years || []).slice().sort(function (a, b) { return a - b; });
+    if (!years.length) return "";
+    var year = years.indexOf(state.worthYear) >= 0 ? state.worthYear : years[years.length - 1];
+    var inner = worthTrendHtml(years, year, null, true);
+    return inner.indexOf('class="empty"') >= 0 ? '<section class="dash-card dash-trend" id="dash-trend"><p class="dash-k">Trend</p>' + inner + "</section>" : inner;
+  }
   function renderWorthAnalytics(years, year, current) {
     var priorYear = years.indexOf(year - 1) >= 0 ? year - 1 : null;
     var prior = priorYear == null ? null : worthTotals(priorYear);
@@ -9794,15 +9818,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (since == null ? "—" : percent(since)) + "</span></div>" +
       netWorthReturnRowsHtml(year, priorYear) +
       returnsByAccountHtml(year, priorYear) +
-      '<p class="section-label">Trend</p>' +
-      (years.filter(function (y) { var t = worthTotals(y); return t.assets !== 0 || t.liabilities !== 0; }).length < 2
-        ? '<p class="empty">Your trend line appears once a second year has balances.</p>'
-        : '<section class="card">' +
-          lineChart(trend, {
-            interactive: true,
-            selectedYear: state.worthScrubYear || year
-          }) +
-          '<p class="caption">Drag the vertical line to a year. That year’s net worth and income appear under the graph.</p></section>') +
+      '<p class="section-label">Trend</p>' + worthTrendHtml(years, year, trend) +
       '<p class="section-label">Allocation</p><section class="card">' +
       pieSvg(pieSlices, "No asset balances this year.") + barChart(bars) + "</section>" +
       '<p class="section-label">Category rollups</p>';
@@ -14491,7 +14507,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.52";
+  var APP_VERSION = "37.5.59.53";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15925,7 +15941,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function bindNwScrubber(root) {
-    var wrap = root && root.querySelector("[data-nw-scrub]");
+    if (root && root.querySelectorAll) [].slice.call(root.querySelectorAll("[data-nw-scrub]")).forEach(bindNwScrubberOne);
+  }
+  function bindNwScrubberOne(wrap) {
     if (!wrap || wrap.dataset.scrubBound === "1") return;
     wrap.dataset.scrubBound = "1";
     var years = [];
@@ -16258,6 +16276,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (state.tab === "stats" && (!state.statsDoor || state.statsDoor === "dash")) {
       state.statsDoor = "dash";
       screen.innerHTML = renderDashboard();
+      bindNwScrubber(screen);
       bindMoneyInputs(screen);
     } else if (state.tab === "stats" && state.statsDoor === "vault") {
       screen.innerHTML = renderVault();
