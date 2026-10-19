@@ -4786,7 +4786,7 @@
   }
 
   var US_PERSONAL_SAVING_RATE = 0.054;
-  var US_PERSONAL_SAVING_YEAR = 2024;
+  var US_PERSONAL_SAVING_YEAR = 2025; // v37.5.59.52: BEA annual 2025 = 5.4% (FRED A072RC1A156NBEA); 2024 was revised to 6.3%
   var WRAPPED_PEER_MIN_N = 50;
 
   function savingsRateCompare(opts) {

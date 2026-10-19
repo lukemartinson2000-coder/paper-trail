@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.51. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.52. */
 (function () {
   "use strict";
 
@@ -4613,7 +4613,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html + "</div>";
   }
   function renderDashboard() {
-    return dashboardHtml() + '<div class="dash-doors">' + statsSegmentHtml("dash") + "</div>";
+    return statsSegmentHtml("dash") + dashboardHtml();
   }
 
   function dashRerender() { saveState(); render(); }
@@ -6335,7 +6335,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<p>" + (isPremium()
         ? "Your year on paper — planned vs spent, savings rate, and the rest of the story."
         : "Two slides free. Premium opens the full year.") +
-      "</p></button>";
+      "</p></button>" +
+      /* v37.5.59.52: quarterly check-in, next to the annual wrap. */
+      (function () {
+        var av = quarterAvail(), last = av[av.length - 1];
+        return '<button class="card insight-card wrap-entry wrap-entry-q" type="button" data-act="open-quarter">' +
+          '<p class="kicker">Quarterly check-in</p><h3>Q' + last.q + " " + last.year + (last.done ? "" : " so far") + "</h3>" +
+          "<p>" + (isPremium() ? "90 days in six slides: savings rate, plot twist, glow-up, goals and pace." : "Your 90-day savings rate and pace check are free. Premium adds the rest.") +
+          "</p></button>";
+      })();
   }
 
   /* v37.5.55 (owner): one Wrapped page per spending category for the year.
@@ -6719,6 +6727,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<defs><marker id="wg-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>';
       return html + "</svg>";
     }
+    if (g.type === "pair" || g.type === "years") {
+      var bs = g.bars || [], n = bs.length || 1, H3 = 200, base3 = 158, top3 = 30;
+      var mx = Math.max.apply(null, bs.map(function (x) { return Math.max(0, x.value); }).concat([0.0001]));
+      var bw3 = g.type === "pair" ? 90 : Math.min(40, 260 / n - 8), gap3 = (300 - bw3 * n) / (n + 1);
+      html = '<svg class="wrap-graph" viewBox="0 0 ' + W + " " + H3 + '" role="img" aria-label="Comparison">';
+      html += '<line x1="10" x2="310" y1="' + base3 + '" y2="' + base3 + '" stroke="currentColor" stroke-opacity="0.3"/>';
+      bs.forEach(function (x, j) {
+        var hh = Math.max(3, Math.max(0, x.value) / mx * (base3 - top3)), xx = 10 + gap3 + j * (bw3 + gap3);
+        var ink = x.ink || (x.hi ? "var(--moss)" : "var(--plum)");
+        html += '<rect x="' + xx.toFixed(1) + '" y="' + (base3 - hh).toFixed(1) + '" width="' + bw3.toFixed(1) + '" height="' + hh.toFixed(1) + '" rx="6" fill="' + ink + '"' + (g.type === "years" && !x.hi ? ' fill-opacity="0.55"' : "") + "/>";
+        if (x.text) html += '<text x="' + (xx + bw3 / 2).toFixed(1) + '" y="' + (base3 - hh - 8).toFixed(1) + '" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">' + esc(x.text) + "</text>";
+        html += '<text x="' + (xx + bw3 / 2).toFixed(1) + '" y="' + (H3 - 18) + '" text-anchor="middle" font-size="' + (g.type === "years" ? 13 : 12) + '" fill="currentColor" fill-opacity="0.75">' + esc(g.type === "years" ? "’" + x.label : x.label) + "</text>";
+      });
+      return html + "</svg>";
+    }
     if (g.type === "stack") {
       var segs = g.segs || [], tot = segs.reduce(function (n, sg) { return n + sg.amount; }, 0) || 1;
       var rows = segs.length, H2 = 52 + rows * 26 + (g.caption ? 20 : 0), x = 10;
@@ -6782,7 +6805,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var prior = tr != null ? facts.priorTrueSavingsRate : facts.priorSavingsRate;
     if (prior != null && isFinite(Number(prior))) help.push((tr != null ? "True" : "Basic") + " last year: " + wrapRatePct(prior) + ".");
-    help.push("For reference, the U.S. personal saving rate was about 5% in 2024 (BEA). It is saving ÷ after-tax income, the same footing as Basic.");
+    help.push("For reference: " + BEA_SOURCE);
     var segSaved = Math.min(saved, takeHome);
     return {
       id: "savings-rate", kicker: "Savings rate · " + month.year,
@@ -6914,7 +6937,328 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return o;
   }
 
+  /* ==== v37.5.59.52: Quarterly check-in + annual reorder (owner-approved) ===============================
+   * Quarterly: Q1–Q3 only (Q4 rolls into the annual wrap). A quarter opens once it ends, or as "so far" while
+   * it is in progress. Free: 90-day savings rate + pace check + one rotating Premium preview. Premium: all slides.
+   * Sources (cited in each "?"): Fed SCF 2022 Table 2 (median family net worth by age of reference person,
+   * 2022 dollars) and BEA personal saving rate (FRED A072RC1A156NBEA, annual). Never invented. */
+  var wrapMode = "year";
+  var wrapQuarter = null; // { year, q }
+  var SCF2022_NW = [ // Fed SCF 2022, Table 2, median net worth (2022 dollars), by age of reference person
+    { label: "under 35", min: 0, max: 34, median: 39000 },
+    { label: "35–44", min: 35, max: 44, median: 135600 },
+    { label: "45–54", min: 45, max: 54, median: 247200 },
+    { label: "55–64", min: 55, max: 64, median: 364500 },
+    { label: "65–74", min: 65, max: 74, median: 409900 },
+    { label: "75 and up", min: 75, max: 200, median: 335600 }
+  ];
+  var BEA_SAVING_RATE = { rate: 0.054, year: 2025 }; // BEA annual personal saving rate, 2025 (FRED A072RC1A156NBEA)
+  var SCF_SOURCE = "Federal Reserve, Survey of Consumer Finances 2022, Table 2: median family net worth by age of the family’s reference person (2022 dollars). It is household (family) net worth, not one person’s.";
+  var BEA_SOURCE = "U.S. Bureau of Economic Analysis, personal saving rate, " + BEA_SAVING_RATE.year + " annual: " + Math.round(BEA_SAVING_RATE.rate * 1000) / 10 +
+    "% (saving ÷ disposable, after-tax income; FRED series A072RC1A156NBEA). It is a national figure; no age-band saving rate is published, so it isn’t split by age.";
+
+  function wrapArrow(now, prior) {
+    if (now == null || prior == null || !isFinite(now) || !isFinite(prior)) return "";
+    var d = Math.round(now * 100) - Math.round(prior * 100);
+    return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
+  }
+  function quarterAvail() {
+    var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
+    for (var q = 1; q <= 3; q++) {
+      if (q < curQ) out.push({ year: Y, q: q, done: true });
+      else if (q === curQ) out.push({ year: Y, q: q, done: false });
+    }
+    if (!out.length) for (var q2 = 1; q2 <= 3; q2++) out.push({ year: Y - 1, q: q2, done: true });
+    return out;
+  }
+  function quarterBounds(year, q, toDate) {
+    var b = periodBounds(year, q * 3, "quarter");
+    if (toDate) {
+      var t = dashIso(dashToday());
+      if (t < b.end) { b.end = t; b.name = "Q" + q + " " + year + " so far"; }
+    }
+    return b;
+  }
+  function priorQuarter(year, q) { return q > 1 ? { year: year, q: q - 1 } : { year: year - 1, q: 4 }; }
+  function basicOf(bag) { return bag.takeHomePlanned > 0 ? gm().basicSavingsRate({ savings: bag.savingsPlanned, takeHome: bag.takeHomePlanned }).rate : null; }
+  function spendTxsBetween(start, end) {
+    var out = [];
+    Object.keys(state.months || {}).forEach(function (k) {
+      var rec = state.months[k];
+      (rec && rec.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        var date = tx.date || isoDate(rec.year, rec.month, 1);
+        if (date < start || date > end) return;
+        var amt = txNet(tx);
+        if (!(amt > 0)) return;
+        out.push({ payee: tx.payee || "Spend", amount: amt, date: date, category: txCategoryName(rec, tx) });
+      });
+    });
+    return out;
+  }
+  function notSpendingCat(name) { return /saving|invest|brokerage|retire|debt|loan/i.test(String(name || "")) || (gm().isSavingsEnvelope && gm().isSavingsEnvelope(name, name)); }
+  function median(list) { var a = list.slice().sort(function (x, y) { return x - y; }); if (!a.length) return 0; var m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+  function isoMinusDays(iso, n) { var d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() - n); return dashIso(d); }
+
+  function quarterSlides(year, q, all) {
+    var b = quarterBounds(year, q, true), pq = priorQuarter(year, q), pb = quarterBounds(pq.year, pq.q, false);
+    var bag = activityInPeriod(b), pbag = activityInPeriod(pb);
+    var rate = basicOf(bag), prate = basicOf(pbag);
+    var slides = [];
+    var qName = "Q" + q + " " + year;
+    // 1) 90-day savings rate (Free)
+    var saved = Math.max(0, bag.savingsPlanned), th = Math.max(0, bag.takeHomePlanned);
+    slides.push({ id: "q-rate", tidy: true, kicker: "Your 90-day savings rate",
+      title: rate == null ? "No paychecks logged yet" : wrapRatePct(rate) + " saved" + wrapArrow(rate, prate),
+      sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) >= Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter" : "First quarter on file — no arrow yet",
+      graph: th > 0 ? { type: "stack", segs: [{ label: "Saved", amount: Math.min(saved, th), ink: "var(--moss)" }, { label: "Everything else", amount: Math.max(0, th - saved), ink: "var(--rule)" }] } : null,
+      help: wrapHelp(["Basic savings rate for " + b.name + " = savings envelopes " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + ".",
+        prate != null ? "Last quarter (" + pb.name + "): " + wrapRatePct(prate) + ". The arrow compares whole percents." : "No prior quarter on file, so there’s no arrow yet.",
+        "Take-home: finished months count what you received; the current month counts planned paychecks until they all arrive."]) });
+    var premium = all || isPremium();
+    if (premium) {
+      // 2) Plot twist
+      var txs = spendTxsBetween(b.start, b.end).filter(function (r) { return !notSpendingCat(r.category); });
+      var hist = spendTxsBetween(isoMinusDays(b.start, 365), isoMinusDays(b.start, 1)).filter(function (r) { return !notSpendingCat(r.category); });
+      var histBy = {}; hist.forEach(function (r) { (histBy[r.category] = histBy[r.category] || []).push(r.amount); });
+      var hasHist = hist.length > 0, pick = null, why = "";
+      txs.forEach(function (r) {
+        var h = histBy[r.category] || [], reason = "";
+        if (hasHist && !h.length) reason = "new";
+        else {
+          var pool = h.length >= 3 ? h : txs.filter(function (o) { return o !== r && o.category === r.category; }).map(function (o) { return o.amount; }).concat(h);
+          var typ = pool.length >= 3 ? median(pool) : 0;
+          if (typ > 0 && r.amount >= 2 * typ) reason = "big:" + typ;
+        }
+        if (reason && (!pick || r.amount > pick.amount)) { pick = r; why = reason; }
+      });
+      if (pick) {
+        var typical = why.indexOf("big:") === 0 ? Number(why.slice(4)) : 0;
+        slides.push({ id: "q-twist", tidy: true, kicker: "Plot twist",
+          title: moneyWhole(Math.round(pick.amount)) + " at " + pick.payee,
+          sub: why === "new" ? "In " + pick.category + ", where you don’t usually spend" : Math.round(pick.amount / typical) + "× your typical " + pick.category + " charge",
+          help: wrapHelp(["The plot twist is this quarter’s largest single charge that breaks your pattern: either it’s in a category with no spending in the 12 months before the quarter, or it’s at least 2× that category’s typical (median) charge.",
+            "Typical charge comes from the past 12 months when there are at least 3 charges; otherwise from this quarter’s other charges in the category. Savings, investing and debt payments are left out.",
+            pick.payee + " · " + moneyWhole(Math.round(pick.amount)) + " · " + displayDate(pick.date) + (typical > 0 ? " · typical " + pick.category + " charge " + moneyWhole(Math.round(typical)) : "") + "."]) });
+      }
+      // 3) Glow-up
+      var nowBy = {}, prevBy = {};
+      txs.forEach(function (r) { nowBy[r.category] = (nowBy[r.category] || 0) + r.amount; });
+      spendTxsBetween(pb.start, pb.end).filter(function (r) { return !notSpendingCat(r.category); }).forEach(function (r) { prevBy[r.category] = (prevBy[r.category] || 0) + r.amount; });
+      var best = null;
+      Object.keys(prevBy).forEach(function (c) { var d = prevBy[c] - (nowBy[c] || 0); if (d >= 1 && (!best || d > best.d)) best = { c: c, d: d, was: prevBy[c], now: nowBy[c] || 0 }; });
+      if (best) {
+        slides.push({ id: "q-glow", tidy: true, kicker: "Glow-up",
+          title: moneyWhole(Math.round(best.d)) + " less on " + best.c,
+          sub: "vs last quarter · down " + Math.round(best.d / best.was * 100) + "%",
+          graph: { type: "pair", bars: [{ label: pb.name.replace(" so far", ""), value: best.was, text: moneyWhole(Math.round(best.was)), ink: "var(--plum)" }, { label: qName, value: best.now, text: moneyWhole(Math.round(best.now)), ink: "var(--moss)" }] },
+          help: wrapHelp(["Glow-up = the spending category with the biggest dollar drop from " + pb.name + " to " + b.name + ".", best.c + ": " + moneyWhole(Math.round(best.was)) + " → " + moneyWhole(Math.round(best.now)) + ", so " + moneyWhole(Math.round(best.d)) + " stayed in your pocket. Savings, investing and debt payments are left out."]) });
+      }
+      // 4) Building it
+      var bars = [];
+      var m = ensureMonth(state.year, state.month), foo = state.foo || {};
+      var ess = gm().monthlyEssentials ? gm().monthlyEssentials(budgetLinesFromMonth(m)) : 0;
+      var onHand = Number(foo.emergencyAmount) || 0;
+      if (ess > 0 && onHand > 0) bars.push({ label: "Emergency fund (6 months)", pct: Math.min(1, onHand / (ess * 6)), note: moneyWhole(onHand) + " of " + moneyWhole(Math.round(ess * 6)) });
+      dashPurchaseRows().filter(function (r) { return r.linked && !r.past; }).slice(0, 3).forEach(function (r) {
+        bars.push({ label: r.p.name, pct: r.pct, note: moneyWhole(Math.round(r.saved)) + " of " + moneyWhole(Math.round(Number(r.p.cost) || 0)) });
+      });
+      if (bars.length) {
+        var lead = bars.slice().sort(function (a, c) { return c.pct - a.pct; })[0];
+        slides.push({ id: "q-build", tidy: true, kicker: "Building it",
+          title: Math.round(lead.pct * 100) + "% to " + lead.label.replace(/ \(6 months\)$/, ""),
+          sub: bars.length > 1 ? bars.length + " goals in progress" : "Keep feeding it",
+          progress: bars,
+          help: wrapHelp(["Emergency fund: what you have on hand (Order of operations step) ÷ 6 months of your Budget essentials.",
+            "Upcoming purchases: the linked Budget envelope’s balance (planned − spent, every month so far) ÷ the cost. Only purchases with a linked envelope show here."]) });
+      }
+      // streak inside the quarter
+      var days = {}; spendTxsBetween(b.start, b.end).forEach(function (r) { days[r.date] = 1; });
+      var run = 0, bestRun = 0, d0 = new Date(b.start + "T12:00:00"), dEnd = b.end;
+      if (Object.keys(days).length) {
+        for (var guard = 0; guard < 100; guard++) {
+          var iso = dashIso(d0); if (iso > dEnd) break;
+          if (days[iso]) run = 0; else { run++; if (run > bestRun) bestRun = run; }
+          d0.setDate(d0.getDate() + 1);
+        }
+      }
+      if (bestRun >= 3) {
+        slides.push({ id: "q-streak", tidy: true, kicker: "On a roll", title: bestRun + " days in a row at $0", sub: "Your longest no-spend run this quarter",
+          help: wrapHelp(["The longest run of calendar days in " + b.name + " with no spending logged. Savings transfers and debt payments count as spending days here, the same way the annual no-spend streak counts any outflow."]) });
+      }
+    }
+    // 5) Pace check (Free)
+    slides.push(quarterPace());
+    if (!premium) {
+      slides.push({ id: "q-locked", tidy: true, kicker: "Premium", title: "Plot twists and glow-ups", sub: "Your biggest surprise, your best cut, goal progress and a share card are on Premium.", locked: true });
+    } else {
+      slides.push({ id: "q-close", tidy: true, kicker: "Frame it", title: b.name, sub: "A card for the fridge.",
+        share: { period: b.name, saved: moneyWhole(Math.round(saved)), streak: bestRun > 0 ? bestRun + " days" : "not yet", grade: rate == null ? "—" : wrapRatePct(rate) + " saved" },
+        help: shareShowAmounts ? "Dollar amounts are on for this preview." : "Dollar amounts are hidden on the card until you turn them on." });
+    }
+    return slides;
+  }
+  /* v37.5.59.52: Free gets the 2 core slides + ONE Premium preview that rotates each check-in. Deterministic:
+   * start at (year×4 + quarter) in a fixed list, take the first slide that has data, and skip whatever the
+   * previous quarter would have shown. Never an empty slide. */
+  var Q_PREVIEW_ORDER = ["q-twist", "q-glow", "q-build", "q-streak"];
+  function quarterPreviewPick(year, q, full, skip) {
+    var have = {}; full.forEach(function (sl) { have[sl.id] = sl; });
+    var n = Q_PREVIEW_ORDER.length, start = ((year * 4 + q) % n + n) % n, fallback = null;
+    for (var k = 0; k < n; k++) {
+      var id = Q_PREVIEW_ORDER[(start + k) % n];
+      if (!have[id]) continue;
+      if (id === skip) { if (!fallback) fallback = have[id]; continue; }
+      return have[id];
+    }
+    return fallback; // only the skipped one has data → still show it rather than nothing
+  }
+  function quarterDeckSlides(year, q) {
+    if (isPremium()) return quarterSlides(year, q, false);
+    var full = quarterSlides(year, q, true);
+    // Chain from Q1 so each quarter skips exactly what the one before it actually showed.
+    var prevPick = null;
+    for (var qq = 1; qq < q; qq++) {
+      try { var pp = quarterPreviewPick(year, qq, quarterSlides(year, qq, true), prevPick); prevPick = pp ? pp.id : prevPick; } catch (err) { /* no data that quarter */ }
+    }
+    var pick = quarterPreviewPick(year, q, full, prevPick);
+    var out = [full.filter(function (sl) { return sl.id === "q-rate"; })[0]];
+    if (pick) out.push(Object.assign({}, pick, { preview: true, help: pick.help }));
+    out.push(full.filter(function (sl) { return sl.id === "q-pace"; })[0]);
+    if (!pick) out.push({ id: "q-locked", tidy: true, kicker: "Premium", title: "Plot twists and glow-ups", sub: "Your biggest surprise, your best cut, goal progress and a share card are on Premium.", locked: true });
+    return out.filter(Boolean);
+  }
+  function quarterPace() {
+    var R = dashRetirement();
+    if (!R.ready) {
+      return { id: "q-pace", tidy: true, kicker: "Pace check", title: "Set a goal to pace yourself",
+        sub: "Add your yearly retirement spending on the Stats Dashboard.",
+        help: wrapHelp(["Pace check uses the Dashboard’s retirement card: your age, retire age, yearly spending in today’s dollars, inflation and return. Add spending there and this slide shows whether this year’s saving keeps you on track."]) };
+    }
+    var I = R.I, n = R.years, r = I.ret / 100, i = I.infl / 100, S = 0;
+    for (var k = 0; k < n; k++) S += Math.pow(1 + r, n - 1 - k) * Math.pow(1 + i, k);
+    var needC = S > 0 ? Math.max(0, (R.needNominal - R.inv.balance * Math.pow(1 + r, n)) / S) : 0;
+    var have = R.inv.contrib || 0, gapMo = Math.max(0, (needC - have) / 12);
+    var ok = have >= needC * 0.95;
+    return { id: "q-pace", tidy: true, kicker: "Pace check",
+      title: ok ? (have >= needC * 1.05 ? "Ahead of pace" : "Right on pace") : "Behind by " + moneyWhole(Math.round(gapMo)) + "/mo",
+      sub: ok ? "Nudge: on autopilot? Bump it 1% at your next raise." : "Nudge: add " + moneyWhole(Math.round(gapMo)) + " a month to your 401k or IRA.",
+      graph: { type: "pair", bars: [{ label: "Saving now", value: have, text: moneyWhole(Math.round(have)) + "/yr", ink: "var(--moss)" }, { label: "Needed", value: needC, text: moneyWhole(Math.round(needC)) + "/yr", ink: "var(--plum)" }] },
+      help: wrapHelp(["Yearly savings goal = the yearly contribution (rising with inflation) that grows your " + moneyWhole(Math.round(R.inv.balance)) + " invested into the nest egg you need by " + I.retireAge + ": " + moneyWhole(Math.round(R.needNominal)) + " (" + moneyWhole(Math.round(I.spend)) + " a year in today’s dollars ÷ 4%, at " + Math.round(I.infl) + "% inflation and " + Math.round(I.ret) + "% return).",
+        "Saving now = this year’s additions to your retirement and taxable lines, plus employer 401k money: " + moneyWhole(Math.round(have)) + " a year. Needed: " + moneyWhole(Math.round(needC)) + " a year.",
+        "Same inputs as the Dashboard’s retirement card. Estimates, not advice."]) };
+  }
+
+  /* ---- annual new slides ---- */
+  function annualBestWorst(year) {
+    var rows = [];
+    for (var mo = 1; mo <= 12; mo++) {
+      if (!state.months[ymKey(year, mo)]) continue;
+      var bag = activityInPeriod(periodBounds(year, mo, "month"));
+      var rr = basicOf(bag);
+      if (rr != null && bag.takeHomePlanned > 0) rows.push({ mo: mo, rate: rr, saved: bag.savingsPlanned, th: bag.takeHomePlanned });
+    }
+    if (rows.length < 2) return null;
+    var best = rows.slice().sort(function (a, c) { return c.rate - a.rate; })[0], worst = rows.slice().sort(function (a, c) { return a.rate - c.rate; })[0];
+    if (best === worst) return null;
+    var mn = function (x) { return MONTH_NAMES[x.mo - 1]; };
+    return { id: "a-bestworst", tidy: true, kicker: "Head to head",
+      title: mn(best).slice(0, 3) + " " + wrapRatePct(best.rate) + " vs " + mn(worst).slice(0, 3) + " " + wrapRatePct(worst.rate),
+      sub: "Best vs worst month, by savings rate",
+      graph: { type: "pair", bars: [{ label: mn(best), value: best.rate, text: wrapRatePct(best.rate), ink: "var(--moss)" }, { label: mn(worst), value: worst.rate, text: wrapRatePct(worst.rate), ink: "var(--berry)" }] },
+      help: wrapHelp(["Ranked by Basic savings rate (savings envelopes ÷ take-home), so a big-paycheck month doesn’t win just for being big.",
+        mn(best) + ": " + moneyWhole(best.saved) + " saved of " + moneyWhole(best.th) + " take-home. " + mn(worst) + ": " + moneyWhole(worst.saved) + " of " + moneyWhole(worst.th) + ".",
+        rows.length + " months with paychecks on file this year."]) };
+  }
+  function annualPastYou(year) {
+    var yrs = ((state.worth && state.worth.years) || []).filter(function (y) { return y <= year && (state.worth.lines || []).some(function (l) { return !nwLeftOut(l) && lineAmount(l, y) !== 0; }); }).sort(function (a, c) { return a - c; });
+    var rateNow = periodSavingsRate(periodBounds(year, 1, "year"));
+    var priorRates = [];
+    for (var y = year - 1; y >= year - 5; y--) {
+      var has = Object.keys(state.months || {}).some(function (k) { return Number((state.months[k] || {}).year) === y; });
+      if (has) { var pr = periodSavingsRate(periodBounds(y, 1, "year")); if (pr != null) priorRates.push({ y: y, r: pr }); }
+    }
+    if (yrs.length < 2 && !priorRates.length) return null;
+    var help = [], title = "", sub = "", graph = null;
+    if (yrs.length >= 2) {
+      var first = yrs[0], last = yrs[yrs.length - 1];
+      var eq = function (yy) { return worthTotals(yy).equity; };
+      var top = yrs.slice().sort(function (a, c) { return eq(c) - eq(a); })[0];
+      title = (top === last ? "Best net worth yet: " : "Net worth ") + moneyWhole(Math.round(eq(last)));
+      sub = wrapSigned(eq(last) - eq(first)) + " since " + first;
+      var show = yrs.slice(-6);
+      graph = { type: "years", bars: show.map(function (yy) { return { label: String(yy).slice(2), value: eq(yy), hi: yy === last }; }) };
+      help.push("Net worth by year from your Net worth statement (assets − debts). " + show.map(function (yy) { return yy + " " + moneyWhole(Math.round(eq(yy))); }).join(" · ") + ".");
+    }
+    if (priorRates.length) {
+      var p0 = priorRates[0];
+      var srLine = "Savings rate " + wrapRatePct(rateNow) + " vs " + wrapRatePct(p0.r) + " in " + p0.y;
+      if (!title) { title = srLine; } else help.push(srLine + ".");
+    } else {
+      help.push("Savings rate: " + year + " is your first year with a Budget on file (" + wrapRatePct(rateNow) + "), so there’s no past-you savings rate yet.");
+    }
+    return { id: "a-pastyou", tidy: true, kicker: "You vs past you", title: title, sub: sub, graph: graph, help: wrapHelp(help) };
+  }
+  function annualMedian(year, facts) {
+    var age = gm().ageYears ? gm().ageYears(birthdayISO()) : null;
+    if (age == null) {
+      return { id: "a-median", tidy: true, kicker: "You vs the median American", title: "Add your birthday to compare", sub: "Profile › Birthday. Your age is never guessed.",
+        help: wrapHelp([SCF_SOURCE, BEA_SOURCE]) };
+    }
+    var band = SCF2022_NW.filter(function (bb) { return age >= bb.min && age <= bb.max; })[0] || SCF2022_NW[SCF2022_NW.length - 1];
+    var nw = latestNetWorthHeadline().amount;
+    var ratio = band.median > 0 ? nw / band.median : null;
+    var rel = ratio == null ? "" : ratio >= 2 ? Math.round(ratio) + "× the median" : ratio >= 1 ? Math.round((ratio - 1) * 100) + "% above the median" : Math.round(ratio * 100) + "% of the median";
+    var sr = facts.savingsRate;
+    return { id: "a-median", tidy: true, kicker: "You vs the median American",
+      title: "Net worth " + rel,
+      sub: "Savings rate " + wrapRatePct(sr) + " vs U.S. " + Math.round(BEA_SAVING_RATE.rate * 100) + "%",
+      graph: { type: "pair", bars: [{ label: "You", value: Math.max(0, nw), text: moneyWhole(Math.round(nw)), ink: "var(--moss)" }, { label: "Median, " + band.label, value: band.median, text: moneyWhole(band.median), ink: "var(--plum)" }] },
+      help: wrapHelp(["Net worth: yours " + moneyWhole(Math.round(nw)) + " vs the median for families headed by someone " + band.label + ": " + moneyWhole(band.median) + ".", SCF_SOURCE,
+        "Savings rate: your Basic rate " + wrapRatePct(sr) + " (savings envelopes ÷ take-home) vs the U.S. personal saving rate.", BEA_SOURCE]) };
+  }
+  var ANNUAL_KICKERS = { hook: "Your year, on paper", "spent-saved": "Follow the money", merchants: "Your regulars", "g-added": "Building it",
+    "g-contrib": "Money making money", "savings-rate": "Pay yourself first", foo: "Level check", grade: "Report card", close: "Frame it" };
+  function annualOrder(slides, facts, month) {
+    var by = {}, cats = [];
+    slides.forEach(function (sl) { if (!sl) return; if (String(sl.id).indexOf("category-") === 0) cats.push(sl); else by[sl.id] = sl; });
+    var out = [by.hook, by["spent-saved"], by["g-networth"] || by["g-networth-empty"],
+      annualBestWorst(month.year), annualPastYou(month.year), annualMedian(month.year, facts)]
+      .concat(cats).concat([by.merchants, by["savings-rate"], by["g-added"], by["g-contrib"], by.foo, by.grade, by.close]);
+    return out.filter(Boolean);
+  }
+  function wrapProgressHtml(list) {
+    return '<div class="wrap-progress-list">' + list.map(function (b) {
+      var p = Math.round(Math.max(0, Math.min(1, b.pct)) * 100);
+      return '<div class="wp-row"><div class="wp-top"><span>' + esc(b.label) + '</span><span class="mono">' + p + '%</span></div>' +
+        '<div class="wp-track"><i style="width:' + p + '%"></i></div><p class="wp-note">' + esc(b.note) + "</p></div>";
+    }).join("") + "</div>";
+  }
+  function quarterPickerHtml() {
+    var av = quarterAvail();
+    if (av.length < 2) return "";
+    return '<div class="wrap-qpick">' + av.map(function (a) {
+      var on = wrapQuarter && wrapQuarter.year === a.year && wrapQuarter.q === a.q;
+      return '<button type="button" class="wrap-qbtn' + (on ? " on" : "") + '" data-wrapq="' + a.year + "-" + a.q + '">Q' + a.q + (a.done ? "" : " so far") + "</button>";
+    }).join("") + "</div>";
+  }
+  document.addEventListener("click", function (e) {
+    var t = e.target && e.target.closest ? e.target.closest("[data-act='open-quarter'],[data-wrapq]") : null;
+    if (!t) return;
+    e.preventDefault(); e.stopPropagation();
+    if (t.hasAttribute("data-wrapq")) {
+      var parts = t.getAttribute("data-wrapq").split("-");
+      wrapQuarter = { year: Number(parts[0]), q: Number(parts[1]) };
+    } else {
+      var av = quarterAvail(); wrapQuarter = av[av.length - 1];
+      captureModalReturnScreenTop();
+    }
+    wrapMode = "quarter"; wrapSlideIndex = 0;
+    renderWrapped(ensureMonth(state.year, state.month));
+  }, true);
+
   function openWrapped(month) {
+    wrapMode = "year";
     captureModalReturnScreenTop();
     wrapSlideIndex = 0;
     renderWrapped(month);
@@ -6926,7 +7270,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var facts = wrappedFacts(month, cadence);
     facts.merchTops = wrapMerchTops(periodBounds(month.year, month.month, cadence)); // v37.5.59.49
     var deck = window.GradeMath.buildWrappedDeck(facts);
-    if (deck.premium) {
+    var isQ = wrapMode === "quarter" && wrapQuarter;
+    if (isQ) deck = { premium: isPremium(), slides: quarterDeckSlides(wrapQuarter.year, wrapQuarter.q) };
+    if (deck.premium && !isQ) {
       var gSlides = wrapGraphSlides(month);
       var at = -1;
       deck.slides.forEach(function (sl, i) { if (sl.id === "deltas") at = i; });
@@ -6943,20 +7289,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (rateAt >= 0) deck.slides.splice(rateAt, 1, merged);
       else if (merged) deck.slides.splice(cmpAt >= 0 ? cmpAt : Math.max(0, deck.slides.length - 1), 0, merged);
     }
-    deck.slides = deck.slides.filter(Boolean).map(function (sl) { return wrapTidy(sl, facts); });
+    if (deck.premium && !isQ) deck.slides = annualOrder(deck.slides, facts, month); // v37.5.59.52
+    deck.slides = deck.slides.filter(Boolean).map(function (sl) {
+      var t = wrapTidy(sl, facts);
+      if (!isQ && ANNUAL_KICKERS[t.id]) t.kicker = ANNUAL_KICKERS[t.id];
+      if (!isQ && (t.id === "g-networth" || t.id === "g-networth-empty")) t.kicker = "The big number · " + month.year;
+      return t;
+    });
     if (wrapSlideIndex >= deck.slides.length) wrapSlideIndex = deck.slides.length - 1;
     if (wrapSlideIndex < 0) wrapSlideIndex = 0;
     var slide = deck.slides[wrapSlideIndex];
     var html = '<div class="wrap-stage">';
     html += '<div class="wrap-top"><button type="button" data-act="close-modal">Close</button>' +
-      '<p class="wrap-cadence-label caption">Annual wrap</p></div>';
+      '<p class="wrap-cadence-label caption">' + (isQ ? "Quarterly check-in" : "Annual wrap") + "</p></div>" + (isQ ? quarterPickerHtml() : "");
     html += '<div class="wrap-progress">';
     deck.slides.forEach(function (item, index) {
       html += '<i class="' + (index === wrapSlideIndex ? "on" : "") + '"></i>';
     });
     html += "</div>";
     /* v37.5.59.47 (owner: "messy"): headline, one short line, the chart. Everything else is behind one "?". */
-    html += '<div class="wrap-slide" data-slide="' + esc(slide.id || "") + '"><p class="kicker wrap-kicker"><span>' + esc(slide.kicker) + "</span>" +
+    html += '<div class="wrap-slide" data-slide="' + esc(slide.id || "") + '">' + (slide.preview ? '<p class="wrap-preview-tag">Premium preview</p>' : "") + '<p class="kicker wrap-kicker"><span>' + esc(slide.kicker) + "</span>" +
       (slide.help ? helpQ(slide.help) : "") + "</p>" +
       "<h2>" + esc(slide.title) + "</h2>";
     if (slide.sub) html += '<p class="line wrap-sub">' + esc(slide.sub) + "</p>";
@@ -6970,17 +7322,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
+    if (slide.progress) html += wrapProgressHtml(slide.progress);
+    if (slide.preview) html += '<button class="wrap-soft-btn" type="button" data-act="set-plan" data-plan="premium">See your full check-in</button>';
     if (slide.locked) {
       html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full wrap</button>';
     }
     if (slide.share) {
       var shareSaved = shareShowAmounts ? slide.share.saved : "••••";
+      if (isQ) {
+        html += '<article class="share-card"><p class="kicker">Paper Trail · quarterly</p><strong>' + esc(slide.share.period) + "</strong>" +
+          "<p>Savings rate " + esc(slide.share.grade) + "</p><p>Longest no-spend run " + esc(slide.share.streak) + "</p>" +
+          "<p>Savings envelopes " + esc(shareSaved) + "</p></article>";
+      } else
       html += '<article class="share-card"><p class="kicker">Paper Trail</p><strong>' +
         esc(slide.share.period) + "</strong>" +
         "<p>Savings envelopes " + esc(shareSaved) + "</p>" +
         "<p>No-spend streak " + esc(slide.share.streak) + "</p>" +
         "<p>Grade " + esc(slide.share.grade) + "</p></article>" +
-        '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>';
+        (isQ ? "" : '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>');
     }
     html += "</div>";
     html += '<div class="wrap-nav wrap-nav-pills">';
@@ -14132,7 +14491,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.51";
+  var APP_VERSION = "37.5.59.52";
   var pendingRestore = null;
 
   function storagePayload() {
