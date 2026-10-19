@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.39. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.40. */
 (function () {
   "use strict";
 
@@ -10577,7 +10577,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += (ln.unit === "$"
           ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
           : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
-          '<p class="sd-stub">Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
+          '<p class="sd-stub"><button type="button" class="link-btn" data-sd="clear" data-line="' + ln.id + '">Clear manual value</button> · Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
           (stub != null ? ' · <button type="button" class="link-btn" data-sd="mode-stub" data-line="' + ln.id + '">use stub</button>' : "") + "</p>" +
           '<input class="sd-note" data-sd="note" data-line="' + ln.id + '" type="text" maxlength="200" placeholder="Note (optional)" value="' + esc(st.note || "") + '" aria-label="' + ln.label + ' note">';
       }
@@ -10634,7 +10634,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else if (sd === "value") {
         st.v = statedParse(el);
         if (st.mode === "manual" && st.v != null) statedPlanWrite(plan, id, st.v);
+        else if (st.mode === "manual" && st.v == null && st.prev !== undefined && st.prev !== null) statedPlanWrite(plan, id, st.prev);
         rerender = kind === "change";
+      } else if (sd === "clear") {
+        st.v = null;
+        if (st.mode === "manual" && st.prev !== undefined && st.prev !== null) statedPlanWrite(plan, id, st.prev);
+        rerender = true;
       } else if (sd === "mode-manual") {
         if (st.mode !== "manual") {
           st.prev = statedPlanRead(plan, id);
@@ -10660,8 +10665,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (t && t.getAttribute && t.getAttribute("data-sd") && t.getAttribute("data-dollars") === "1") { statedHandle(t, "input"); return; }
     if (t && t.getAttribute && t.getAttribute("data-pctc") === "1") {
       var d = String(t.value).replace(/\D/g, "");
+      /* v37.5.59.40: Backspace must drop the last digit. Deleting only the "%" leaves the same digits, so pop one. */
+      if (String(e.inputType || "").indexOf("delete") === 0 && d !== "" && d === (t.dataset.pd || "")) d = d.slice(0, -1);
+      t.dataset.pd = d;
+      t.dataset.edited = "1";
       t.value = d === "" ? "" : (Math.min(Number(d), 10000) / 100).toFixed(2) + "%";
+      try { t.setSelectionRange(t.value.length, t.value.length); } catch (err) {}
     }
+  }, true);
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-pctc") === "1") { t.dataset.pd = String(t.value).replace(/\D/g, ""); t.dataset.edited = ""; }
   }, true);
   document.addEventListener("focusout", function (e) {
     var t = e.target;
@@ -12171,6 +12185,61 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeHelpPopup(); });
 
+  /* v37.5.59.40: visible Clear chip on the focused number field. Money fields empty to $0.00, % fields empty,
+   * and estimate assumptions go back to their default. */
+  var clearChipEl = null, clearChipTarget = null;
+  function isNumberEntry(t) {
+    return !!(t && t.getAttribute && t.tagName === "INPUT" && !t.readOnly &&
+      (t.hasAttribute("data-cents") || t.hasAttribute("data-dollars") || t.hasAttribute("data-pctc")));
+  }
+  function placeClearChip() {
+    if (!clearChipEl || !clearChipTarget) return;
+    var r = clearChipTarget.getBoundingClientRect();
+    clearChipEl.style.left = (r.width < 150 ? Math.max(4, r.left - 70) : Math.max(4, r.left + 6)) + "px";
+    clearChipEl.style.top = (r.top + r.height / 2 - 14) + "px";
+  }
+  function hideClearChip() {
+    if (clearChipEl) { clearChipEl.remove(); clearChipEl = null; }
+    clearChipTarget = null;
+  }
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (!isNumberEntry(t)) { if (!(clearChipEl && e.target === clearChipEl)) hideClearChip(); return; }
+    hideClearChip();
+    clearChipTarget = t;
+    clearChipEl = document.createElement("button");
+    clearChipEl.type = "button";
+    clearChipEl.className = "clear-chip";
+    clearChipEl.setAttribute("aria-label", "Clear this field");
+    clearChipEl.textContent = "Clear";
+    document.body.appendChild(clearChipEl);
+    placeClearChip();
+    clearChipEl.addEventListener("pointerdown", function (ev) { ev.preventDefault(); });
+    clearChipEl.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
+    clearChipEl.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var el = clearChipTarget;
+      if (!el) return;
+      if (el.hasAttribute("data-proj")) { el.dataset.edited = "1"; resetProjAssumption(el); hideClearChip(); return; }
+      el.focus();
+      if (el.hasAttribute("data-pctc")) {
+        el.value = "";
+        el.dataset.pd = "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        try { el.select(); } catch (err) {}
+        el.dispatchEvent(new InputEvent("beforeinput", { inputType: "deleteContentBackward", cancelable: true, bubbles: true }));
+      }
+    });
+  }, true);
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (t === clearChipTarget) setTimeout(function () { if (document.activeElement !== clearChipTarget) hideClearChip(); }, 120);
+  }, true);
+  window.addEventListener("scroll", placeClearChip, true);
+  window.addEventListener("resize", placeClearChip);
+
   function projInputHtml(kind, label, value) {
     return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Math.round(Number(value)) + "%") + '" data-full="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
   }
@@ -12227,15 +12296,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     t.setAttribute("data-disp", t.value);
     t.placeholder = t.getAttribute("data-full") || t.value;
     t.value = "";
+    t.dataset.pd = "";
   });
   document.addEventListener("focusout", function (e) {
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
-    if (t.value === "" && t.hasAttribute("data-disp")) t.value = t.getAttribute("data-disp");
+    if (t.value === "" && t.hasAttribute("data-disp")) {
+      if (t.dataset.edited === "1") resetProjAssumption(t);   /* emptied on purpose: back to the default */
+      else t.value = t.getAttribute("data-disp");
+    }
   });
+  var projResetting = false;
+  function resetProjAssumption(t) {
+    if (projResetting) return;
+    projResetting = true;
+    t.dataset.edited = "";
+    state.projection = state.projection || {};
+    state.projection[t.getAttribute("data-proj") === "raise" ? "raisePct" : "growthPct"] = null;
+    saveState();
+    try { render(); } finally { projResetting = false; }
+  }
   document.addEventListener("change", function (e) {
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
+    if (projResetting) return;
     var d = String(t.value).replace(/\D/g, "");
     var v = d === "" ? null : Math.min(Number(d), 10000) / 100;
     state.projection = state.projection || {};
@@ -12870,7 +12954,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.39";
+  var APP_VERSION = "37.5.59.40";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14887,6 +14971,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       taxParts +
       '<p class="caption">Blank stays blank. Pay-stub estimates stay live estimates when you Save — only a line you type over becomes yours. If you type a tax sub-line, Taxes = your typed lines + the estimate for the rest (read-only). Bracket picks are reference-only and never change Taxes. Saving writes only ' +
       year + '.</p>' +
+      '<button class="text-btn danger sheet-delete" type="button" data-act="delete-annual-year" data-year="' + year + '">Delete ' + year + ' column</button>' +
       '<input type="hidden" name="year" value="' + year + '">',
       "save-annual-year");
     var modal = document.getElementById("modal");
@@ -16401,6 +16486,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       moveEnvelope(month, actEl.getAttribute("data-id"), act === "envmenu-cat-up" ? -1 : 1);
     } else if (act === "envmenu-cat-delete") {
       deleteEnvelopeKeepHistory(month, actEl.getAttribute("data-id"));
+    } else if (act === "delete-income") {
+      var delInc = actEl.getAttribute("data-id");
+      if (!window.confirm("Delete this paycheck from this month? Transactions already logged stay.")) return;
+      month.incomes = (month.incomes || []).filter(function (i) { return i.id !== delInc; });
+      saveState(); closeModal(); render();
+    } else if (act === "delete-nw-line") {
+      var delNw = actEl.getAttribute("data-id");
+      var delNwLine = state.worth.lines.filter(function (l) { return l.id === delNw; })[0];
+      if (!delNwLine || !window.confirm("Delete " + delNwLine.name + " from your net worth? Every year of this line is removed.")) return;
+      state.worth.lines = state.worth.lines.filter(function (l) { return l.id !== delNw; });
+      saveState(); closeModal(); render();
+    } else if (act === "delete-annual-year") {
+      var delYr = String(actEl.getAttribute("data-year"));
+      if (!window.confirm("Delete the " + delYr + " column from your income statement? This can’t be undone.")) return;
+      if (state.annualStatement && state.annualStatement.years) delete state.annualStatement.years[delYr];
+      saveState(); closeModal(); render();
     } else if (act === "delete-line") {
       deleteLine(month, actEl.getAttribute("data-id"));
     } else if (act === "move-line-up") {
@@ -16424,6 +16525,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet("Edit income",
         field("Name", "name", income.name) + field("Amount", "amount", String(income.amount), "money") +
         field("Date", "date", income.date, "date") +
+        '<button class="text-btn danger sheet-delete" type="button" data-act="delete-income" data-id="' + esc(income.id) + '">Delete paycheck</button>' +
         '<input type="hidden" name="id" value="' + esc(income.id) + '">',
         "save-income");
       /* v37.5.59.39: tapping the $ lands on Amount; tapping the row/name keeps Name first. */
@@ -16515,6 +16617,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           debtTypeSelect("loanDebtType", line.loanDebtType || "", line.name) +
           '<p class="caption">No matching Debt envelope line. Insights uses APR, min payment and type for payoff estimates (Money Guy order of operations — estimates, not advice).</p>';
       }
+      fields += '<button class="text-btn danger sheet-delete" type="button" data-act="delete-nw-line" data-id="' + esc(line.id) + '">Delete this line</button>';
       fields += '<input type="hidden" name="id" value="' + esc(line.id) + '">';
       openSheet("Edit " + line.name, fields, "save-line");
       /* v37.5.59.36: tapping the $ amount focuses the amount field; the Edit button keeps the name first. */
