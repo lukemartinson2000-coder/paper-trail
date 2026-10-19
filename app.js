@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.35. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.36. */
 (function () {
   "use strict";
 
@@ -3924,7 +3924,7 @@
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
         tabIcon(t[0]) + esc(t[1]) + "</button>";
     }).join("");
-    /* v37.5.59.35: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
+    /* v37.5.59.36: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
       var bar = document.getElementById("tab-bar");
       var h = bar ? bar.offsetHeight : 0;
@@ -4034,8 +4034,7 @@
       setupNudgeHtml() +
       backupNudgeHtml() +
       fooBudgetStripHtml(month) +
-      '<p class="section-label">Income · take-home paychecks</p>' +
-      '<p class="caption income-basis">What lands in your account after tax. Gross pay lives on your Income statement.</p>';
+      '<p class="section-label">Income · take-home paychecks ' + helpQ("What lands in your account after tax. Gross pay lives on your Income statement.") + '</p>';
     (month.incomes || []).forEach(function (item) {
       var got = receivedFor(month, item.id);
       html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + item.id + '">' +
@@ -4054,7 +4053,7 @@
       (totals.stamped ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
       "</section>" +
       modeToggleHtml() +
-      '<p class="section-label">Envelopes</p>';
+      '<p class="section-label">Envelopes ' + helpQ("Tap a line’s name or assigned amount to change it. Stamp rule: income > 0 and leftover exactly $0. On an empty month, copy last month’s assigned dollars and paychecks. Start next month is the guided ritual. Spending never copies.") + '</p>';
     var ordered = sortedCategories(month);
     ordered.forEach(function (cat, index) {
       var assigned = catAssigned(cat);
@@ -4109,10 +4108,6 @@
       html += '<button class="copy-month" type="button" data-act="copy-last-month">Copy last month’s budget</button>';
     }
     html += '<button class="copy-month" type="button" data-act="start-month">Start next month</button>';
-    html += '<p class="empty">On an empty month, copy last month’s assigned dollars and paychecks. Start next month is the guided ritual. Spending never copies.</p>';
-    if (!totals.stamped && totals.leftover > 0) {
-      html += '<p class="empty">Tap a line’s name or assigned amount to change it. Stamp rule: income &gt; 0 and leftover exactly $0.</p>';
-    }
     return html;
   }
 
@@ -8119,8 +8114,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         annualRateText(ytd.rate) + "</span></div>";
     }
     html += "</div>" + renderYearTiles("income", years, highlight) +
-      '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button></div>' +
-      '<p class="caption quiet stmt-details-note">Type your pay, add pay stubs, deductions and taxes.</p>' +
+      '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button>' + helpQ("Details: type your pay, add pay stubs, deductions and taxes. Year table: tap a year to edit. Older years sit off to the left. Taxes can expand into federal, state, FICA, and other.") + '</div>' +
       payFreqMismatchHtml() +
       estimatedSectionHtml("income") +
       '<label class="field annual-filing">Filing status' +
@@ -8257,7 +8251,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     html += "</tbody></table></div>" +
       annualInfoPopoverHtml(book, years, highlight) +
-      '<p class="caption quiet annual-hint">Tap a year to edit. Older years sit off to the left. Taxes can expand into federal, state, FICA, and other.</p>' +
       '';
     return html;
   }
@@ -8398,7 +8391,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.20: year sits quiet above a left/right Net worth row (same language as the
      * bottom total). Not a centered hero. Grouped assets expand in place.
      * Tax triangle, charts, YoY/additions/match live under Details. Year picker is the header calendar. */
-    /* v37.5.59.35: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
+    /* v37.5.59.36: the big Net worth number is the first thing under the pills; the year (with the prior-year +)
      * sits just below it, above Details. */
     var yearLine = renderYearTiles("worth", years, year);
     var html = '<div class="stmt-pass">' + shell +
@@ -8457,7 +8450,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   var nwOpenLines = {};
 
-  /* v37.5.59.35: 401k contribution summary. Percents: Income Details line (Manual value, else pay stub, current year),
+  /* v37.5.59.36: 401k contribution summary. Percents: Income Details line (Manual value, else pay stub, current year),
    * else computed from typed additions / statement gross. Dollars: typed additions, else percent x gross. */
   function contribSummaryHtml(line, year) {
     var cy = currentYearMonth().year;
@@ -8500,7 +8493,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       seg("traditional", "Traditional") + seg("roth", "Roth") + "</span></div></div>";
   }
 
-  /* v37.5.59.35: compact Returns by account table (annual return + IRR, "—" without a prior year). */
+  /* v37.5.59.36: compact Returns by account table (annual return + IRR, "—" without a prior year). */
   function returnsByAccountHtml(year, priorYear) {
     var lines = state.worth.lines.filter(function (l) { return tracksContributions(l); });
     if (!lines.length) return "";
@@ -8660,7 +8653,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet("Add a prior year", html, "save-prior-year");
   }
 
-  /* v37.5.59.35: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
+  /* v37.5.59.36: ONE shared year-tile row ("By year"): + prior-year button first, then a tile per year with
    * that year's headline figure, selected year highlighted. Used by Net worth main, Net worth Details,
    * Income statement and Income statement details. kind = "worth" | "income". Selection is shared (state.worthYear). */
   function sharedYearFor(years) {
@@ -8740,7 +8733,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
       '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
-      /* v37.5.59.35: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
+      /* v37.5.59.36: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
       html += renderWorthAnalytics(years, year, totals);
@@ -10470,7 +10463,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
 
-  /* v37.5.59.35: manual pay entry and the pay-stub import sit together at the top of Details. */
+  /* v37.5.59.36: manual pay entry and the pay-stub import sit together at the top of Details. */
   function payEntryCardsHtml(plan) {
     var stubs = confirmedPayStubs();
     var latest = stubs.length ? stubs[stubs.length - 1] : null;
@@ -10492,7 +10485,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption quiet">Typed values are saved here and used when there is no confirmed stub.</p>';
   }
 
-  /* v37.5.59.35: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
+  /* v37.5.59.36: per-line Stub / Manual. plan.stated[id] = { mode: "stub"|"manual", v, note, prev }.
    * Manual values are cents-first (percent lines type hundredths of a percent) and drive the plan fields
    * (and the full-year salary projection for Salary). Switching back to Stub keeps v stored and restores the prior plan value. */
   var STATED_LINES = [
@@ -10691,32 +10684,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="income-sheet-head">' +
       '<button class="icon-btn income-back" type="button" data-act="close-modal" aria-label="Back">' +
       '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6 L9 12 L15 18"></path></svg></button>' +
-      '<h3>Details</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
-      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) +
-      '<p class="caption">' + (compStubFigures()
+      '<h3>Details ' + helpQ(compStubFigures()
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
-        : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + "</p>" +
+        : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + '</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
+      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) +
+
       '<div id="comp-estimates">' + compensationEstimateHtml(est) + "</div>" +
       payStubFoldHtml(plan) +
       (stubMode
         ? '<details class="comp-whatif" id="comp-whatif"' + (compWhatIfOpen ? " open" : "") + '><summary class="sheet-label">What-if from typed compensation</summary>' +
           '<div id="comp-whatif-est">' + compWhatIfHtml(est, true) + "</div>"
         : "") +
-      '<p class="sheet-label">Compensation · per year</p>' +
-      '<p class="caption annual-note">Every dollar amount on this screen is a yearly (annual) total, not per paycheck. Per-paycheck figures are only the suggested paycheck below.</p>' +
-      '<p class="caption">Base salary and bonus target are in “Type your pay” above.</p>' +
+      '<p class="sheet-label">Compensation · per year ' + helpQ("Every dollar amount on this screen is a yearly (annual) total, not per paycheck. Per-paycheck figures are only the suggested paycheck below. Base salary and bonus target are in “Type your pay” above.") + '</p>' +
       incomeSyncSectionHtml() +
-      '<p class="sheet-label">Employer · per year</p>' +
+      '<p class="sheet-label">Employer · per year ' + helpQ("Percent is of yearly pay; dollars are a yearly total. Employer 401k is compensation, not an employee pre-tax row.") + '</p>' +
       employerToggleRow("Employer 401k base", "employer401kBase", "employer401kBaseIsPercent", plan, est.employerBase) +
       employerToggleRow("Employer 401k match", "employer401kMatch", "employer401kMatchIsPercent", plan, est.employerMatch) +
-      '<p class="caption">Percent is of yearly pay; dollars are a yearly total. Employer 401k is compensation, not an employee pre-tax row.</p>' +
-      '<p class="sheet-label">Pre-tax deductions · per year</p>' +
+      '<p class="sheet-label">Pre-tax deductions · per year ' + helpQ("Each row is a yearly $ total or a % of yearly gross (defaults $0 / 0%). Not per paycheck. 401k is a percent of gross unless you switch it. Pre-tax reduces taxable income.") + '</p>' +
       '<div class="deduct-head"><span>Name</span><span>Method</span><span>Amount</span><span>Per year</span></div>' +
       preTaxRowsHtml(plan, est) +
       '<div class="row"><span>Pre-tax total (per year)</span><span class="mono" id="pretax-total">' + money(est.preTaxTotal) + "</span></div>" +
-      '<p class="caption">Each row is a yearly $ total or a % of yearly gross (defaults $0 / 0%). Not per paycheck. 401k is a percent of gross unless you switch it. Pre-tax reduces taxable income.</p>' +
-      '<p class="sheet-label">Post-tax deductions · per year</p>' +
-      '<p class="caption">Roth 401(k), voluntary life, short-term disability. Yearly $ total, % of yearly gross, or % of yearly net. Not per paycheck.</p>' +
+      '<p class="sheet-label">Post-tax deductions · per year ' + helpQ("Roth 401(k), voluntary life, short-term disability. Yearly $ total, % of yearly gross, or % of yearly net. Not per paycheck.") + '</p>' +
       postTaxRowsHtml(plan, est) +
       '<div class="row"><span>Post-tax total (per year)</span><span class="mono" id="posttax-total">' + money(est.postTaxTotal) + "</span></div>" +
       '<p class="sheet-label">Job location</p>' +
@@ -10725,10 +10713,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       esc(plan.zipCode || "") + '"></div>' +
       '<p class="caption">' + esc(locationCaption) + ". Empty ZIP means no state or local tax. Not tax advice.</p>" +
       (stubMode ? "</details>" : "") +
-      '<p class="sheet-label">Budget paycheck $</p>' +
-      '<p class="caption">Pay frequency lives on Profile and is only used here when you tap Suggest paycheck. Budget paycheck $ is never auto-written.</p>' +
+      '<p class="sheet-label">Budget paycheck $ ' + helpQ("Pay frequency lives on Profile and is only used here when you tap Suggest paycheck. Budget paycheck $ is never auto-written. Suggest paycheck is optional and opt-in: it sets each existing paycheck on this month to estimated take-home ÷ paychecks per year. Dates stay.") + '</p>' +
       '<button class="planner-apply" type="button" data-act="suggest-paycheck">Suggest paycheck amount</button>' +
-      '<p class="caption">Optional and opt-in. Sets each existing paycheck on this month to estimated take-home ÷ paychecks per year. Dates stay.</p>' +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
   }
 
@@ -11277,7 +11263,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   };
 
-  /* v37.5.59.35: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
+  /* v37.5.59.36: "Welcome to Paper Trail" splash. ~1s hold, ~0.5s fade, then the app is revealed.
    * Shown on first launch (same condition as the intro pages: welcomeSeen not set) and on Profile › Replay intro. */
   function showWelcomeSplash() {
     try {
@@ -11977,7 +11963,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* v37.5.59.35: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
+  /* v37.5.59.36: the survey is skippable. Skipping keeps what was typed so far, applies only answers that exist,
    * and goes to Budget. Whether the user finished is ob.surveyCompletedAt; ob.surveySkipped marks a partial. */
   var NUDGE_KEY = "PaperTrail.setupNudge"; // separate key: never part of state, backups or tester data
   function nudgeRead() {
@@ -12024,7 +12010,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }
-  /* v37.5.59.35: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
+  /* v37.5.59.36: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
    * ({raisePct, growthPct}) on this device only: the tester payload is built from named fields and never includes them. */
   function projAssump() {
     var p = (state && state.projection) || {};
@@ -12033,7 +12019,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       growthMode: p.growthMode === "cagr" ? "cagr" : "manual" };
   }
 
-  /* v37.5.59.35: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
+  /* v37.5.59.36: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
    * negative years stay in the history list but not in the calc). Needs 3+ positive years (2+ growth periods). */
   /* No cap: the true CAGR is used. A plain note shows when it is very high. */
   var CAGR_NOTE_ABOVE = 0.25;
@@ -12150,6 +12136,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  /* v37.5.59.36: one reusable ? help component. helpQ(text) renders the button; a tap opens a small popup with an OK button. */
+  function helpQ(text) {
+    return '<button class="help-q" type="button" data-help="' + esc(text) + '" aria-label="More info">?</button>';
+  }
+  function closeHelpPopup() {
+    var el = document.getElementById("help-pop");
+    if (el) el.remove();
+  }
+  function showHelpPopup(text) {
+    closeHelpPopup();
+    var el = document.createElement("div");
+    el.id = "help-pop";
+    el.className = "help-pop";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    el.innerHTML = '<div class="help-card"><p></p><button type="button" class="planner-apply" data-help-ok="1">OK</button></div>';
+    el.querySelector("p").textContent = text;
+    document.body.appendChild(el);
+    var ok = el.querySelector("button");
+    if (ok) ok.focus();
+  }
+  document.addEventListener("click", function (e) {
+    var q = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
+    if (q) { e.preventDefault(); e.stopPropagation(); showHelpPopup(q.getAttribute("data-help")); return; }
+    var pop = document.getElementById("help-pop");
+    if (pop && (e.target === pop || (e.target.closest && e.target.closest("[data-help-ok]")))) { e.stopPropagation(); closeHelpPopup(); }
+  }, true);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeHelpPopup(); });
+
   function projInputHtml(kind, label, value) {
     return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
   }
@@ -12169,20 +12184,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (proj.rows[0].bonus > 0 ? '<div class="est-row"><span>Bonus</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.bonus) + "</span>"; }).join("") + "</div>" : "") +
         (proj.rows[0].match > 0 ? '<div class="est-row"><span>401k match</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.match) + "</span>"; }).join("") + "</div>" : "") + "</div>" +
         projInputHtml("raise", "Raise per year", a.raisePct) +
-        '<p class="caption quiet">Starts from your ' + proj.base + (proj.manualSalary ? " Manual" : " stub") + " salary, bonus and 401k match. Variable pay isn’t projected. Estimate, not a guarantee.</p>";
+        '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + (proj.manualSalary ? " Manual" : " stub") + " salary, bonus and 401k match. Variable pay isn’t projected. Estimate, not a guarantee.") + "</p>";
     } else {
       var H = proj.hist;
       html += '<div class="est-seg-row"><span class="est-seg-label">Growth source</span><div class="sd-seg" role="group" aria-label="Growth source">' +
         '<button type="button" class="' + (proj.useHist ? "" : "on") + '" data-proj-mode="manual" aria-pressed="' + (proj.useHist ? "false" : "true") + '">Manual</button>' +
-        '<button type="button" class="' + (proj.useHist ? "on" : "") + '" data-proj-mode="cagr"' + (H.eligible ? "" : " disabled") + ' aria-pressed="' + (proj.useHist ? "true" : "false") + '">Use my history (CAGR)</button></div></div>' +
+        '<button type="button" class="' + (proj.useHist ? "on" : "") + '" data-proj-mode="cagr"' + (H.eligible ? "" : ' data-ineligible="1"') + ' aria-pressed="' + (proj.useHist ? "true" : "false") + '">Use my history (CAGR)</button></div></div>' +
         projInputHtml("growth", "Manual growth per year", a.growthPct) +
-        '<p class="est-history">' + (H.eligible
-          ? "Your history: <strong>" + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · net worth, " + H.start.year + " to " + H.end.year +
-            (H.capped === "high" ? '<br><span class="caption">That is very high. Early balances were small, so treat projections that use it with care.</span>' : "")
-          : "Not enough history yet. <span class=\"caption\">CAGR needs 3 years with positive net worth.</span>") + "</p>" +
-        '<p class="caption quiet">Starts from your ' + proj.base + " net worth of " + moneyWhole(proj.start) +
+        (H.eligible && proj.useHist
+          ? '<p class="est-history">Your history: <strong>' + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · net worth, " + H.start.year + " to " + H.end.year +
+            (H.capped === "high" ? '<br><span class="caption">That is very high. Early balances were small, so treat projections that use it with care.</span>' : "") + "</p>"
+          : "") +
+        '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + " net worth of " + moneyWhole(proj.start) +
         (proj.contrib > 0 ? ", adds " + moneyWhole(proj.contrib) + " a year " + proj.source : ", with no yearly additions assumed") +
-        ", growing " + (proj.rate * 100).toFixed(1) + "% a year (" + (proj.useHist ? "your history" : "manual") + "). Estimate, not a guarantee.</p>";
+        ", growing " + (proj.rate * 100).toFixed(1) + "% a year (" + (proj.useHist ? "your history" : "manual") + "). Estimate, not a guarantee.") + "</p>";
     }
     return html + "</section>";
   }
@@ -12191,6 +12206,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target && e.target.closest ? e.target.closest("button[data-proj-mode]") : null;
     if (!t || t.disabled) return;
     e.stopPropagation();
+    if (t.getAttribute("data-proj-mode") === "cagr" && t.getAttribute("data-ineligible")) {
+      showHelpPopup("CAGR needs 3 years with positive net worth. Until then your estimate stays on Manual.");
+      return;
+    }
     state.projection = state.projection || {};
     state.projection.growthMode = t.getAttribute("data-proj-mode") === "cagr" ? "cagr" : "manual";
     saveState();
@@ -12207,7 +12226,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     render();
   });
 
-  /* v37.5.59.35: backup reminder. Own localStorage key (never in state, backups or tester data). */
+  /* v37.5.59.36: backup reminder. Own localStorage key (never in state, backups or tester data). */
   var BACKUP_NUDGE_KEY = "PaperTrail.backupNudge";
   function backupInfo() {
     var v = null;
@@ -12819,7 +12838,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.35";
+  var APP_VERSION = "37.5.59.36";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -15332,7 +15351,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '"></label>';
   }
 
-  /* v37.5.59.35: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
+  /* v37.5.59.36: a tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
     try { closeModal(); } catch (err) {}
@@ -16461,7 +16480,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       fields += '<input type="hidden" name="id" value="' + esc(line.id) + '">';
       openSheet("Edit " + line.name, fields, "save-line");
-      /* v37.5.59.35: tapping the $ amount focuses the amount field; the Edit button keeps the name first. */
+      /* v37.5.59.36: tapping the $ amount focuses the amount field; the Edit button keeps the name first. */
       if (actEl.getAttribute("data-focus") === "amount") {
         var focusNwAmount = function () {
           var amt = document.querySelector('#modal input[name="amount"]');
