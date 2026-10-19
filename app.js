@@ -3311,7 +3311,8 @@
     var winter = month === 12 || month <= 2, summer = month >= 6 && month <= 8;
     add("Housing", 0, "Maple Court Apartments", 1650, 1);
     var gro = ["Trader Joe's", "Kroger", "Costco", "Aldi"];
-    for (var g = 0; g < 4 + (rnd() < 0.5 ? 1 : 0); g++) add("Food", 0, gro[g % gro.length], r2(68, 135));
+    var nGro = month >= 7 && month <= 9 ? 4 : (month >= 4 && month <= 6 ? 5 : 4 + (rnd() < 0.5 ? 1 : 0));
+    for (var g = 0; g < nGro; g++) add("Food", 0, gro[g % gro.length], r2(68, 135));
     var rest = ["Chipotle", "Corner Diner", "Slice House Pizza", "Bean There Coffee", "Pho Basil"];
     var nRest = month >= 7 && month <= 9 ? 2 : (month >= 4 && month <= 6 ? 6 : 4);
     for (var r = 0; r < nRest; r++) add("Food", 1, rest[Math.floor(rnd() * rest.length)], r2(11, 58));
@@ -3397,6 +3398,7 @@
       worth: seedWorth(),
       annualStatement: seedAnnualStatement(),
       nightLedger: false,
+      theme: "auto",
       compensation: defaultCompensation(),
       envelopeMode: "remaining",
       wrapCadence: "year",
@@ -3516,6 +3518,8 @@
       /* Defer incomeYear fix until state is assigned — yearIncomeFigure needs state. */
       if (parsed.incomeYear == null) parsed.incomeYear = currentYearMonth().year;
       if (parsed.nightLedger == null) parsed.nightLedger = false;
+      /* v37.5.59.62: Auto / Light / Dark. Someone who already turned Dark mode on keeps Dark. */
+      if (parsed.theme !== "auto" && parsed.theme !== "light" && parsed.theme !== "dark") parsed.theme = parsed.nightLedger ? "dark" : "auto";
       if (parsed.envelopeMode !== "planned" && parsed.envelopeMode !== "spent") {
         parsed.envelopeMode = "remaining";
       }
@@ -4640,6 +4644,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<div class="dash" id="dash"><div class="nav-row"><h2>Dashboard</h2></div>';
     // 1
     var nw = dashNetWorth();
+    /* v37.5.59.62: nothing entered yet, so one Get started card instead of a stack of empty ones. */
+    var inc0 = dashIncome(), sr0 = null; try { sr0 = monthSavingsRates(); } catch (e) {}
+    if (!nw && !inc0 && !(sr0 && sr0.basic && sr0.basic.rate) && !dashPurchaseRows().length) {
+      html += '<section class="dash-card dash-start" id="dash-start"><p class="dash-k">Get started</p>' +
+        '<h3>Your dashboard fills in as you go</h3><p class="caption">Three small steps. Each one lights up part of this page.</p>' +
+        '<ol class="dash-steps">' +
+        '<li><button type="button" class="dash-step" data-act="wrap-go-budget"><strong>Add a paycheck</strong><span class="caption">Income and savings rate</span><span class="chev">›</span></button></li>' +
+        '<li><button type="button" class="dash-step" data-act="stats-door" data-door="worth"><strong>Add your accounts</strong><span class="caption">Net worth and the trend chart</span><span class="chev">›</span></button></li>' +
+        '<li><button type="button" class="dash-step" data-dash="p-add"><strong>Plan a big buy</strong><span class="caption">Upcoming purchases</span><span class="chev">›</span></button></li>' +
+        "</ol></section>" + backupNudgeHtml();
+      return html + "</div>";
+    }
     html += '<section class="dash-card dash-nw" id="dash-nw"><p class="dash-k">Net worth</p>';
     if (nw) {
       html += '<p class="dash-big mono">' + moneyWhole(nw.now) + "</p>" +
@@ -6487,6 +6503,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       /* v37.5.59.52: quarterly check-in, next to the annual wrap. */
       (function () {
         var av = quarterAvail(), last = av[av.length - 1];
+        if (!last) return '<button class="card insight-card wrap-entry wrap-entry-q" type="button" data-act="open-quarter">' +
+          '<p class="kicker">Quarterly check-in</p><h3>Your first check-in</h3><p>Log a few spends and your 90-day check-in starts here.</p></button>';
         return '<button class="card insight-card wrap-entry wrap-entry-q" type="button" data-act="open-quarter">' +
           '<p class="kicker">Quarterly check-in</p><h3>Q' + last.q + " " + last.year + (last.done ? "" : " so far") + "</h3>" +
           "<p>" + (isPremium() ? "90 days in six slides: savings rate, plot twist, glow-up, goals and pace." : "Your 90-day savings rate and pace check are free. Premium adds the rest.") +
@@ -7115,7 +7133,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = Math.round(now * 100) - Math.round(prior * 100);
     return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
   }
+  function quarterHasData(year, q) {
+    var b = periodBounds(year, q * 3, "quarter"), hit = false;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var rec = state.months[k];
+      (rec && rec.transactions || []).forEach(function (tx) {
+        var d = tx.date || isoDate(rec.year, rec.month, 1);
+        if (d >= b.start && d <= b.end && Math.abs(Number(tx.amount) || 0) > 0) hit = true;
+      });
+    });
+    return hit;
+  }
   function quarterAvail() {
+    return quarterAvailAll().filter(function (a) { return quarterHasData(a.year, a.q); });
+  }
+  function quarterAvailAll() {
     var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
     for (var q = 1; q <= 3; q++) {
       if (q < curQ) out.push({ year: Y, q: q, done: true });
@@ -7163,7 +7195,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var saved = Math.max(0, bag.savingsPlanned), th = Math.max(0, bag.takeHomePlanned);
     slides.push({ id: "q-rate", tidy: true, kicker: "Your 90-day savings rate",
       title: rate == null ? "No paychecks logged yet" : wrapRatePct(rate) + " saved" + wrapArrow(rate, prate),
-      sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) >= Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter" : "First quarter on file — no arrow yet",
+      sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) === Math.round(prate * 100) ? "Same as last quarter, " + wrapRatePct(prate) : (Math.round(rate * 100) > Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter") : "First quarter on file — no arrow yet",
       graph: th > 0 ? { type: "stack", segs: [{ label: "Saved", amount: Math.min(saved, th), ink: "var(--moss)" }, { label: "Everything else", amount: Math.max(0, th - saved), ink: "var(--rule)" }] } : null,
       help: wrapHelp(["Basic savings rate for " + b.name + " = savings envelopes " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + ".",
         prate != null ? "Last quarter (" + pb.name + "): " + wrapRatePct(prate) + ". The arrow compares whole percents." : "No prior quarter on file, so there’s no arrow yet.",
@@ -7405,7 +7437,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var parts = t.getAttribute("data-wrapq").split("-");
       wrapQuarter = { year: Number(parts[0]), q: Number(parts[1]) };
     } else {
-      var av = quarterAvail(); wrapQuarter = av[av.length - 1];
+      var av = quarterAvail(); wrapQuarter = av[av.length - 1] || { year: dashToday().getFullYear(), q: Math.floor(dashToday().getMonth() / 3) + 1, empty: true };
       captureModalReturnScreenTop();
     }
     wrapMode = "quarter"; wrapSlideIndex = 0;
@@ -7426,7 +7458,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     facts.merchTops = wrapMerchTops(periodBounds(month.year, month.month, cadence)); // v37.5.59.49
     var deck = window.GradeMath.buildWrappedDeck(facts);
     var isQ = wrapMode === "quarter" && wrapQuarter;
-    if (isQ) deck = { premium: isPremium(), slides: quarterDeckSlides(wrapQuarter.year, wrapQuarter.q) };
+    if (isQ) deck = { premium: isPremium(), slides: wrapQuarter.empty ? [{ id: "q-empty", tidy: true, kicker: "Quarterly check-in", title: "Nothing to check in on yet",
+      sub: "Add a paycheck and a few spends on Budget. Your 90-day savings rate and pace show up here.", cta: { label: "Start on Budget", act: "wrap-go-budget" } }] : quarterDeckSlides(wrapQuarter.year, wrapQuarter.q) };
     if (deck.premium && !isQ) {
       var gSlides = wrapGraphSlides(month);
       var at = -1;
@@ -10317,9 +10350,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  var themeMq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function isNightNow() {
+    var t = state.theme || (state.nightLedger ? "dark" : "auto");
+    if (t === "dark") return true;
+    if (t === "light") return false;
+    return !!(themeMq && themeMq.matches);
+  }
   function applyNight() {
-    document.body.classList.toggle("night", !!state.nightLedger);
-    document.documentElement.classList.toggle("night", !!state.nightLedger);
+    var on = isNightNow();
+    state.nightLedger = on;
+    document.body.classList.toggle("night", on);
+    document.documentElement.classList.toggle("night", on);
+  }
+  if (themeMq) {
+    var onScheme = function () { if (state && (state.theme || "auto") === "auto") applyNight(); };
+    if (themeMq.addEventListener) themeMq.addEventListener("change", onScheme); else if (themeMq.addListener) themeMq.addListener(onScheme);
   }
 
   function remapDate(iso, destYM) {
@@ -12775,9 +12821,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
       '" value="' + esc(birthdayISO()) + '"></label>' +
       '<p class="caption">Used for Accumulation and high-interest debt steps. Until set, those stay omitted — never invented.</p>' +
-      '<label class="settings-toggle">Dark mode' +
-      '<input type="checkbox" data-act="toggle-night"' + (state.nightLedger ? " checked" : "") + "></label>" +
-      '<p class="caption">Darkens the paper books.</p>' +
+      '<p class="sheet-label">Theme</p><div class="plan-toggle theme-pick" role="group" aria-label="Theme">' +
+      [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(function (o) {
+        var on = (state.theme || "auto") === o[0];
+        return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
+      }).join("") + "</div>" +
+      '<p class="caption">Auto follows your phone’s light or dark setting.</p>' +
       '<label class="field">Pay frequency' +
       '<select data-act="profile-pay-frequency">' +
       PAY_FREQUENCIES.map(function (item) {
@@ -14713,7 +14762,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.61";
+  var APP_VERSION = "37.5.59.62";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18091,10 +18140,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "suggest-paycheck") suggestPaycheckAmount();
     else if (act === "add-post-tax") addPostTaxRow();
     else if (act === "remove-post-tax") removePostTaxRow(actEl.getAttribute("data-id"));
-    else if (act === "toggle-night") {
-      state.nightLedger = actEl.checked;
-      saveState();
-      applyNight();
+    else if (act === "set-theme") {
+      state.theme = actEl.getAttribute("data-theme");
+      applyNight(); saveState();
+      [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "close-modal") {
       var returnProfile = mattersReturnToProfile;
@@ -19153,9 +19202,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       shareShowAmounts = !!el.checked;
       renderShareCard();
     } else if (el.getAttribute("data-act") === "toggle-night") {
-      state.nightLedger = el.checked;
-      saveState();
-      applyNight();
+      state.theme = el.checked ? "dark" : "light";
+      applyNight(); saveState();
     } else if (el.getAttribute("data-act") === "insight-extra") {
       state.insightExtra = dollarsFromDigits(el.value) || 100;
       saveState();

@@ -4736,3 +4736,15 @@ body.night .mode-toggle button.active{color:var(--ink)}
 /* v37.5.59.61: public build has no dev banner — let the phone fill the screen. */
 @media (max-width: 480px) { body.no-banner .phone { height: 100vh; height: 100dvh; } }
 body.no-banner .phone { margin-top: 0; }
+/* v37.5.59.62: Get started card, theme picker, 44px hit areas */
+.dash-start h3{margin:4px 0 2px;font-family:var(--serif);font-size:20px}
+.dash-steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.dash-step{display:grid;grid-template-columns:1fr auto;align-items:center;width:100%;min-height:56px;padding:10px 14px;border:1px solid var(--line, rgba(0,0,0,.12));border-radius:12px;background:transparent;color:var(--ink);text-align:left;font:inherit;cursor:pointer}
+.dash-step strong{grid-column:1;font-size:15px}
+.dash-step .caption{grid-column:1;margin:2px 0 0}
+.dash-step .chev{grid-column:2;grid-row:1/span 2;color:var(--muted);font-size:20px}
+.theme-pick{grid-template-columns:repeat(3,1fr)}
+.theme-pick button{min-height:44px}
+.help-q,.add-line,.text-btn,.dash-go,.dash-buy-name,.trend-chip,.line-name,.line-assigned-btn,.mode-toggle button,[data-act=edit-income],.wrap-qbtn{position:relative}
+.help-q,.add-line{z-index:1}
+.help-q::after,.add-line::after,.text-btn::after,.dash-go::after,.dash-buy-name::after,.trend-chip::after,.line-name::after,.line-assigned-btn::after,.mode-toggle button::after,[data-act=edit-income]::after,.wrap-qbtn::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
