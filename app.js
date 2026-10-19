@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.38. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.39. */
 (function () {
   "use strict";
 
@@ -4039,7 +4039,7 @@
       html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + item.id + '">' +
         '<div class="row"><div><div class="name">' + esc(item.name || "Paycheck 1") +
         '</div><span class="caption income-received">Received ' + money(got) + " of " + money(item.amount) + "</span>" +
-        "</div><span class='mono moss'>" + money(item.amount) + "</span></div></button>" +
+        "</div><span class='mono moss' role='button' tabindex='0' data-act='edit-income' data-focus='amount' data-id='" + item.id + "' aria-label='Edit " + esc(item.name || "Paycheck 1") + " amount'>" + money(item.amount) + "</span></div></button>" +
         docCueHtml("income") + "</div>";
     });
     html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
@@ -4161,6 +4161,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       amountHtml = "<span class='mono tx-amt'>" + money(txTotal(tx)) + "</span>";
     }
+    amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '" aria-label="Edit amount" ');
     var caption = (isSplitTx(tx) ? "Split · " : esc(displayEnvelope(month, tx)) + " · ") +
       esc(displayDate(tx.date)) +
       (tx.note && !isSplitTx(tx) ? " · " + esc(tx.note) : "");
@@ -9857,6 +9858,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html + "</select></label>";
   }
 
+  /* v37.5.59.39: focus a named field in the open sheet (amount from a $ tap, name/payee from a row or Edit tap). */
+  function focusSheetField(name) {
+    var go = function () {
+      var el = document.querySelector('#modal input[name="' + name + '"]');
+      if (el) { el.focus(); try { el.select(); } catch (err) {} }
+    };
+    go();
+    setTimeout(go, 60);
+  }
+
   function openEditSpend(tx, month) {
     openSpendSheet(tx, month);
   }
@@ -12023,8 +12034,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     rows.forEach(function (r, i) { if (startIdx < 0 && r.equity > 0) startIdx = i; });
     var out = { rows: rows, eligible: false, cagr: null, used: null, capped: "", start: null, end: null };
     if (startIdx < 0) return out;
-    var positives = rows.slice(startIdx).filter(function (r) { return r.equity > 0; });
-    var first = rows[startIdx], last = rows[rows.length - 1];
+    var headYear = latestNetWorthHeadline().year;
+    var endIdx = rows.length - 1;
+    rows.forEach(function (r, i) { if (headYear != null && r.year === headYear) endIdx = i; });
+    if (endIdx < startIdx) return out;
+    var first = rows[startIdx], last = rows[endIdx];
+    var positives = rows.slice(startIdx, endIdx + 1).filter(function (r) { return r.equity > 0; });
     var n = last.year - first.year;
     out.start = first; out.end = last;
     if (positives.length >= 3 && last.equity > 0 && n >= 2) {
@@ -12080,6 +12095,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var tot = book ? annualMetrics(syncedAnnualRow(annualRow(book), head.year), head.year).total : null;
       if (rate != null && isFinite(rate) && rate > 0 && tot > 0) { contrib = rate * tot; source = "from your savings rate × income"; }
     }
+    /* The CAGR of net worth already contains the savings you added each year, so adding them again would double count. */
+    if (useHist) { contrib = 0; source = ""; }
     var rows = [], v = head.amount;
     for (var n = 1; n <= 3; n++) { v = v * (1 + g) + contrib; rows.push({ year: head.year + n, total: v }); }
     return { base: head.year, start: head.amount, contrib: contrib, source: source, rows: rows, rate: g, useHist: useHist, hist: hist, mode: A.growthMode };
@@ -12155,7 +12172,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeHelpPopup(); });
 
   function projInputHtml(kind, label, value) {
-    return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
+    return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Math.round(Number(value)) + "%") + '" data-full="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
   }
 
   function estimatedSectionHtml(kind) {
@@ -12181,12 +12198,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<button type="button" class="' + (proj.useHist ? "on" : "") + '" data-proj-mode="cagr"' + (H.eligible ? "" : ' data-ineligible="1"') + ' aria-pressed="' + (proj.useHist ? "true" : "false") + '">Use my history (CAGR)</button></div></div>' +
         projInputHtml("growth", "Manual growth per year", a.growthPct) +
         (H.eligible && proj.useHist
-          ? '<p class="est-history">Your history: <strong>' + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · net worth, " + H.start.year + " to " + H.end.year +
+          ? '<p class="est-history">Your history: <strong>' + Math.round(H.cagr * 100) + "% CAGR</strong> · net worth, " + H.start.year + " to " + H.end.year +
             (H.capped === "high" ? '<br><span class="caption">That is very high. Early balances were small, so treat projections that use it with care.</span>' : "") + "</p>"
           : "") +
         '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + " net worth of " + moneyWhole(proj.start) +
         (proj.contrib > 0 ? ", adds " + moneyWhole(proj.contrib) + " a year " + proj.source : ", with no yearly additions assumed") +
-        ", growing " + (proj.rate * 100).toFixed(1) + "% a year (" + (proj.useHist ? "your history" : "manual") + "). Estimate, not a guarantee.") + "</p>";
+        ", growing " + Math.round(proj.rate * 100) + "% a year (" + (proj.useHist ? "your history" : "manual") + "). Estimate, not a guarantee.") + "</p>";
     }
     return html + "</section>";
   }
@@ -12204,6 +12221,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     saveState();
     render();
   }, true);
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
+    t.setAttribute("data-disp", t.value);
+    t.placeholder = t.getAttribute("data-full") || t.value;
+    t.value = "";
+  });
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
+    if (t.value === "" && t.hasAttribute("data-disp")) t.value = t.getAttribute("data-disp");
+  });
   document.addEventListener("change", function (e) {
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
@@ -12841,7 +12870,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.38";
+  var APP_VERSION = "37.5.59.39";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -16397,11 +16426,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         field("Date", "date", income.date, "date") +
         '<input type="hidden" name="id" value="' + esc(income.id) + '">',
         "save-income");
+      /* v37.5.59.39: tapping the $ lands on Amount; tapping the row/name keeps Name first. */
+      focusSheetField(actEl.getAttribute("data-focus") === "amount" ? "amount" : "name");
     }     else if (act === "add-spend") {
       openSpendSheet(null, month);
     } else if (act === "edit-spend") {
       var tx = (month.transactions || []).filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
-      if (tx) openEditSpend(tx, month);
+      if (tx) {
+        openEditSpend(tx, month);
+        focusSheetField(actEl.getAttribute("data-focus") === "amount" ? "amount" : "payee");
+      }
     } else if (act === "reset-spend") {
       if (window.confirm("Clear this month’s spending?\n\nThis permanently removes every expense and refund in " +
           MONTH_NAMES[month.month - 1] + " " + month.year + ". Envelope names, assigned amounts, paychecks, and Income transactions stay. This can’t be undone.")) {
