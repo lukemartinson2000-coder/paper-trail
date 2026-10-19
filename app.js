@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.36. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.37. */
 (function () {
   "use strict";
 
@@ -11139,82 +11139,70 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function onboardSteps() {
     var ob = onboarding();
     var month = ensureMonth(state.year, state.month);
-    var t = sums(month);
-    var budgetDone = Object.keys(state.months || {}).some(function (key) {
-      var m = state.months[key];
-      return m && sums(m).stamped;
-    });
-    var docs = (state.profile && state.profile.documents) || [];
+    var months = state.months || {};
+    var hasIncome = (month.incomes || []).some(function (i) { return (Number(i.amount) || 0) > 0; });
+    var hasEnvelopes = (month.categories || []).some(function (c) { return catAssigned(c) > 0; });
+    var hasTx = Object.keys(months).some(function (k) { return months[k] && (months[k].transactions || []).length > 0; });
+    var hasStub = false;
+    try { hasStub = confirmedPayStubs().length > 0; } catch (e) {}
+    if (!hasStub) hasStub = ((state.profile && state.profile.documents) || []).some(function (d) { return d && d.slot === "payStubs"; });
     var steps = [
-      {
-        id: "budget", n: 1, title: "Build your first budget",
-        done: budgetDone,
-        skipped: !!ob.skipped.budget && !budgetDone,
-        hint: budgetDone ? "Every dollar has a job."
-          : t.income > 0
-            ? (t.leftover < 0
-              /* v37.5.59: negative = envelopes add up to more than planned take-home. Say so plainly. */
-              ? "Assigned " + money(-t.leftover) + " more than planned take-home — trim envelopes until Left to assign reads $0.00."
-              : "Left to assign " + money(t.leftover) + " — give every dollar a job until it reads $0.00.")
-            : "Add your take-home pay under Income, then assign it to envelopes."
-      },
-      {
-        id: "vault", n: 2, title: "Add documents to your Vault",
-        optional: true,
-        done: docs.length > 0,
-        skipped: !!ob.skipped.vault && !docs.length,
-        hint: docs.length ? docs.length + (docs.length === 1 ? " document saved." : " documents saved.")
-          : ob.skipped.vault ? "Skipped — optional. Add loans, insurance, or a pay stub anytime."
-          : "Optional: loans, insurance, a pay stub."
-      }
+      { id: "income", n: 1, title: "Add your paycheck", done: hasIncome, go: "add-income" },
+      { id: "envelopes", n: 2, title: "Create envelopes", done: hasEnvelopes, go: "add-category" },
+      { id: "tx", n: 3, title: "Add a transaction", done: hasTx, go: "add-spend" },
+      { id: "paystub", n: 4, title: "Add a pay stub", optional: true, done: hasStub, go: "vault-add-paystub" }
     ];
-    if (ob.needsWorth !== false) {
-      var nwDone = worthHasData();
-      steps.push({
-        id: "worth", n: 3, title: "Your first Net Worth statement",
-        done: nwDone,
-        skipped: !!ob.skipped.worth && !nwDone,
-        hint: nwDone ? "Statement started. Update it once a year."
-          : "List what you own and what you owe — about five minutes."
-      });
+    if (ob.needsWorth !== false || worthHasData()) {
+      steps.push({ id: "worth", n: 5, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
     }
+    steps.forEach(function (st) { st.skipped = !!(ob.skipped || {})[st.id] && !st.done; });
     return steps;
   }
 
   function onboardProgress() {
     var steps = onboardSteps();
-    var resolved = steps.filter(function (s) { return s.done || (s.optional && s.skipped); }).length;
-    var done = steps.filter(function (s) { return s.done; }).length;
-    return { steps: steps, done: done, resolved: resolved, total: steps.length, complete: resolved === steps.length };
+    var active = steps.filter(function (s) { return !s.skipped; });
+    var done = active.filter(function (s) { return s.done; }).length;
+    var complete = active.every(function (s) { return s.done || s.optional; });
+    return { steps: steps, active: active, done: done, resolved: done, total: active.length, complete: complete };
   }
 
+  /* v37.5.59.37: compact notification-style to-do card. Open by default for a brand-new user's first view, collapsed after. */
+  var checklistOpen = null;
+  var NOTIF_ICON = '<svg class="notif-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"></path></svg>';
   function onboardChecklistHtml() {
     var ob = onboarding();
     if (ob.status !== "active" || ob.hidden) return "";
     var p = onboardProgress();
-    var pct = p.total ? Math.round((p.resolved / p.total) * 100) : 0;
-    var html = '<section class="card onboard-checklist" aria-label="Setup checklist">' +
-      '<div class="onboard-check-head"><p class="kicker">' + (p.complete ? "You’re set up" : "Get set up") + "</p>" +
-      '<span class="caption mono">' + p.resolved + " of " + p.total + "</span></div>" +
-      '<div class="onboard-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + p.total + '" aria-valuenow="' +
-      p.resolved + '"><i style="width:' + pct + '%"></i></div>';
-    p.steps.forEach(function (s) {
-      var mark = s.done ? "✓" : (s.optional && s.skipped ? "–" : String(s.n));
-      html += '<div class="onboard-step' + (s.done ? " is-done" : "") + (s.skipped ? " is-skipped" : "") + '">' +
-        '<span class="onboard-mark" aria-hidden="true">' + mark + "</span>" +
-        '<div class="onboard-step-copy"><div class="name">' + esc(s.title) +
-        (s.optional ? ' <span class="caption">(optional)</span>' : "") + "</div>" +
-        '<span class="caption">' + esc(s.hint) + "</span></div>" +
-        (s.done ? '<span class="caption onboard-state">Done</span>' : "") +
-        "</div>";
-    });
-    if (p.complete) {
-      html += '<p class="caption">Every step is done. Nice work.</p>' +
-        '<button class="planner-apply" type="button" data-act="ob-dismiss">Dismiss checklist</button>';
-    } else {
-      html += '<button class="text-btn onboard-hide" type="button" data-act="ob-hide">Hide</button>';
+    if (checklistOpen == null) {
+      checklistOpen = !ob.clSeen;
+      if (!ob.clSeen) { ob.clSeen = true; saveState(); }
     }
-    return html + "</section>";
+    var open = checklistOpen;
+    var done = p.steps.filter(function (s) { return s.done; }).length;
+    var title = p.complete ? "Setup complete" : "Finish setup · " + p.done + " of " + p.total;
+    var html = '<section class="card notif onboard-checklist' + (open ? " open" : "") + '" aria-label="Setup to-do">' +
+      '<button class="notif-head" type="button" data-act="ob-cl-toggle" aria-expanded="' + open + '">' + NOTIF_ICON +
+      '<span class="notif-title">' + esc(title) + '</span><span class="nw-chev" aria-hidden="true"></span></button>' +
+      '<div class="notif-body"><div class="notif-body-in">';
+    p.active.forEach(function (s) {
+      html += '<div class="notif-item' + (s.done ? " is-done" : "") + '">' +
+        '<span class="notif-mark" aria-hidden="true">' + (s.done ? "✓" : "") + "</span>" +
+        '<span class="notif-text">' + esc(s.title) + (s.optional ? ' <em>optional</em>' : "") + "</span>" +
+        (s.done ? "" : '<button class="notif-skip" type="button" data-act="ob-cl-skip" data-id="' + s.id + '">Skip</button>' +
+          '<button class="notif-go" type="button" data-act="' + s.go + '">Go</button>') + "</div>";
+    });
+    var skipped = p.steps.filter(function (s) { return s.skipped; });
+    if (skipped.length) {
+      html += '<p class="notif-sub">Skipped</p>';
+      skipped.forEach(function (s) {
+        html += '<div class="notif-item is-skipped"><span class="notif-mark" aria-hidden="true">–</span>' +
+          '<span class="notif-text">' + esc(s.title) + '</span>' +
+          '<button class="notif-skip" type="button" data-act="ob-cl-restore" data-id="' + s.id + '">Restore</button></div>';
+      });
+    }
+    if (p.complete) html += '<button class="planner-apply notif-dismiss" type="button" data-act="ob-dismiss">Dismiss</button>';
+    return html + "</div></div></section>";
   }
 
   function demoBannerHtml() {
@@ -12248,9 +12236,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var base = Math.max(Number(v.first) || 0, Number(v.lastExport) || 0);
     if (Date.now() - base < 7 * day) return "";
     if (v.dismissedAt && Date.now() - Number(v.dismissedAt) < 7 * day) return "";
-    return '<section class="card setup-nudge backup-nudge" aria-label="Back up your data"><p><strong>Save a backup file.</strong></p>' +
-      '<p class="caption">' + (v.lastExport ? "Your last export was " + Math.max(7, Math.floor((Date.now() - v.lastExport) / day)) + " days ago." : "You haven’t exported a backup yet.") +
-      " Your data lives only in this browser.</p>" +
+    return '<section class="card notif setup-nudge backup-nudge" aria-label="Back up your data"><p class="notif-line">' + NOTIF_ICON + '<strong>Save a backup file.</strong>' +
+      helpQ((v.lastExport ? "Your last export was " + Math.max(7, Math.floor((Date.now() - v.lastExport) / day)) + " days ago." : "You haven’t exported a backup yet.") +
+      " Your data lives only in this browser.") + '</p>' +
       '<div class="setup-nudge-actions"><button class="primary" type="button" data-act="backup-now">Export backup</button>' +
       '<button class="text-btn" type="button" data-act="backup-nudge-dismiss">Later</button></div></section>';
   }
@@ -12284,7 +12272,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var n = nudgeRead();
     if (!n || n.dismissed) return "";
     if (Date.now() - Number(n.skippedAt || 0) < 3 * 86400000) return "";
-    return '<section class="card setup-nudge" aria-label="Finish your setup"><p><strong>Finish your setup for better numbers.</strong></p>' +
+    return '<section class="card notif setup-nudge" aria-label="Finish your setup"><p class="notif-line">' + NOTIF_ICON + '<strong>Finish your setup for better numbers.</strong></p>' +
       '<div class="setup-nudge-actions"><button class="primary" type="button" data-act="ob-finish-survey">Finish survey</button>' +
       '<button class="text-btn" type="button" data-act="ob-nudge-dismiss">Not now</button></div></section>';
   }
@@ -12566,6 +12554,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       saveState();
       render();
+    } else if (act === "ob-cl-toggle") {
+      var clCard = actEl.closest(".onboard-checklist");
+      checklistOpen = !checklistOpen;
+      if (clCard) clCard.classList.toggle("open", checklistOpen);
+      actEl.setAttribute("aria-expanded", String(checklistOpen));
+    } else if (act === "ob-cl-skip" || act === "ob-cl-restore") {
+      ob.skipped = ob.skipped || {};
+      var clId = actEl.getAttribute("data-id");
+      if (act === "ob-cl-skip") ob.skipped[clId] = true; else delete ob.skipped[clId];
+      checklistOpen = true;
+      saveState();
+      render();
+    } else if (act === "ob-cl-go-worth") {
+      onTab("worth");
     } else if (act === "ob-hide") {
       ob.hidden = true;
       saveState();
@@ -12838,7 +12840,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.36";
+  var APP_VERSION = "37.5.59.37";
   var pendingRestore = null;
 
   function storagePayload() {

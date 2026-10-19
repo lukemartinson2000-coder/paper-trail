@@ -4546,3 +4546,30 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .help-card p{margin:0 0 16px;font-size:16px;line-height:1.4;text-transform:none;letter-spacing:0;font-weight:400}
 .help-card button{width:100%}
 .est-seg-row .sd-seg button[data-ineligible]{opacity:.55}
+
+/* v37.5.59.37 notification-style cards */
+.card.notif{margin:8px 16px;padding:10px 14px;border-radius:16px}
+.notif-head{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:4px 0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.notif-icon{flex:none;opacity:.8}
+.notif-title{flex:1;font-weight:700;font-size:15px}
+.notif-head .nw-chev{margin:0 4px 0 0}
+.onboard-checklist.open .nw-chev{transform:rotate(45deg)}
+.notif-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease}
+.onboard-checklist.open .notif-body{grid-template-rows:1fr}
+.notif-body-in{overflow:hidden;min-height:0}
+.notif-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(128,128,128,.2);font-size:14px}
+.notif-item:first-child{margin-top:6px}
+.notif-mark{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid currentColor;opacity:.6;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+.notif-item.is-done .notif-mark{background:var(--moss,#1f7a5a);border-color:var(--moss,#1f7a5a);color:#fff;opacity:1}
+.notif-item.is-done .notif-text{opacity:.55;text-decoration:line-through}
+.notif-text{flex:1;min-width:0}
+.notif-text em{font-style:normal;font-size:11px;opacity:.6;margin-left:4px}
+.notif-go{flex:none;padding:6px 16px;border-radius:99px;border:1.5px solid currentColor;background:transparent;color:inherit;font:600 13px system-ui,sans-serif;cursor:pointer}
+.notif-dismiss{width:100%;margin-top:8px}
+.setup-nudge.notif{padding:10px 14px}
+.notif-line{display:flex;align-items:center;gap:10px;margin:0 0 8px!important;font-size:14px}
+.notif-line .help-q{margin-left:auto}
+.notif-skip{flex:none;padding:6px 8px;border:0;background:none;color:inherit;opacity:.6;font:500 13px system-ui,sans-serif;cursor:pointer}
+.notif-go+.notif-skip,.notif-skip+.notif-go{margin-left:0}
+.notif-sub{margin:10px 0 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;opacity:.55}
+.notif-item.is-skipped .notif-text{opacity:.55}
