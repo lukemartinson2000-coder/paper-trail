@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.42. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.43. */
 (function () {
   "use strict";
 
@@ -40,6 +40,7 @@
   var GROUPS = [
     { id: "cash", title: "Cash" },
     { id: "lifestyle", title: "Lifestyle / other assets" },
+    { id: "vehicles", title: "Vehicles" },
     { id: "taxable", title: "Investments (taxable)" },
     { id: "retirement", title: "Retirement" },
     { id: "realEstate", title: "Property" },
@@ -351,6 +352,10 @@
         value: Number(row.value) || 0
       };
     });
+    /* v37.5.59.43: manual per-check deductions (Income › Details). amount = $ per paycheck. */
+    plan.perCheck = (Array.isArray(plan.perCheck) ? plan.perCheck : []).filter(function (r) { return r && typeof r === "object"; }).map(function (r) {
+      return { id: r.id || nextId(), name: String(r.name || ""), amount: Math.max(0, Number(r.amount) || 0), preTax: r.preTax !== false, maxHsa: !!r.maxHsa };
+    });
     if (plan.payStubSnapshot && typeof plan.payStubSnapshot === "object") {
       plan.payStubSnapshot = plan.payStubSnapshot;
     } else {
@@ -593,7 +598,12 @@
     var base = Math.max(0, Number(plan.baseSalary) || 0);
     var bonus = roundCents(base * Math.max(0, Number(plan.bonusTargetPercent) || 0) / 100);
     var cash = roundCents(base + bonus);
-    var preTaxAmounts = (plan.preTax || []).map(function (row) { return deductionAmount(row, cash, 0); });
+    var pcChecks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
+    /* v37.5.59.43: a per-check line replaces the yearly what-if row of the same kind (no double count). */
+    var pcRows = perCheckManualResolved(plan);
+    var pcSpecHit = {};
+    pcRows.forEach(function (r) { var sid = perCheckSpecId(r.name); if (sid) pcSpecHit[sid] = true; });
+    var preTaxAmounts = (plan.preTax || []).map(function (row) { return pcSpecHit[row.id] ? 0 : deductionAmount(row, cash, 0); });
     var pretax = preTaxAmounts.reduce(function (n, amt) { return n + amt; }, 0);
     var employee401k = 0;
     var hsa = 0;
@@ -602,6 +612,15 @@
       if (row.id === "401k") employee401k = preTaxAmounts[i];
       if (row.id === "hsa") hsa = preTaxAmounts[i];
       if (row.id !== "401k") ficaShield += preTaxAmounts[i];
+    });
+    var pcPost = 0;
+    pcRows.forEach(function (r) {
+      var yr = r.yearAmt != null ? r.yearAmt : roundCents(r.amount * pcChecks);
+      if (!r.preTax) { pcPost += yr; return; }
+      pretax += yr;
+      if (r.ficaExempt) ficaShield += yr;
+      if (r.kind === "hsa") hsa += yr;
+      if (r.kind === "retirement" && /401/.test(r.name)) employee401k += yr;
     });
     var employerBase = employerContribution(
       plan.employer401kBase,
@@ -633,7 +652,7 @@
     var netAfterTax = Math.max(0, cash - pretax - totalTax);
     var posttax = (plan.postTax || []).reduce(function (n, row) {
       return n + deductionAmount(row, cash, netAfterTax);
-    }, 0);
+    }, 0) + pcPost;
     var takeHome = roundCents(Math.max(0, netAfterTax - posttax));
     var totalComp = roundCents(cash + employerBase + employerMatch);
     var checks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
@@ -3189,7 +3208,7 @@
     /* "investment" is Amber's brokerage group — same bucket as taxable, not a made-up account. */
     { id: "investments", title: "Investments", groups: ["taxable", "retirement", "investment"] },
     /* Cars and other lifestyle assets read as property, not investments (owner 2026-10-04). */
-    { id: "property", title: "Property", groups: ["realEstate", "lifestyle"] }
+    { id: "property", title: "Property", groups: ["realEstate", "lifestyle", "vehicles"] }
   ];
   /* Session-only. First pass stays collapsed; not written to the books. */
   var bsGroupOpen = {};
@@ -3200,6 +3219,7 @@
   function balanceAssetLines(groups) {
     return (state.worth.lines || []).filter(function (line) {
       if (line.kind === "liability" || line.group === "debt") return false;
+      if (nwLeftOut(line)) return false;
       return groups.indexOf(line.group) >= 0;
     });
   }
@@ -3697,12 +3717,15 @@
     return cfs;
   }
 
+  function nwLeftOut(line) { return !!(line && line.excludeFromNw); }
+
   function worthTotals(year) {
     var assets = 0;
     var liabilities = 0;
     var rollup = {};
     GROUPS.forEach(function (g) { rollup[g.id] = 0; });
     state.worth.lines.forEach(function (line) {
+      if (nwLeftOut(line)) return; // v37.5.59.43: "Leave out of net worth" vehicles list but never count
       var amount = lineAmount(line, year);
       rollup[line.group] = (rollup[line.group] || 0) + amount;
       if (line.kind === "liability") liabilities += amount;
@@ -4598,6 +4621,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         vaultText("Deductibles", "deductibles", doc.deductibles, id) +
         vaultLimitBoxes(doc) +
         vaultText("Term / renewal", "termRenewal", doc.termRenewal, id) +
+        vaultVehiclesHtml(doc) +
         vaultNotesField(doc);
     } else if (type === "mortgage") {
       html += vaultProviderField("Lender", doc) +
@@ -4639,6 +4663,55 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     html += deleteBtnHtml("vault-delete", "Delete this card", ' data-id="' + esc(id) + '"');
     return html + "</div>";
+  }
+
+  /* ---- v37.5.59.43: vehicles on an insurance card count as Net worth assets ----
+   * A vehicle IS a Net worth asset line (group "vehicles", vehicle:true, vaultDocId). Estimated value is that
+   * line's amount for the statement year, so backups/exports carry it like any other line. */
+  var VEHICLE_MAKES = /\b(acura|audi|bmw|buick|cadillac|chevy|chevrolet|chrysler|dodge|ford|gmc|harley|honda|hyundai|infiniti|jeep|kia|lexus|lincoln|mazda|mercedes|mini|mitsubishi|nissan|porsche|ram|rivian|subaru|tesla|toyota|volkswagen|vw|volvo|yamaha|kawasaki|polaris)\b/i;
+  function parseVehicleNames(text) {
+    return String(text || "").split(/[;\n]|,(?![^()]*\))/).map(function (p) { return p.replace(/^\s+|\s+$/g, ""); })
+      .filter(function (p) { return p && p.length <= 60 && (/\b(19[5-9]\d|20[0-4]\d)\b/.test(p) || VEHICLE_MAKES.test(p)) && !/dwelling|home|condo|renters?|umbrella/i.test(p); });
+  }
+  function vaultVehicleLines(doc) {
+    return ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle && l.vaultDocId === doc.id; });
+  }
+  function addVehicleLine(docId, name, value) {
+    if (!state.worth.lines) state.worth.lines = [];
+    var year = currentWorthYear();
+    var amounts = {};
+    (state.worth.years || [year]).forEach(function (y) { amounts[y] = 0; });
+    amounts[year] = clampMoney(Number(value) || 0);
+    var line = { id: nextId(), name: name || "Vehicle", kind: "asset", group: "vehicles", vehicle: true, vaultDocId: docId || "",
+      excludeFromNw: false, sortOrder: state.worth.lines.length, amounts: amounts, additions: {}, employerMatch: {}, employerBase: {},
+      loanBalance: 0, loanApr: 0 };
+    state.worth.lines.push(line);
+    return line;
+  }
+  function vehicleLeaveOutHtml(line) {
+    return '<label class="check vehicle-out"><input type="checkbox" data-act="vehicle-exclude" data-id="' + esc(line.id) + '"' +
+      (nwLeftOut(line) ? " checked" : "") + "> Leave out of net worth</label>";
+  }
+  function vaultVehiclesHtml(doc) {
+    var year = currentWorthYear();
+    var lines = vaultVehicleLines(doc);
+    var html = '<div class="vault-vehicles"><p class="sheet-label">Vehicles</p>' +
+      '<p class="caption">Each vehicle counts in Net worth at its estimated value (' + year + '). Tap the amount to change it.</p>';
+    lines.forEach(function (line) {
+      html += '<div class="vehicle-row' + (nwLeftOut(line) ? " nw-left-out" : "") + '"><div class="vehicle-main"><span class="name">' + esc(line.name) +
+        '</span><span class="mono nw-amt" role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + esc(line.id) +
+        '" aria-label="Edit ' + esc(line.name) + ' value">' + moneyWhole(lineAmount(line, year)) + "</span></div>" +
+        '<div class="vehicle-tools">' + vehicleLeaveOutHtml(line) + deleteBtnHtml("delete-nw-line", "Delete", ' data-id="' + esc(line.id) + '"', true) + "</div></div>";
+    });
+    var have = {};
+    lines.forEach(function (l) { have[String(l.name || "").toLowerCase()] = true; });
+    var fresh = parseVehicleNames(doc.insuredItems).filter(function (n) { return !have[n.toLowerCase()]; });
+    if (fresh.length) {
+      html += '<button class="planner-apply" type="button" data-act="vehicle-import" data-id="' + esc(doc.id) + '">Add ' + fresh.length +
+        (fresh.length === 1 ? " vehicle" : " vehicles") + " from Insured items</button>";
+    }
+    html += '<button class="text-btn" type="button" data-act="vehicle-add" data-id="' + esc(doc.id) + '">+ Add vehicle</button></div>';
+    return html;
   }
 
   function vaultAddToNetWorthHtml(doc) {
@@ -6056,6 +6129,112 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     };
   }
 
+  /* ---- v37.5.59.43: annual Wrapped graph slides (net worth, investments, savings rate, contributions vs growth) ---- */
+  function wrapPct(x) { return Math.round((Number(x) || 0) * 100) + "%"; }
+  function wrapSigned(n) { n = Math.round(Number(n) || 0); return (n > 0 ? "+" : n < 0 ? "−" : "") + moneyWhole(Math.abs(n)); }
+  function wrapInvestLines() {
+    return ((state.worth && state.worth.lines) || []).filter(function (l) {
+      return l.kind !== "liability" && !nwLeftOut(l) && (l.group === "retirement" || l.group === "taxable" || l.group === "investment");
+    });
+  }
+  function wrapGraphSlides(month) {
+    var Y = month.year, P = Y - 1;
+    var years = (state.worth && state.worth.years) || [];
+    var out = [];
+    var hasY = years.indexOf(Y) >= 0;
+    var priorHas = years.indexOf(P) >= 0 && ((state.worth.lines || []).some(function (l) { return !nwLeftOut(l) && lineAmount(l, P) !== 0; }));
+    if (hasY && priorHas) {
+      var s = worthTotals(P).equity, e = worthTotals(Y).equity, d = e - s;
+      out.push({ id: "g-networth", kicker: "Net worth · " + Y, title: "Your net worth changed by " + wrapSigned(d) + " this year",
+        lines: [], graph: { type: "startEnd", start: s, end: e, startLabel: "End of " + P, endLabel: String(Y) },
+        footnote: "Net worth = assets − debts on your Net worth statement (" + P + " column → " + Y + " column)." });
+    }
+    var inv = wrapInvestLines();
+    var you = 0, emp = 0, start = 0, end = 0;
+    inv.forEach(function (l) {
+      you += lineAddition(l, Y);
+      if (is401k(l)) emp += lineEmployerMatch(l, Y) + lineEmployerBase(l, Y);
+      start += lineAmount(l, P);
+      end += lineAmount(l, Y);
+    });
+    var adds = you + emp;
+    if (inv.length && adds > 0) {
+      out.push({ id: "g-added", kicker: "Investments · " + Y, title: "You added " + moneyWhole(adds) + " to your investments",
+        lines: [], graph: { type: "stack", segs: [
+          { label: "You", amount: Math.max(0, you), ink: "var(--plum)" },
+          { label: "Employer match + base", amount: Math.max(0, emp), ink: "var(--moss)" }
+        ].filter(function (g) { return g.amount > 0; }) },
+        footnote: "Net additions on your retirement and investment lines for " + Y + ", plus employer 401k money." });
+    }
+    var bounds = periodBounds(month.year, month.month, "year");
+    var bag = activityInPeriod(bounds);
+    var rate = gm().basicSavingsRate({ savings: bag.savingsPlanned, takeHome: bag.takeHomePlanned }).rate;
+    if (rate != null && bag.takeHomePlanned > 0) {
+      var saved = Math.max(0, Math.min(bag.savingsPlanned, bag.takeHomePlanned));
+      out.push({ id: "g-rate", kicker: "Savings rate · " + Y, title: "That’s a " + wrapPct(rate) + " savings rate",
+        lines: [], graph: { type: "stack", segs: [
+          { label: "Saved", amount: saved, ink: "var(--moss)" },
+          { label: "Everything else", amount: Math.max(0, bag.takeHomePlanned - saved), ink: "var(--rule)" }
+        ] },
+        footnote: "Basic savings rate: savings envelopes " + moneyWhole(bag.savingsPlanned) + " ÷ take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross)." });
+    }
+    if (inv.length && start > 0 && adds > 0) {
+      var growth = end - start - adds;
+      var mkt = annualReturn(end, start, adds);
+      out.push({ id: "g-contrib", kicker: "Investments · " + Y, title: "Your contributions grew your investments by " + wrapPct(adds / start),
+        lines: ["Market return " + (mkt == null ? "—" : wrapPct(mkt))],
+        graph: { type: "stack", segs: [
+          { label: "Contributions", amount: adds, ink: "var(--plum)" },
+          { label: growth >= 0 ? "Market growth" : "Market loss", amount: Math.abs(growth), ink: growth >= 0 ? "var(--moss)" : "var(--berry)", signed: growth }
+        ].filter(function (g) { return g.amount > 0; }), caption: moneyWhole(start) + " start of year → " + moneyWhole(end) + " end" },
+        footnote: "Contributions ÷ start-of-year investment balance. Market return = (end − start − contributions) ÷ start." });
+    }
+    return out;
+  }
+  function wrapGraphSvg(g) {
+    var W = 320, html = "";
+    if (g.type === "startEnd") {
+      var H = 190, top = 26, base = 150;
+      var lo = Math.min(0, g.start, g.end), hi = Math.max(0, g.start, g.end, 1);
+      var y = function (v) { return top + (hi - v) / (hi - lo) * (base - top); };
+      var zero = y(0);
+      var bars = [{ x: 60, v: g.start, label: g.startLabel, ink: "var(--plum)" }, { x: 190, v: g.end, label: g.endLabel, ink: g.end >= g.start ? "var(--moss)" : "var(--berry)" }];
+      html = '<svg class="wrap-graph" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Net worth start and end">';
+      html += '<line x1="20" x2="300" y1="' + zero.toFixed(1) + '" y2="' + zero.toFixed(1) + '" stroke="currentColor" stroke-opacity="0.3"/>';
+      bars.forEach(function (b) {
+        var yt = Math.min(y(b.v), zero), hgt = Math.max(2, Math.abs(y(b.v) - zero));
+        html += '<rect x="' + b.x + '" y="' + yt.toFixed(1) + '" width="70" height="' + hgt.toFixed(1) + '" rx="6" fill="' + b.ink + '"/>';
+        html += '<text x="' + (b.x + 35) + '" y="' + (Math.min(y(b.v), zero) - 8).toFixed(1) + '" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">' + esc(moneyWhole(b.v)) + "</text>";
+        html += '<text x="' + (b.x + 35) + '" y="' + (H - 12) + '" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.75">' + esc(b.label) + "</text>";
+      });
+      html += '<path d="M134 ' + ((y(g.start) + zero) / 2).toFixed(1) + ' L184 ' + ((y(g.end) + zero) / 2).toFixed(1) + '" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4" fill="none" marker-end="url(#wg-arrow)"/>';
+      html += '<defs><marker id="wg-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>';
+      return html + "</svg>";
+    }
+    if (g.type === "stack") {
+      var segs = g.segs || [], tot = segs.reduce(function (n, sg) { return n + sg.amount; }, 0) || 1;
+      var rows = segs.length, H2 = 52 + rows * 26 + (g.caption ? 20 : 0), x = 10;
+      html = '<svg class="wrap-graph" viewBox="0 0 ' + W + " " + H2 + '" role="img" aria-label="Split bar">';
+      html += '<rect x="10" y="8" width="300" height="30" rx="8" fill="currentColor" fill-opacity="0.08"/>';
+      segs.forEach(function (sg) {
+        var w = 300 * sg.amount / tot;
+        html += '<rect x="' + x.toFixed(1) + '" y="8" width="' + Math.max(2, w).toFixed(1) + '" height="30" fill="' + sg.ink + '"/>';
+        x += w;
+      });
+      html += '<rect x="10" y="8" width="300" height="30" rx="8" fill="none" stroke="currentColor" stroke-opacity="0.25"/>';
+      segs.forEach(function (sg, i) {
+        var yy = 60 + i * 26;
+        html += '<rect x="10" y="' + (yy - 11) + '" width="14" height="14" rx="3" fill="' + sg.ink + '" stroke="currentColor" stroke-opacity="0.25"/>';
+        html += '<text x="32" y="' + yy + '" font-size="14" fill="currentColor">' + esc(sg.label) + "</text>";
+        html += '<text x="310" y="' + yy + '" text-anchor="end" font-size="14" font-weight="700" fill="currentColor">' +
+          esc((sg.signed != null ? wrapSigned(sg.signed) : moneyWhole(sg.amount)) + " · " + Math.round(sg.amount / tot * 100) + "%") + "</text>";
+      });
+      if (g.caption) html += '<text x="10" y="' + (H2 - 6) + '" font-size="12" fill="currentColor" fill-opacity="0.75">' + esc(g.caption) + "</text>";
+      return html + "</svg>";
+    }
+    return "";
+  }
+
   function openWrapped(month) {
     captureModalReturnScreenTop();
     wrapSlideIndex = 0;
@@ -6066,6 +6245,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cadence = "year";
     state.wrapCadence = "year";
     var deck = window.GradeMath.buildWrappedDeck(wrappedFacts(month, cadence));
+    if (deck.premium) {
+      var gSlides = wrapGraphSlides(month);
+      var at = -1;
+      deck.slides.forEach(function (sl, i) { if (sl.id === "deltas") at = i; });
+      if (at < 0) at = Math.max(0, deck.slides.length - 1);
+      deck.slides.splice.apply(deck.slides, [at + 1, 0].concat(gSlides));
+    }
     if (wrapSlideIndex >= deck.slides.length) wrapSlideIndex = deck.slides.length - 1;
     if (wrapSlideIndex < 0) wrapSlideIndex = 0;
     var slide = deck.slides[wrapSlideIndex];
@@ -6086,6 +6272,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="wrap-chart">' + barChart(slide.chart.rows.map(function (row) {
         return { title: row.title, amount: row.amount, id: row.id || row.title };
       })) + "</div>";
+    } else if (slide.graph) {
+      html += '<div class="wrap-chart wrap-graph-box">' + wrapGraphSvg(slide.graph) + "</div>";
     } else if (slide.chart && slide.chart.type === "donut" && slide.chart.slices && slide.chart.slices.length) {
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
@@ -7312,7 +7500,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out;
   }
 
-  function payStubBasisFor(year) {
+  function payStubBasisFor(year, noAdj) {
     if (!gm().payStubYearBasis) return null;
     var stubs = confirmedPayStubs();
     if (!stubs.length) return null;
@@ -7330,11 +7518,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bonusTargetPercent: Number(plan.bonusTargetPercent) || 0,
       salaryTarget: incomeTargetFor(year).salaryTarget
     };
+    if (!noAdj) opts.perCheckAdj = perCheckBasisAdj(year);
     var key = JSON.stringify([stubs, opts]);
-    var slot = payStubBasisCache[String(opts.year)];
+    var slotKey = String(opts.year) + (noAdj ? ":raw" : "");
+    var slot = payStubBasisCache[slotKey];
     if (slot && slot.key === key) return slot.value;
     var value = gm().payStubYearBasis(stubs, opts);
-    payStubBasisCache[String(opts.year)] = { key: key, value: value };
+    payStubBasisCache[slotKey] = { key: key, value: value };
     return value;
   }
 
@@ -8796,7 +8986,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var chev = '<span class="nw-chev" aria-hidden="true"></span>';
         var amtAttr = ' role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + line.id +
           '" aria-label="Edit ' + esc(line.name) + ' amount"';
-        html += '<div class="worth-line' + (open ? " open" : "") + '" data-nw-id="' + line.id + '">';
+        html += '<div class="worth-line' + (open ? " open" : "") + (nwLeftOut(line) ? " nw-left-out" : "") + '" data-nw-id="' + line.id + '">';
         html += '<div class="worth-line-head">';
         if (priorYear != null) {
           html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
@@ -8810,6 +9000,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             '<span class="mono nw-amt"' + amtAttr + '>' + money(current) + "</span></button>";
         }
         html += "</div>";
+        if (line.vehicle) html += vehicleLeaveOutHtml(line);
         html += '<div class="nw-panel"><div class="nw-panel-in">';
         if (is401k(line)) html += contribSummaryHtml(line, year);
         html += '<span class="caption">' + esc(worthLineCaption(line, year)) + "</span>" + nwFooBadge(line, year, current);
@@ -10548,6 +10739,230 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return v == null ? "—" : (unit === "$" ? money(v) : (Math.round(v * 100) / 100).toFixed(2) + "%");
   }
 
+  /* ---- v37.5.59.43: Per-check deductions (Income › Details) ----
+   * Stub lines come from the latest confirmed pay stub (HSA, FSA, other deductions; 401k stays on Income lines).
+   * Manual lines are $ per paycheck. A manual line with the same name (or the HSA/FSA line) overrides the stub line;
+   * any other manual line adds. Pre-tax lowers federal + state taxable wages; Section 125 insurance (medical, dental,
+   * vision, other cafeteria-plan premiums), HSA and FSA through payroll are FICA-exempt too; pre-tax retirement isn’t. */
+  function perCheckKind(name) {
+    var n = String(name || "").toLowerCase();
+    if (/\bhsa\b|health savings/.test(n)) return "hsa";
+    if (/\bfsa\b|flexible spending/.test(n)) return "fsa";
+    if (/401|403|457|\btsp\b|retire|pension/.test(n)) return "retirement";
+    if (/medical|dental|vision|health|\bmed\b/.test(n)) return "sec125";
+    return "other";
+  }
+  function perCheckDefaultPreTax(name) {
+    return !/\bltd\b|long.?term dis|\bstd\b|short.?term dis|ad\s*&\s*d|accidental|\blife\b|roth/i.test(String(name || ""));
+  }
+  function perCheckSpecId(name) {
+    var n = String(name || "").toLowerCase(), k = perCheckKind(n);
+    if (k === "hsa") return "hsa";
+    if (k === "fsa") return "fsa";
+    if (/medical|health/.test(n)) return "medical";
+    if (/dental/.test(n)) return "dental";
+    if (/vision/.test(n)) return "vision";
+    if (/\bltd\b|long.?term dis/.test(n)) return "ltd";
+    if (/\blife\b/.test(n)) return "life";
+    if (/commut|transit|parking/.test(n)) return "commuter";
+    return "";
+  }
+  function pcNorm(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+  function perCheckStubLines() {
+    var stubs = confirmedPayStubs();
+    if (!stubs.length || !gm().payStubCheckFigures) return [];
+    var latest = stubs[stubs.length - 1];
+    var f = gm().payStubCheckFigures(latest);
+    var out = [];
+    if (f.hsa > 0) out.push({ name: "HSA", amount: f.hsa, preTax: true });
+    var fsaListed = false;
+    (latest.otherDeductions || []).forEach(function (d) {
+      if (!d) return;
+      var amt = Number(d.amount) || 0;
+      if (!(amt > 0)) return;
+      if (perCheckKind(d.name) === "fsa") fsaListed = true;
+      out.push({ name: d.name || "Other", amount: amt, preTax: d.preTax === true, unmarked: d.preTax == null });
+    });
+    if (!fsaListed && f.fsa > 0) out.push({ name: "FSA", amount: f.fsa, preTax: true });
+    return out.map(function (r) { r.kind = perCheckKind(r.name); r.ficaExempt = r.preTax && r.kind !== "retirement"; r.source = "stub"; return r; });
+  }
+  /* Max out HSA: per check = (IRS limit for your coverage − YTD in, employee + employer − employer HSA still to come) ÷ checks left. */
+  function hsaMaxInfo(plan) {
+    var year = currentYearMonth().year;
+    var limits = gm().pretaxLimitsFor ? gm().pretaxLimitsFor(year, { hsaCoverage: hsaCoverageOf(), ageAtYearEnd: ageAtYearEnd(year) }) : null;
+    if (!limits) return null;
+    var checks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
+    var basis = payStubBasisFor(year, true);
+    if (basis && basis.hasYtd) {
+      var left = (basis.projected || []).length;
+      var ytd = roundCents((basis.actual.hsa || 0) + (basis.actual.erHsa || 0));
+      var stubs = confirmedPayStubs();
+      var erPer = gm().payStubCheckFigures ? (gm().payStubCheckFigures(stubs[stubs.length - 1]).erHsa || 0) : 0;
+      var room = Math.max(0, limits.hsa - ytd - erPer * left);
+      var pcMax = left > 0 ? Math.floor(room / left * 100) / 100 : 0;
+      return { year: year, limit: limits.hsa, coverage: limits.hsaCoverage, ytd: ytd, employerAhead: roundCents(erPer * left), left: left,
+        perCheck: pcMax, fromStub: true, yearEmployee: roundCents((basis.actual.hsa || 0) + pcMax * left) };
+    }
+    return { year: year, limit: limits.hsa, coverage: limits.hsaCoverage, ytd: null, employerAhead: 0, left: checks,
+      perCheck: Math.floor(limits.hsa / checks * 100) / 100, fromStub: false, yearEmployee: roundCents(Math.floor(limits.hsa / checks * 100) / 100 * checks) };
+  }
+  function perCheckManualResolved(plan) {
+    var mx = null;
+    return (plan.perCheck || []).map(function (r) {
+      var kind = perCheckKind(r.name);
+      var amt = Number(r.amount) || 0, yearAmt = null;
+      if (kind === "hsa" && r.maxHsa) { mx = mx || hsaMaxInfo(plan); if (mx) { amt = mx.perCheck; yearAmt = mx.yearEmployee; } }
+      return { id: r.id, name: r.name, amount: amt, yearAmt: yearAmt, preTax: r.preTax !== false, kind: kind, ficaExempt: r.preTax !== false && kind !== "retirement", maxHsa: !!r.maxHsa, source: "manual" };
+    }).filter(function (r) { return r.name || r.amount > 0; });
+  }
+  function perCheckMerged(plan) {
+    var manual = perCheckManualResolved(plan);
+    var stub = perCheckStubLines();
+    stub.forEach(function (s) {
+      s.overriddenBy = null;
+      manual.forEach(function (m) {
+        if (pcNorm(m.name) === pcNorm(s.name) || (m.kind === "hsa" && s.kind === "hsa") || (m.kind === "fsa" && s.kind === "fsa")) s.overriddenBy = m.id;
+      });
+    });
+    return { stub: stub, manual: manual, active: stub.filter(function (s) { return !s.overriddenBy; }).concat(manual) };
+  }
+  /* Feeds payStubYearBasis (projected checks only): new per-check pre-tax vs the stub's. */
+  function perCheckBasisAdj(year) {
+    var plan = state.compensation || {};
+    if (!(plan.perCheck || []).length) return null;
+    var m = perCheckMerged(migrateCompensationLite(plan));
+    if (!m.manual.length) return null;
+    var adj = { hsa: null, fsa: null, otherPreDelta: 0, ficaExemptDelta: 0 };
+    m.manual.forEach(function (r) {
+      if (r.kind === "hsa") { adj.hsa = (adj.hsa || 0) + (r.preTax ? r.amount : 0); return; }
+      if (r.kind === "fsa") { adj.fsa = (adj.fsa || 0) + (r.preTax ? r.amount : 0); return; }
+      if (r.preTax) adj.otherPreDelta += r.amount;
+    });
+    var oldExempt = 0, newExempt = 0;
+    m.stub.forEach(function (s) {
+      if (!s.preTax) return;
+      if (s.ficaExempt) oldExempt += s.amount;
+      if (s.overriddenBy && s.kind !== "hsa" && s.kind !== "fsa") adj.otherPreDelta -= s.amount;
+    });
+    m.active.forEach(function (r) { if (r.preTax && r.ficaExempt) newExempt += r.amount; });
+    adj.ficaExemptDelta = roundCents(newExempt - oldExempt);
+    adj.otherPreDelta = roundCents(adj.otherPreDelta);
+    return adj;
+  }
+  function migrateCompensationLite(plan) {
+    if (!Array.isArray(plan.perCheck)) plan.perCheck = [];
+    return plan;
+  }
+  function perCheckSectionHtml(plan) {
+    var m = perCheckMerged(plan);
+    var checks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
+    var html = '<div class="pc-deduct" id="pc-deduct"><p class="sheet-label">Per-check deductions ' + helpQ(
+      "Dollars taken out of each paycheck. Lines from your confirmed pay stub show here; add your own line to change or add one (same name replaces the stub line). " +
+      "Pre-tax lowers federal and state taxable wages. Medical, dental and vision through a Section 125 plan, plus HSA and FSA through payroll, also skip Social Security and Medicare (7.65%). " +
+      "Pre-tax retirement (401k) doesn’t skip FICA. Post-tax lines just lower take-home. Yearly totals = per check × " + checks + " paychecks. " +
+      "Max out HSA = (IRS HSA limit for your coverage − already in this year, yours + employer − employer HSA still to come) ÷ paychecks left, held to the yearly limit. Estimates, not tax advice.") + "</p>";
+    if (m.stub.length) {
+      html += '<p class="caption pc-sub">From your pay stub</p>';
+      m.stub.forEach(function (s) {
+        html += '<div class="pc-row pc-stub' + (s.overriddenBy ? " is-over" : "") + '"><span class="pc-name">' + esc(s.name) +
+          ' <span class="pc-tag">' + (s.preTax ? "Pre-tax" : s.unmarked ? "Not marked" : "Post-tax") + "</span></span>" +
+          '<span class="mono pc-amt">' + money(s.amount) + "</span>" +
+          (s.overriddenBy ? '<span class="caption pc-note">Replaced by your line below</span>'
+            : '<button type="button" class="link-btn" data-pc="override" data-name="' + esc(s.name) + '" data-amt="' + s.amount + '" data-pre="' + (s.preTax ? 1 : 0) + '">Change</button>') + "</div>";
+      });
+    }
+    html += '<p class="caption pc-sub">Your lines · $ per check</p>';
+    (plan.perCheck || []).forEach(function (r) {
+      var kind = perCheckKind(r.name);
+      var res = perCheckManualResolved({ perCheck: [r], paychecksPerYear: plan.paychecksPerYear, payFrequency: plan.payFrequency })[0];
+      var amt = res ? res.amount : r.amount;
+      var maxed = kind === "hsa" && r.maxHsa;
+      html += '<div class="pc-row pc-manual' + (maxed ? " is-max" : "") + '" data-pc-id="' + esc(r.id) + '">' +
+        '<input class="pc-name-in" data-pc="name" data-id="' + esc(r.id) + '" type="text" maxlength="60" placeholder="Name (e.g. Medical insurance)" value="' + esc(r.name) + '" aria-label="Deduction name">' +
+        '<input class="pc-amt-in cents-input mono" data-pc="amount" data-dollars="1" data-id="' + esc(r.id) + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(money(amt)) + '"' + (maxed ? " readonly" : "") + ' aria-label="' + esc(r.name || "Deduction") + ' per check">' +
+        '<div class="pc-tools"><div class="sd-seg" role="group" aria-label="Tax treatment">' +
+        '<button type="button" class="' + (r.preTax !== false ? "on" : "") + '" data-pc="pre" data-id="' + esc(r.id) + '" aria-pressed="' + (r.preTax !== false) + '">Pre-tax</button>' +
+        '<button type="button" class="' + (r.preTax === false ? "on" : "") + '" data-pc="post" data-id="' + esc(r.id) + '" aria-pressed="' + (r.preTax === false) + '">Post-tax</button></div>' +
+        deleteBtnHtml("", "Delete", ' data-pc="delete" data-id="' + esc(r.id) + '"', true) + "</div>";
+      if (kind === "hsa") {
+        var mx = hsaMaxInfo(plan);
+        html += '<label class="check pc-max"><input type="checkbox" data-pc="maxhsa" data-id="' + esc(r.id) + '"' + (r.maxHsa ? " checked" : "") + "> Max out HSA</label>";
+        if (r.maxHsa && mx) {
+          html += '<p class="caption pc-maxnote">' + money(mx.perCheck) + " per check = (" + moneyWhole(mx.limit) + " " + mx.year + " " + (mx.coverage === "family" ? "family" : "self-only") + " limit" +
+            (mx.fromStub ? " − " + money(mx.ytd) + " in so far" + (mx.employerAhead > 0 ? " − " + money(mx.employerAhead) + " employer still to come" : "") : "") +
+            ") ÷ " + mx.left + " paycheck" + (mx.left === 1 ? "" : "s") + (mx.fromStub ? " left" : " a year") + ".</p>";
+        }
+      }
+      html += "</div>";
+    });
+    html += '<button class="text-btn" type="button" data-pc="add">+ Add deduction</button>';
+    var pre = 0, post = 0, exempt = 0, preY = 0, postY = 0, exemptY = 0;
+    m.active.forEach(function (r) {
+      var y = r.yearAmt != null ? r.yearAmt : roundCents(r.amount * checks);
+      if (r.preTax) { pre += r.amount; preY += y; if (r.ficaExempt) { exempt += r.amount; exemptY += y; } } else { post += r.amount; postY += y; }
+    });
+    html += '<div class="pc-totals">' +
+      '<div class="row dense"><span>Pre-tax per check</span><span class="mono">' + money(pre) + "</span></div>" +
+      '<div class="row dense"><span>Post-tax per check</span><span class="mono">' + money(post) + "</span></div>" +
+      '<div class="row dense"><span>Per year (× ' + checks + " checks)</span><span class=\"mono\">" + money(roundCents(preY + postY)) + "</span></div>" +
+      '<p class="caption">Taxable wages drop ' + moneyWhole(preY) + " a year; Social Security + Medicare wages drop " + moneyWhole(exemptY) +
+      " (about " + moneyWhole(exemptY * 0.0765) + " less FICA)." + (m.active.some(function (r) { return r.yearAmt != null; }) ? " Max-out HSA counts what goes in this year, not × " + checks + "." : "") + "</p></div></div>";
+    return html;
+  }
+  function perCheckHandle(el, kind) {
+    var plan = migrateCompensation(state.compensation || defaultCompensation());
+    var pc = el.getAttribute("data-pc");
+    var id = el.getAttribute("data-id");
+    var row = (plan.perCheck || []).filter(function (r) { return r.id === id; })[0];
+    var rerender = true, focusNew = null;
+    if (pc === "add") {
+      var nr = { id: nextId(), name: "", amount: 0, preTax: true, maxHsa: false };
+      plan.perCheck.push(nr); focusNew = nr.id;
+    } else if (pc === "override") {
+      var nm = el.getAttribute("data-name") || "";
+      plan.perCheck.push({ id: nextId(), name: nm, amount: Number(el.getAttribute("data-amt")) || 0, preTax: el.getAttribute("data-pre") === "1", maxHsa: false });
+    } else if (!row) return;
+    else if (pc === "name") {
+      var wasBlank = !row.name;
+      row.name = el.value.replace(/^\s+/, "");
+      if (wasBlank && kind === "change" && row.name) row.preTax = perCheckDefaultPreTax(row.name);
+      rerender = kind === "change";
+    } else if (pc === "amount") {
+      var v = statedParse(el);
+      row.amount = v == null ? 0 : v;
+      rerender = kind === "change";
+    } else if (pc === "pre" || pc === "post") row.preTax = pc === "pre";
+    else if (pc === "maxhsa") row.maxHsa = !!el.checked;
+    else if (pc === "delete") {
+      if (!confirmDelete(row.name || "this deduction", "It is removed from your per-check deductions.")) return;
+      plan.perCheck = plan.perCheck.filter(function (r) { return r.id !== id; });
+    } else return;
+    state.compensation = plan;
+    payStubBasisCache = {};
+    saveState();
+    if (rerender) {
+      render(); openIncomeStatement({ preserveScroll: true });
+      if (focusNew) { var f = document.querySelector('#modal input[data-pc="name"][data-id="' + focusNew + '"]'); if (f) f.focus(); }
+    }
+  }
+  document.addEventListener("change", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-pc")) perCheckHandle(t, "change"); });
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && (t.getAttribute("data-pc") === "amount" || t.getAttribute("data-pc") === "name")) perCheckHandle(t, "input");
+  });
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-pc") === "amount" && !t.readOnly) {
+      var r0 = ((state.compensation && state.compensation.perCheck) || []).filter(function (r) { return r.id === t.getAttribute("data-id"); })[0];
+      var v0 = statedParse(t);
+      if (r0 && (v0 == null ? 0 : v0) !== Number(r0.amount)) setTimeout(function () { if (document.body.contains(t)) perCheckHandle(t, "change"); }, 0);
+    }
+  }, true);
+  document.addEventListener("click", function (e) {
+    var t = e.target && e.target.closest ? e.target.closest("button[data-pc]") : null;
+    if (t) { e.stopPropagation(); perCheckHandle(t, "click"); }
+  }, true);
+
   function statedDetailsHtml(plan) {
     var hasStub = !!compStubFigures();
     var html = '<p class="sheet-label" id="sd-lines">Income lines · Stub or Manual</p>' +
@@ -10704,7 +11119,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<h3>Details ' + helpQ(compStubFigures()
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
         : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + '</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
-      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) +
+      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) + perCheckSectionHtml(plan) +
 
       '<div id="comp-estimates">' + compensationEstimateHtml(est) + "</div>" +
       payStubFoldHtml(plan) +
@@ -12091,7 +12506,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var g = (useHist ? hist.used * 100 : A.growthPct) / 100;
     var contrib = 0, source = "";
     (state.worth.lines || []).forEach(function (line) {
-      if (line.kind === "liability") return;
+      if (line.kind === "liability" || nwLeftOut(line)) return;
       contrib += lineAddition(line, head.year);
       if (is401k(line)) contrib += lineEmployerMatch(line, head.year) + lineEmployerBase(line, head.year);
     });
@@ -12901,7 +13316,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.42";
+  var APP_VERSION = "37.5.59.43";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -12988,7 +13403,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     GROUPS.forEach(function (g) { groupTitle[g.id] = g.title; });
     years.forEach(function (year) {
       (state.worth.lines || []).forEach(function (line) {
-        worthRows.push([year, line.name || "", line.kind === "liability" ? "Liability" : "Asset", groupTitle[line.group] || line.group || "", M(lineAmount(line, year))]);
+        worthRows.push([year, line.name || "", (line.kind === "liability" ? "Liability" : "Asset") + (nwLeftOut(line) ? " (left out of net worth)" : ""), groupTitle[line.group] || line.group || "", M(lineAmount(line, year))]);
       });
       var t = worthTotals(year);
       worthRows.push([B(String(year)), B("Assets"), "", "", BM(t.assets)]);
@@ -13759,7 +14174,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       byType: byType,
       bySlot: bySlot,
       withFile: docs.filter(function (d) { return d.hasBlob; }).length,
-      payStubsConfirmed: docs.filter(function (d) { return d.payStubConfirmed; }).length
+      payStubsConfirmed: docs.filter(function (d) { return d.payStubConfirmed; }).length,
+      /* v37.5.59.43: counts only — never vehicle names or values. */
+      vehicleCount: ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle; }).length,
+      vehiclesLeftOut: ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle && l.excludeFromNw; }).length
     };
   }
 
@@ -16443,6 +16861,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!confirmDelete("this paycheck", "It is removed from this month. Transactions already logged stay.")) return;
       month.incomes = (month.incomes || []).filter(function (i) { return i.id !== delInc; });
       saveState(); closeModal(); render();
+    } else if (act === "vehicle-add") {
+      openSheet("Add vehicle", field("Name", "name", "") + field("Estimated value", "amount", "0", "number") +
+        '<p class="caption">Counts in Net worth as an asset. You can leave it out later.</p>' +
+        '<input type="hidden" name="docId" value="' + esc(actEl.getAttribute("data-id") || "") + '">', "save-vehicle");
+    } else if (act === "vehicle-import") {
+      var vDoc = findProfileDoc(actEl.getAttribute("data-id") || "");
+      if (vDoc) {
+        var haveV = {};
+        vaultVehicleLines(vDoc).forEach(function (l) { haveV[String(l.name || "").toLowerCase()] = true; });
+        parseVehicleNames(vDoc.insuredItems).forEach(function (n) { if (!haveV[n.toLowerCase()]) { addVehicleLine(vDoc.id, n, 0); haveV[n.toLowerCase()] = true; } });
+        saveState(); render();
+      }
     } else if (act === "delete-nw-line") {
       var delNw = actEl.getAttribute("data-id");
       var delNwLine = state.worth.lines.filter(function (l) { return l.id === delNw; })[0];
@@ -16542,9 +16972,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         fields += field("Balance", "amount", String(lineAmount(line, state.worthYear)), "number") +
           '<p class="caption">What you still owe on this statement year. This is the number Net worth uses.</p>';
       } else {
-        fields += field(String(state.worthYear) + " amount", "amount", String(lineAmount(line, state.worthYear)), "number");
+        fields += field(String(state.worthYear) + (line.vehicle ? " estimated value" : " amount"), "amount", String(lineAmount(line, state.worthYear)), "number");
       }
-      if (line.kind !== "liability" && line.group !== "debt") {
+      if (line.kind !== "liability" && line.group !== "debt" && !line.vehicle) {
         /* v37.5.55: move an asset between groups (e.g. car to Property). */
         var grpOpts = [["cash", "Cash"], ["retirement", "Retirement"], ["taxable", "Investments (taxable)"],
           ["realEstate", "Property"], ["lifestyle", "Other"]];
@@ -16568,6 +16998,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           field("Original balance", "loanOriginalBalance", String(line.loanOriginalBalance || 0), "number") +
           debtTypeSelect("loanDebtType", line.loanDebtType || "", line.name) +
           '<p class="caption">No matching Debt envelope line. Insights uses APR, min payment and type for payoff estimates (Money Guy order of operations — estimates, not advice).</p>';
+      }
+      if (line.vehicle) {
+        fields += '<label class="check vehicle-out"><input type="checkbox" name="excludeFromNw"' + (nwLeftOut(line) ? " checked" : "") +
+          '> Leave out of net worth</label><p class="caption">Estimated value. Left-out vehicles still list here but never count in totals, the statement, estimates, or Wrapped.</p>';
       }
       fields += deleteBtnHtml("delete-nw-line", "Delete " + esc(line.name), ' data-id="' + esc(line.id) + '"');
       fields += '<input type="hidden" name="id" value="' + esc(line.id) + '">';
@@ -17021,9 +17455,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         nwLoan.loanBalance = loanBal;
         nwLoan.name = loanName;
       }
+    } else if (act === "save-vehicle") {
+      addVehicleLine(data.docId, (data.name || "").replace(/^\s+|\s+$/g, "") || "Vehicle", Number(data.amount) || 0);
+      saveState(); closeModal(); render();
     } else if (act === "save-line") {
+      var exBox = form.querySelector('input[name="excludeFromNw"]');
       state.worth.lines.forEach(function (line) {
         if (line.id === data.id) {
+          if (exBox && line.vehicle) line.excludeFromNw = !!exBox.checked;
           line.name = (data.name || line.name).replace(/^\s+|\s+$/g, "") || line.name;
           line.amounts[state.worthYear] = clampMoney(Number(data.amount) || 0);
           if (line.kind === "liability") {
@@ -17034,7 +17473,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             if (Object.prototype.hasOwnProperty.call(data, "loanDebtType")) line.loanDebtType = data.loanDebtType || "";
             syncNwLiabilityToVault(line);
           }
-          if (data.group && line.kind !== "liability" && line.group !== "debt" &&
+          if (data.group && !line.vehicle && line.kind !== "liability" && line.group !== "debt" &&
               ["cash", "retirement", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
               !(line.group === "investment" && data.group === "taxable")) {
             line.group = data.group;
@@ -17193,6 +17632,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function handleChange(event) {
     var el = event.target;
+    if (el.getAttribute("data-act") === "vehicle-exclude") {
+      var vLine = (state.worth.lines || []).filter(function (l) { return l.id === el.getAttribute("data-id"); })[0];
+      if (vLine) { vLine.excludeFromNw = !!el.checked; saveState(); render(); }
+      return;
+    }
     if (el.getAttribute("data-act") === "worth-year") {
       state.worthYear = Number(el.value);
       saveState();

@@ -3754,6 +3754,21 @@
           " paid, spread over " + nProj + " remaining check" + (nProj === 1 ? "" : "s") + " (" + moneyLabel(perCheck) + " gross each).";
       }
     }
+    /* v37.5.59.43: manual per-check deductions (Income › Details) apply to the checks still ahead.
+     * adj.hsa / adj.fsa replace the stub's per-check amount; adj.otherPreDelta adds/removes other pre-tax;
+     * adj.ficaExemptDelta (Section 125 insurance, HSA, FSA) lowers Social Security + Medicare on those checks. */
+    var adj = opts.perCheckAdj || null;
+    if (adj) {
+      var lp = {};
+      Object.keys(latestProj).forEach(function (k) { lp[k] = latestProj[k]; });
+      if (adj.hsa != null) lp.hsa = roundMoney(Math.max(0, adj.hsa));
+      if (adj.fsa != null) lp.fsa = roundMoney(Math.max(0, adj.fsa));
+      lp.otherPre = roundMoney(Math.max(0, (lp.otherPre || 0) + (Number(adj.otherPreDelta) || 0)));
+      var fd = Number(adj.ficaExemptDelta) || 0;
+      lp.ss = roundMoney(Math.max(0, lp.ss - fd * 0.062));
+      lp.med = roundMoney(Math.max(0, lp.med - fd * 0.0145));
+      latestProj = lp;
+    }
     var dd = parseIso(latest.payDate);
     for (var p = 0; p < 60; p++) {
       dd = stepPayDate(dd, freq, 1);

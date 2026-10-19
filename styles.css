@@ -4579,3 +4579,33 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .sheet-delete.inline{display:inline-block;width:auto;min-height:0;margin:0;padding:6px 12px;border-radius:99px;font-size:13px}
 body.night .sheet-delete,.night .sheet-delete{border-color:#ff8a80;color:#ff8a80!important}
 .sheet-delete:active{background:rgba(179,38,30,.12)}
+
+/* v37.5.59.43 vehicles + Wrapped graphs */
+.vehicle-out{display:flex;align-items:center;gap:8px;margin:2px 0 8px 26px;font-size:13px;color:var(--muted)}
+.vehicle-out input{width:18px;height:18px;accent-color:var(--plum)}
+.worth-line.nw-left-out .nw-amt,.vehicle-row.nw-left-out .nw-amt{text-decoration:line-through;color:var(--muted)}
+.worth-line.nw-left-out .name::after,.vehicle-row.nw-left-out .name::after{content:" · left out";font-size:12px;color:var(--plum)}
+.vault-vehicles{margin:14px 0 6px;padding-top:10px;border-top:1px solid var(--rule)}
+.vehicle-row{padding:8px 0;border-bottom:1px solid var(--rule)}
+.vehicle-main{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.vehicle-main .nw-amt{cursor:pointer}
+.vehicle-tools{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px}
+.vehicle-tools .vehicle-out{margin:0}
+.wrap-graph-box{margin:14px 0 8px}
+.wrap-graph{width:100%;max-width:340px;display:block;color:var(--ink);overflow:visible}
+/* v37.5.59.43 per-check deductions */
+.pc-deduct{margin:16px 0 8px}
+.pc-sub{margin:10px 0 4px;text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.pc-row{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule)}
+.pc-stub .pc-name{font-size:15px}
+.pc-stub .link-btn,.pc-stub .pc-note{grid-column:1/-1;justify-self:start;font-size:13px}
+.pc-stub.is-over .pc-amt{text-decoration:line-through;color:var(--muted)}
+.pc-tag{display:inline-block;margin-left:6px;padding:1px 7px;border:1px solid var(--plum);border-radius:99px;color:var(--plum);font:600 11px var(--ui);vertical-align:2px}
+.pc-name-in{min-width:0;padding:8px 10px;border:1px solid var(--rule);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px}
+.pc-amt-in{width:112px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px;background:var(--card);color:var(--ink);text-align:right;font-size:15px}
+.pc-row.is-max .pc-amt-in{border-color:var(--moss);color:var(--moss)}
+.pc-tools{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pc-max{grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:14px}
+.pc-max input{width:18px;height:18px;accent-color:var(--moss)}
+.pc-maxnote{grid-column:1/-1;margin:0;color:var(--moss)}
+.pc-totals{margin-top:8px}
