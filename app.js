@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.43. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.44. */
 (function () {
   "use strict";
 
@@ -10369,6 +10369,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div><span class="caption">Average tax</span><strong>' + rateOrDash(f.avgTax) + "</strong></div>" +
       '<div><span class="caption">Gross pay ' + f.year + '</span><strong class="moss">' + money(f.gross) + "</strong></div></div>" +
       '<p class="caption comp-stub-basis">' + esc(f.year + " from your pay stubs — the same numbers as Stats › Income statement: " + f.basis.short + ".") + "</p>" +
+      nextCheckRowHtml() +
       '<p class="sheet-label">' + f.year + ' from your pay stubs</p>' +
       '<div class="row"><span>Gross pay</span><span class="mono">' + money(f.gross) + "</span></div>" +
       '<div class="row"><span>Pre-tax deductions</span><span class="mono">' + money(f.pretax.total) + "</span></div>" +
@@ -10829,10 +10830,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* Feeds payStubYearBasis (projected checks only): new per-check pre-tax vs the stub's. */
   function perCheckBasisAdj(year) {
     var plan = state.compensation || {};
-    if (!(plan.perCheck || []).length) return null;
+    /* v37.5.59.44: Income-line Manual overrides also reach the checks ahead (401k % of each check's gross;
+     * HSA yearly $ ÷ paychecks a year, unless a per-check HSA line already sets it). Salary Manual already
+     * flows through the salary target. */
+    var stt = plan.stated || {};
+    var man401 = stt.k401 && stt.k401.mode === "manual" && stt.k401.v != null && isFinite(Number(stt.k401.v)) ? Number(stt.k401.v) : null;
+    var manHsaYr = stt.hsa && stt.hsa.mode === "manual" && stt.hsa.v != null && isFinite(Number(stt.hsa.v)) ? Number(stt.hsa.v) : null;
     var m = perCheckMerged(migrateCompensationLite(plan));
-    if (!m.manual.length) return null;
-    var adj = { hsa: null, fsa: null, otherPreDelta: 0, ficaExemptDelta: 0 };
+    if (!m.manual.length && man401 == null && manHsaYr == null) return null;
+    var adj = { hsa: null, fsa: null, otherPreDelta: 0, ficaExemptDelta: 0, e401Pct: man401 };
     m.manual.forEach(function (r) {
       if (r.kind === "hsa") { adj.hsa = (adj.hsa || 0) + (r.preTax ? r.amount : 0); return; }
       if (r.kind === "fsa") { adj.fsa = (adj.fsa || 0) + (r.preTax ? r.amount : 0); return; }
@@ -10845,9 +10851,54 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (s.overriddenBy && s.kind !== "hsa" && s.kind !== "fsa") adj.otherPreDelta -= s.amount;
     });
     m.active.forEach(function (r) { if (r.preTax && r.ficaExempt) newExempt += r.amount; });
+    if (adj.hsa == null && manHsaYr != null) {
+      var nChecks = Math.max(1, Math.min(52, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan))));
+      adj.hsa = roundCents(Math.max(0, manHsaYr) / nChecks);
+      m.active.forEach(function (r) { if (r.kind === "hsa" && r.preTax && r.ficaExempt) newExempt -= r.amount; });
+      newExempt += adj.hsa;
+    }
     adj.ficaExemptDelta = roundCents(newExempt - oldExempt);
     adj.otherPreDelta = roundCents(adj.otherPreDelta);
     return adj;
+  }
+  /* v37.5.59.44: planned take-home for the next paycheck, from the latest confirmed stub.
+   * next = stub net pay + (modeled next check − modeled latest stub), where modeled = gross − federal − state
+   * − Social Security − Medicare − other employee taxes − 401k − HSA − FSA − other pre-tax − post-tax lines.
+   * The next check is the first projected check in payStubBasisFor (base pay, per-check lines + Manual
+   * overrides applied, withholding moved at the stub's rate). Unmodeled stub items carry through via stub net. */
+  function stubNextCheck() {
+    var year = currentYearMonth().year;
+    var basis;
+    try { basis = payStubBasisFor(year); } catch (e) { basis = null; }
+    if (!basis || !basis.checks) return null;
+    var next = basis.checks.filter(function (c) { return c.kind === "projected"; })
+      .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })[0];
+    if (!next || !next.f) return null;
+    var stubs = confirmedPayStubs().filter(function (d) { return d.payDate && Number(String(d.payDate).slice(0, 4)) === year; })
+      .sort(function (a, b) { return String(a.payDate).localeCompare(String(b.payDate)); });
+    var latest = stubs[stubs.length - 1];
+    if (!latest) return null;
+    var raw = gm().payStubCheckFigures(latest);
+    var plan = migrateCompensationLite(state.compensation || {});
+    var m = perCheckMerged(plan);
+    var postNow = 0, postNext = 0;
+    m.stub.forEach(function (r) { if (!r.preTax) postNow += Number(r.amount) || 0; });
+    m.active.forEach(function (r) { if (!r.preTax) postNext += Number(r.amount) || 0; });
+    function modeled(f, post) {
+      return (Number(f.gross) || 0) - (Number(f.fed) || 0) - (Number(f.state) || 0) - (Number(f.ss) || 0) - (Number(f.med) || 0) -
+        (Number(f.otherTax) || 0) - (Number(f.e401) || 0) - (Number(f.hsa) || 0) - (Number(f.fsa) || 0) - (Number(f.otherPre) || 0) - post;
+    }
+    var now = modeled(raw, postNow), nx = modeled(next.f, postNext);
+    var stubNet = Number(latest.net);
+    var amount = stubNet > 0 ? stubNet + (nx - now) : nx;
+    return { amount: roundCents(Math.max(0, amount)), date: next.date, stubNet: stubNet > 0 ? stubNet : null,
+      stubDate: latest.payDate, delta: roundCents(nx - now), f: next.f, post: roundCents(postNext) };
+  }
+  function nextCheckRowHtml() {
+    var nx = stubNextCheck();
+    if (!nx) return "";
+    return '<div class="row next-check"><span>Planned take-home · next check ' + esc(usDate(nx.date)) +
+      '</span><span class="mono moss" id="next-check-amt">' + money(nx.amount) + "</span></div>";
   }
   function migrateCompensationLite(plan) {
     if (!Array.isArray(plan.perCheck)) plan.perCheck = [];
@@ -11146,6 +11197,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption">' + esc(locationCaption) + ". Empty ZIP means no state or local tax. Not tax advice.</p>" +
       (stubMode ? "</details>" : "") +
       '<p class="sheet-label">Budget paycheck $ ' + helpQ("Pay frequency lives on Profile and is only used here when you tap Suggest paycheck. Budget paycheck $ is never auto-written. Suggest paycheck is optional and opt-in: it sets each existing paycheck on this month to estimated take-home ÷ paychecks per year. Dates stay.") + '</p>' +
+      suggestPaycheckCaptionHtml(est) +
       '<button class="planner-apply" type="button" data-act="suggest-paycheck">Suggest paycheck amount</button>' +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
   }
@@ -11302,6 +11354,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function suggestPaycheckAmount() {
     var month = ensureMonth(state.year, state.month);
     var est = estimateCompensation(state.compensation);
+    /* v37.5.59.44: a confirmed stub wins: suggest the stub-based next-check take-home (see stubNextCheck). */
+    var nxc = stubNextCheck();
+    var suggested = nxc ? nxc.amount : est.suggestedPaycheck;
     var paychecks = (month.incomes || []).filter(function (item) {
       return isPaycheckName(item.name);
     });
@@ -11310,17 +11365,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (!window.confirm(
-      "Set each existing Budget paycheck on this month to " + money(est.suggestedPaycheck) +
+      "Set each existing Budget paycheck on this month to " + money(suggested) +
+        (nxc ? " (from your pay stub: next check " + usDate(nxc.date) + ")" : " (what-if estimate)") +
         "? Dates stay. Amounts stay manual unless you choose this."
     )) {
       return;
     }
-    paychecks.forEach(function (item) { item.amount = est.suggestedPaycheck; });
+    paychecks.forEach(function (item) { item.amount = suggested; });
     saveState();
     window.alert(
       "Set " + (paychecks.length === 1 ? "1 paycheck" : paychecks.length + " paychecks") +
-        " to " + money(est.suggestedPaycheck) + ". Dates were left alone."
+        " to " + money(suggested) + ". Dates were left alone."
     );
+  }
+
+  function suggestPaycheckCaptionHtml(est) {
+    var nx = stubNextCheck();
+    if (nx) return '<div class="row suggest-amt"><span>Suggested · from your pay stub</span><span class="mono moss" id="suggest-amt">' +
+      money(nx.amount) + '</span></div><p class="caption">Planned take-home for your next check (' + esc(usDate(nx.date)) +
+      "), the same number Income shows. Includes your per-check deductions and Manual lines.</p>";
+    return '<div class="row suggest-amt"><span>Suggested · what-if estimate</span><span class="mono" id="suggest-amt">' +
+      money(est.suggestedPaycheck) + '</span></div><p class="caption">No confirmed pay stub yet, so this uses the typed numbers above.</p>';
   }
 
   function profileZipHelper() {
@@ -13316,7 +13381,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.43";
+  var APP_VERSION = "37.5.59.44";
   var pendingRestore = null;
 
   function storagePayload() {

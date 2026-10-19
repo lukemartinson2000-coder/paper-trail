@@ -3761,9 +3761,19 @@
     if (adj) {
       var lp = {};
       Object.keys(latestProj).forEach(function (k) { lp[k] = latestProj[k]; });
+      var tx0 = checkTaxable(latestProj);
       if (adj.hsa != null) lp.hsa = roundMoney(Math.max(0, adj.hsa));
       if (adj.fsa != null) lp.fsa = roundMoney(Math.max(0, adj.fsa));
+      /* v37.5.59.44: Manual 401k % (Income lines) = that % of this check's gross. */
+      if (adj.e401Pct != null) lp.e401 = roundMoney(Math.max(0, (lp.gross || 0) * Number(adj.e401Pct) / 100));
       lp.otherPre = roundMoney(Math.max(0, (lp.otherPre || 0) + (Number(adj.otherPreDelta) || 0)));
+      /* v37.5.59.44: federal + state withholding move with taxable pay at the stub's own withholding rate
+       * (stub federal ÷ stub taxable wages; same for state). */
+      var tx1 = checkTaxable(lp), dTx = tx1 - tx0;
+      if (tx0 > 0 && Math.abs(dTx) > 0.004) {
+        lp.fed = roundMoney(Math.max(0, lp.fed + dTx * (latestProj.fed / tx0)));
+        lp.state = roundMoney(Math.max(0, lp.state + dTx * (latestProj.state / tx0)));
+      }
       var fd = Number(adj.ficaExemptDelta) || 0;
       lp.ss = roundMoney(Math.max(0, lp.ss - fd * 0.062));
       lp.med = roundMoney(Math.max(0, lp.med - fd * 0.0145));
