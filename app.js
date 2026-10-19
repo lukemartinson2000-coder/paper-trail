@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.45. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.46. */
 (function () {
   "use strict";
 
@@ -3133,6 +3133,9 @@
     /* v37.5.23: Vault is a full-width outline button directly under the two pills. */
     return '<div class="stats-doors">' +
       '<div class="stats-seg" role="tablist" aria-label="Statement">' +
+      '<button type="button" role="tab" data-act="stats-door" data-door="dash"' +
+      (active === "dash" ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
+      ">Dashboard</button>" +
       '<button type="button" role="tab" data-act="stats-door" data-door="statement"' +
       (active === "statement" ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
       ">Income statement</button>" +
@@ -4238,6 +4241,484 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return rate == null ? "—" : percent(rate);
   }
 
+  /* ==== v37.5.59.46: Stats › Dashboard ==========================================================
+   * One compact column of cards at the top of Stats (door "dash"). Reads numbers the app already has;
+   * new data lives in state.dashboard { retire, purchases, taxDocs, nwSnaps } and state.profile.retireAge,
+   * so it rides in backups. Tester data gets counts only (see testerPayload). */
+  var dashEstOpen = false;
+  function dashState() {
+    var d = state.dashboard;
+    if (!d || typeof d !== "object") d = state.dashboard = {};
+    if (!d.retire || typeof d.retire !== "object") d.retire = {};
+    if (!Array.isArray(d.purchases)) d.purchases = [];
+    if (!d.taxDocs || typeof d.taxDocs !== "object") d.taxDocs = {};
+    if (!d.nwSnaps || typeof d.nwSnaps !== "object") d.nwSnaps = {};
+    return d;
+  }
+  function dashToday() {
+    var t = window.PT_TEST_TODAY ? new Date(window.PT_TEST_TODAY + "T12:00:00") : new Date();
+    return isNaN(t.getTime()) ? new Date() : t;
+  }
+  function dashIso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function pctWhole(r) { return r == null || !isFinite(r) ? "—" : Math.round(r * 100) + "%"; }
+  function signedWhole(n) { return (n >= 0 ? "+" : "−") + moneyWhole(Math.abs(n)); }
+
+  /* 1) Net worth now + trailing 12-month change. A snapshot of net worth is kept once a month
+   * (state.dashboard.nwSnaps["YYYY-MM"]); the change uses the snapshot from 12 months back when there is one,
+   * else the prior year column of Net worth (year-end). */
+  function dashNetWorth() {
+    var head = latestNetWorthHeadline();
+    if (head.year == null || !worthHasData()) return null;
+    var d = dashState(), t = dashToday();
+    var ym = t.getFullYear() + "-" + ("0" + (t.getMonth() + 1)).slice(-2);
+    var now = head.amount;
+    if (d.nwSnaps[ym] !== Math.round(now)) { d.nwSnaps[ym] = Math.round(now); try { saveState(); } catch (e) {} }
+    var back = (t.getFullYear() - 1) + "-" + ("0" + (t.getMonth() + 1)).slice(-2);
+    var base = null, label = "";
+    if (d.nwSnaps[back] != null) { base = Number(d.nwSnaps[back]); label = "vs 12 months ago"; }
+    else {
+      var years = (state.worth.years || []).slice().sort(function (a, b) { return a - b; });
+      var prior = years.filter(function (y) { return y < head.year; }).pop();
+      if (prior != null) { base = worthTotals(prior).equity; label = "vs " + prior + " year-end"; }
+    }
+    return { now: now, year: head.year, change: base == null ? null : now - base, pct: base != null && base > 0 ? (now - base) / base : null, label: label };
+  }
+
+  /* 2) Income this year: stub basis (actual YTD + projected checks) when a confirmed stub exists,
+   * else the typed what-if. Take-home = gross − taxes − pre-tax deductions − post-tax lines for the year. */
+  function dashIncome() {
+    var f = compStubFigures();
+    if (f) {
+      var plan = migrateCompensationLite(state.compensation || {});
+      var m = perCheckMerged(plan), post = 0;
+      m.active.forEach(function (r) { if (!r.preTax) post += Number(r.amount) || 0; });
+      var nChecks = (f.basis.checks || []).length || Math.max(1, Number(plan.paychecksPerYear) || checksForFrequency(payFrequencyOf(plan)));
+      var taxes = Number(f.taxes) || 0;
+      var th = f.gross - taxes - (Number(f.pretax && f.pretax.total) || 0) - post * nChecks;
+      return { year: f.year, gross: f.gross, takeHome: Math.max(0, th), source: "Pay stub + projected checks", avgTax: f.avgTax };
+    }
+    var est = estimateCompensation(state.compensation || defaultCompensation());
+    if (est && est.cashPay > 0) return { year: currentYearMonth().year, gross: est.cashPay, takeHome: est.takeHome, source: "What-if (no pay stub yet)", avgTax: est.effectiveTaxRate };
+    return null;
+  }
+
+  /* 5) Retirement. */
+  var DASH_SWR = 0.04;
+  function dashRetireInputs() {
+    var r = dashState().retire, t = dashToday();
+    var bAge = (function () {
+      var m = String(birthdayISO() || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      var a = t.getFullYear() - Number(m[1]);
+      if (t.getMonth() + 1 < Number(m[2]) || (t.getMonth() + 1 === Number(m[2]) && t.getDate() < Number(m[3]))) a -= 1;
+      return a;
+    })();
+    var ageNow = bAge != null ? bAge : (Number(r.ageNow) > 0 ? Number(r.ageNow) : null);
+    var retireAge = Number(state.profile && state.profile.retireAge) > 0 ? Number(state.profile.retireAge) : 65;
+    var infl = r.infl != null && isFinite(Number(r.infl)) ? Number(r.infl) : 3;
+    var ret = r.ret != null && isFinite(Number(r.ret)) ? Number(r.ret) : 8;
+    return { ageNow: ageNow, ageFromBirthday: bAge != null, retireAge: retireAge, spend: Number(r.spend) > 0 ? Number(r.spend) : null,
+      infl: infl, inflManual: r.infl != null, ret: ret, retManual: r.ret != null };
+  }
+  function dashInvestments() {
+    var head = latestNetWorthHeadline();
+    var y = head.year != null ? head.year : currentYearMonth().year;
+    var bal = 0, adds = 0, any = false;
+    (state.worth && state.worth.lines || []).forEach(function (line) {
+      if (line.kind === "liability" || nwLeftOut(line) || line.vehicle) return;
+      if (line.group !== "retirement" && line.group !== "taxable") return;
+      any = true;
+      bal += lineAmount(line, y);
+      adds += lineAddition(line, y);
+      if (is401k(line)) adds += lineEmployerMatch(line, y) + lineEmployerBase(line, y);
+    });
+    var source = adds > 0 ? "your " + y + " additions (you + employer)" : "";
+    if (!(adds > 0)) {
+      var est = estimateCompensation(state.compensation || defaultCompensation());
+      var plan401 = est ? (Number(est.employee401k) || 0) + (Number(est.employerMatch) || 0) + (Number(est.employerBase) || 0) : 0;
+      if (plan401 > 0) { adds = plan401; source = "your 401k plan (you + employer)"; }
+    }
+    return { year: y, balance: bal, contrib: adds, source: source, any: any };
+  }
+  /* Needed (at retirement) = spending × (1 + inflation)^years ÷ 4%; in today's dollars = spending ÷ 4%.
+   * Projected: B(0) = investments now; each year B = B × (1 + return) + C × (1 + inflation)^k (k = 0…years−1),
+   * C = this year's contributions. Compared in today's dollars (÷ (1 + inflation)^years).
+   * Ahead ≥ 105% of need · On track 95–105% · Short below 95%. 4% rule income = projected (today's $) × 4%. */
+  function dashRetirement() {
+    var I = dashRetireInputs(), inv = dashInvestments();
+    var out = { I: I, inv: inv, ready: false };
+    if (I.ageNow == null || I.spend == null) return out;
+    var years = Math.max(0, I.retireAge - I.ageNow);
+    var i = I.infl / 100, r = I.ret / 100, defl = Math.pow(1 + i, years);
+    var B = inv.balance;
+    for (var k = 0; k < years; k++) B = B * (1 + r) + inv.contrib * Math.pow(1 + i, k);
+    var needToday = I.spend / DASH_SWR, needNominal = I.spend * defl / DASH_SWR;
+    var projToday = B / defl;
+    var ratio = needToday > 0 ? projToday / needToday : null;
+    var status = ratio == null ? "" : ratio >= 1.05 ? "ahead" : ratio >= 0.95 ? "on" : "short";
+    return { I: I, inv: inv, ready: true, years: years, needToday: needToday, needNominal: needNominal, projNominal: B, projToday: projToday,
+      gap: projToday - needToday, status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
+  }
+
+  /* 6) Upcoming purchases. Saved = linked envelope's balance: every month so far, planned − spent on the
+   * envelope with that name (line or line-less category). */
+  function dashEnvelopeNames() {
+    var cy = currentYearMonth(), m = state.months[ymKey(cy.year, cy.month)] || state.months[ymKey(state.year, state.month)];
+    var names = [];
+    ((m && m.categories) || []).forEach(function (cat) {
+      if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name && names.indexOf(l.name) < 0) names.push(l.name); });
+      else if (cat.name && names.indexOf(cat.name) < 0) names.push(cat.name);
+    });
+    return names;
+  }
+  function dashEnvelopeBalance(name) {
+    if (!name) return null;
+    var t = dashToday(), lim = t.getFullYear() * 12 + t.getMonth() + 1, bal = 0, found = false;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m || (Number(m.year) * 12 + Number(m.month)) > lim) return;
+      (m.categories || []).forEach(function (cat) {
+        if ((cat.lines || []).length) {
+          (cat.lines || []).forEach(function (l) {
+            if (l.name !== name) return;
+            found = true;
+            bal += (Number(l.assigned) || 0) - gm().envelopeNetSpent(m.transactions || [], "line", l.id);
+          });
+        } else if (cat.name === name) {
+          found = true;
+          bal += catAssigned(cat) - gm().envelopeNetSpent(m.transactions || [], "category", cat.id);
+        }
+      });
+    });
+    return found ? Math.max(0, roundCents(bal)) : null;
+  }
+  function dashPurchaseRows() {
+    var today = dashIso(dashToday());
+    return dashState().purchases.map(function (p) {
+      var saved = p.envelope ? dashEnvelopeBalance(p.envelope) : null;
+      var s = saved == null ? 0 : saved, cost = Number(p.cost) || 0;
+      return { p: p, saved: s, linked: saved != null, need: Math.max(0, cost - s), pct: cost > 0 ? Math.min(1, s / cost) : 0, past: p.date && p.date < today };
+    }).sort(function (a, b) { return String(a.p.date || "9999").localeCompare(String(b.p.date || "9999")); });
+  }
+
+  /* 7) Tax docs. Tax year = last year in Jan–Apr (filing season), else this year. */
+  function dashTaxYear() { var t = dashToday(); return t.getMonth() + 1 <= 4 ? t.getFullYear() - 1 : t.getFullYear(); }
+  function dashTaxSuggestions(year) {
+    var out = [], seen = {};
+    function add(key, name, why) { if (seen[key]) return; seen[key] = 1; out.push({ key: key, name: name, why: why }); }
+    var stubs = confirmedPayStubs();
+    var emps = {};
+    stubs.forEach(function (s) { if (s.employer) emps[String(s.employer).trim()] = 1; });
+    var empNames = Object.keys(emps);
+    var plan = state.compensation || {};
+    if (empNames.length) empNames.forEach(function (n) { add("w2:" + n.toLowerCase(), "W-2 · " + n, "Wages"); });
+    else if (Number(plan.baseSalary) > 0 || stubs.length) add("w2:employer", "W-2 · your employer", "Wages");
+    var hsaSeen = stubs.some(function (s) { return Number(s.hsa) > 0 || Number(s.employerHsa) > 0; }) ||
+      (plan.perCheck || []).some(function (r) { return perCheckKind(r.name) === "hsa"; }) || Number(plan.hsaDeferral) > 0;
+    (state.worth && state.worth.lines || []).forEach(function (l) {
+      var nm = String(l.name || "");
+      if (l.vehicle) return;
+      if (l.kind === "liability" || l.group === "debt") {
+        if (/mortgage|heloc|home equity/i.test(nm)) add("1098:" + l.id, "1098 · " + nm, "Mortgage interest");
+        if (/student/i.test(nm)) add("1098e:" + l.id, "1098-E · " + nm, "Student loan interest");
+        return;
+      }
+      if (/\bHSA\b/i.test(nm)) hsaSeen = true;
+      if (/\bIRA\b/i.test(nm)) add("5498:" + l.id, "5498 · " + nm, "IRA contributions");
+      if (l.group === "taxable") add("1099:" + l.id, "1099 · " + nm, "Brokerage (1099-B / DIV / INT)");
+    });
+    if (hsaSeen) { add("5498sa", "5498-SA · HSA", "HSA contributions"); add("1099sa", "1099-SA · HSA", "HSA withdrawals"); }
+    return out;
+  }
+  function dashTaxList(year) {
+    var d = dashState(), rec = d.taxDocs[String(year)] || (d.taxDocs[String(year)] = { auto: {}, custom: [] });
+    if (!rec.auto) rec.auto = {};
+    if (!Array.isArray(rec.custom)) rec.custom = [];
+    var rows = dashTaxSuggestions(year).map(function (s) {
+      var a = rec.auto[s.key] || {};
+      return { key: s.key, name: s.name, why: s.why, done: !!a.done, received: a.received || "", docId: a.docId || "", custom: false };
+    });
+    rec.custom.forEach(function (c) { rows.push({ key: "c:" + c.id, id: c.id, name: c.name, why: "Your item", done: !!c.done, received: c.received || "", docId: c.docId || "", custom: true }); });
+    return { year: year, rows: rows, rec: rec };
+  }
+  function dashTaxRowRef(year, key) {
+    var L = dashTaxList(year);
+    if (key.indexOf("c:") === 0) return L.rec.custom.filter(function (c) { return "c:" + c.id === key; })[0] || null;
+    return L.rec.auto[key] || (L.rec.auto[key] = {});
+  }
+  function dashTaxRowsHtml(year) {
+    var L = dashTaxList(year), html = "";
+    if (!L.rows.length) html += '<p class="caption">No tax forms suggested yet. Add your own below.</p>';
+    L.rows.forEach(function (r) {
+      var doc = r.docId ? findProfileDoc(r.docId) : null;
+      html += '<div class="dash-tax-row' + (r.done ? " done" : "") + '">' +
+        '<label class="check"><input type="checkbox" data-dash="tax-done" data-year="' + year + '" data-key="' + esc(r.key) + '"' + (r.done ? " checked" : "") + '><span>' + esc(r.name) + "</span></label>" +
+        '<button type="button" class="link-btn dash-tax-edit" data-dash="tax-edit" data-year="' + year + '" data-key="' + esc(r.key) + '">' +
+        (r.received ? "Got " + esc(usDate(r.received).replace(/\/\d{4}$/, "")) : "Details") + (doc ? " · 📎" : "") + "</button></div>";
+    });
+    return html;
+  }
+  function openDashTaxSheet(year) {
+    var html = '<p class="caption">Tax year ' + year + '. Check off each form when it arrives. Suggestions come from your pay stubs and Net worth lines.</p>' +
+      '<div class="dash-tax-list">' + dashTaxRowsHtml(year) + "</div>" +
+      '<div class="dash-tax-year"><button type="button" class="text-btn" data-dash="tax-year" data-year="' + (year - 1) + '">‹ ' + (year - 1) + '</button>' +
+      '<button type="button" class="text-btn" data-dash="tax-add" data-year="' + year + '">+ Add item</button>' +
+      '<button type="button" class="text-btn" data-dash="tax-year" data-year="' + (year + 1) + '">' + (year + 1) + " ›</button></div>";
+    openSheet("Tax docs checklist · " + year, html, "dash-noop");
+    var m = document.querySelector("#modal .sheet-actions");
+    if (m) m.innerHTML = '<button class="primary" type="button" data-act="close-modal">Done</button>';
+    var f = document.querySelector("#modal form"); if (f) f.setAttribute("data-dash-tax", String(year));
+  }
+  function openDashTaxItem(year, key) {
+    var L = dashTaxList(year), r = L.rows.filter(function (x) { return x.key === key; })[0];
+    if (!r && key !== "new") return;
+    var docs = (state.profile && state.profile.documents) || [];
+    var opts = '<option value="">None</option>' + docs.map(function (d) {
+      return '<option value="' + esc(d.id) + '"' + (r && r.docId === d.id ? " selected" : "") + ">" + esc(d.title || d.fileName || "Document") + "</option>";
+    }).join("");
+    var html = (key === "new" || (r && r.custom) ? field("Name", "taxName", r ? r.name : "") : '<p class="name">' + esc(r.name) + '</p><p class="caption">' + esc(r.why) + "</p>") +
+      field("Received", "taxReceived", r ? r.received : "", "date") +
+      '<label class="field">Vault document<select name="taxDoc">' + opts + "</select></label>" +
+      '<input type="hidden" name="taxYear" value="' + year + '"><input type="hidden" name="taxKey" value="' + esc(key) + '">';
+    if (r && r.custom) html += deleteBtnHtml("", "Delete item", ' data-dash="tax-del" data-year="' + year + '" data-key="' + esc(key) + '"');
+    openSheet(key === "new" ? "Add tax item" : "Tax form", html, "dash-save-tax");
+  }
+
+  function openDashPurchase(id, focus) {
+    var p = dashState().purchases.filter(function (x) { return x.id === id; })[0] || null;
+    var names = dashEnvelopeNames();
+    if (p && p.envelope && names.indexOf(p.envelope) < 0) names.push(p.envelope);
+    var html = field("Name", "pName", p ? p.name : "") + field("Target date", "pDate", p ? p.date : "", "date") +
+      field("Cost", "pCost", String(p ? p.cost || 0 : 0), "number") +
+      '<label class="field">Budget envelope (its balance counts as saved)<select name="pEnv"><option value="">None</option>' +
+      names.map(function (n) { return '<option value="' + esc(n) + '"' + (p && p.envelope === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select></label>" +
+      '<input type="hidden" name="pId" value="' + esc(p ? p.id : "") + '">';
+    if (p) html += deleteBtnHtml("", "Delete purchase", ' data-dash="p-del" data-id="' + esc(p.id) + '"');
+    openSheet(p ? "Edit purchase" : "Add a purchase", html, "dash-save-purchase");
+    if (focus) focusSheetField(focus);
+  }
+  function openDashPurchaseList() {
+    var rows = dashPurchaseRows(), html = "";
+    rows.forEach(function (x) { html += dashPurchaseRowHtml(x); });
+    html += '<button type="button" class="text-btn" data-dash="p-add">+ Add purchase</button>';
+    openSheet("Upcoming purchases", html, "dash-noop");
+    var m = document.querySelector("#modal .sheet-actions");
+    if (m) m.innerHTML = '<button class="primary" type="button" data-act="close-modal">Done</button>';
+  }
+  function dashPurchaseRowHtml(x) {
+    var p = x.p;
+    return '<div class="dash-buy">' +
+      '<div class="dash-buy-top"><button type="button" class="dash-buy-name" data-dash="p-edit" data-id="' + esc(p.id) + '">' + esc(p.name || "Purchase") + "</button>" +
+      '<span class="mono dash-buy-amt" role="button" tabindex="0" data-dash="p-edit" data-focus="pCost" data-id="' + esc(p.id) + '">' + moneyWhole(Number(p.cost) || 0) + "</span></div>" +
+      '<div class="dash-bar"><span style="width:' + Math.round(x.pct * 100) + '%"></span></div>' +
+      '<p class="caption dash-buy-sub">' + (p.date ? esc(displayDate(p.date)) : "No date") + " · " +
+      (x.need > 0 ? moneyWhole(x.need) + " still needed" : "Fully saved") +
+      (x.linked ? " · " + esc(p.envelope) + " " + moneyWhole(x.saved) : "") + "</p></div>";
+  }
+
+  function dashPctInput(kind, label, value, manual, def) {
+    return '<label class="dash-in"><span class="dash-in-lab">' + esc(label) + ' <span class="dash-tag">' + (manual ? "Manual" : "Default") + "</span></span>" +
+      '<input data-dashpct="' + kind + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Math.round(value) + "%") +
+      '" data-full="' + esc(Number(value) + "%") + '" aria-label="' + esc(label) + '"></label>';
+  }
+
+  function dashboardHtml() {
+    var html = '<div class="dash" id="dash"><div class="nav-row"><h2>Dashboard</h2></div>';
+    // 1
+    var nw = dashNetWorth();
+    html += '<section class="dash-card dash-nw" id="dash-nw"><p class="dash-k">Net worth</p>';
+    if (nw) {
+      html += '<p class="dash-big mono">' + moneyWhole(nw.now) + "</p>" +
+        (nw.change == null ? '<p class="caption">Change shows once there are 12 months of history.</p>'
+          : '<p class="dash-chg ' + (nw.change >= 0 ? "moss" : "rust") + '">' + signedWhole(nw.change) + (nw.pct != null ? " (" + (nw.pct >= 0 ? "+" : "") + pctWhole(nw.pct) + ")" : "") +
+            ' <span class="caption">' + esc(nw.label) + "</span></p>") +
+        '<button type="button" class="dash-go" data-act="stats-door" data-door="worth">Net worth ›</button>';
+    } else html += '<p class="caption">Add your accounts to see net worth.</p><button type="button" class="dash-go" data-act="stats-door" data-door="worth">Start your net worth ›</button>';
+    html += "</section>";
+    // 2
+    var inc = dashIncome();
+    html += '<section class="dash-card dash-inc" id="dash-inc"><p class="dash-k">Income ' + (inc ? inc.year : currentYearMonth().year) + " · estimated full year</p>";
+    if (inc) {
+      html += '<div class="dash-two"><div><span class="caption">Gross</span><strong class="mono">' + moneyWhole(inc.gross) + "</strong></div>" +
+        '<div><span class="caption">Take-home</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
+        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement). Take-home = gross − taxes − pre-tax deductions − post-tax per-check lines × checks in the year. With no pay stub, the typed what-if is used. Estimate, not a guarantee.") + "</p>";
+    } else html += '<p class="caption">Add a paycheck or a pay stub to estimate this year.</p>';
+    html += "</section>";
+    // 3 + 4
+    var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
+    var avg = inc ? inc.avgTax : null;
+    html += '<div class="dash-pair"><section class="dash-card dash-sr" id="dash-sr"><p class="dash-k">Savings rate</p>' +
+      '<p class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</p><p class="caption">Basic</p>' +
+      '<p class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</p><p class="caption">True' +
+      (sr && sr.trueRate && sr.trueRate.state === "locked" ? " · Premium" : "") + "</p></section>" +
+      '<section class="dash-card dash-tax" id="dash-avgtax"><p class="dash-k">Average tax</p><p class="dash-mid mono">' + pctWhole(avg) + "</p>" +
+      '<p class="caption">Taxes ÷ gross pay, ' + (inc ? inc.year : "") + "</p></section></div>";
+    // 5
+    var R = dashRetirement(), I = R.I;
+    html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
+      "Nest egg needed = yearly spending × (1 + inflation)^years ÷ 4% (shown in today’s dollars too: spending ÷ 4%). " +
+      "Projected nest egg = your retirement + taxable accounts now (no home or vehicles), growing at your return each year, plus this year’s contributions (you + employer + other additions) added every year and rising with inflation. " +
+      "Compared in today’s dollars: Ahead at 105%+ of the need, On track 95–105%, else Short. 4% rule income = projected nest egg (today’s dollars) × 4%. Estimate, not a guarantee or advice.") + "</p>";
+    html += '<div class="dash-ins">' +
+      (I.ageFromBirthday ? "" : '<label class="dash-in">Your age<input data-dashnum="ageNow" inputmode="numeric" type="text" value="' + esc(I.ageNow == null ? "" : String(I.ageNow)) + '" placeholder="Age"></label>') +
+      '<label class="dash-in">Retire at<input data-dashnum="retireAge" inputmode="numeric" type="text" value="' + I.retireAge + '"></label>' +
+      '<label class="dash-in dash-in-wide">Yearly spending in retirement (today’s $)<input class="cents-input mono" data-dashmoney="spend" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
+      esc(I.spend == null ? "" : money(I.spend)) + '" placeholder="Add yearly spending"></label>' +
+      dashPctInput("infl", "Inflation", I.infl, I.inflManual) + dashPctInput("ret", "Return", I.ret, I.retManual) + "</div>";
+    if (!R.ready) {
+      html += '<p class="dash-ask">' + (I.ageNow == null ? "Add your age (or birthday on Profile)" : "") + (I.ageNow == null && I.spend == null ? " and " : "") +
+        (I.spend == null ? "How much a year do you want to spend in retirement, in today’s dollars?" : "") + "</p>";
+    } else {
+      var st = R.status === "ahead" ? ["Ahead", "moss", "by " + moneyWhole(R.gap)] : R.status === "on" ? ["On track", "moss", ""] : ["Short", "rust", "by " + moneyWhole(-R.gap)];
+      var rrow = function (label, val, sub, cls) {
+        return '<div class="dash-rrow"><div class="dash-rrow-top"><span>' + label + '</span><span class="mono ' + (cls || "") + '">' + val + "</span></div>" +
+          (sub ? '<p class="caption">' + sub + "</p>" : "") + "</div>";
+      };
+      html += '<p class="dash-status ' + st[1] + '" id="dash-ret-status"><strong>' + st[0] + "</strong> " + st[2] + ' <span class="caption">today’s dollars</span></p>' +
+        rrow("Nest egg needed", moneyWhole(R.needToday), "Today’s dollars · " + moneyWhole(R.needNominal) + " at " + I.retireAge) +
+        rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
+        rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
+        '<p class="caption">' + R.years + " years · starts from " + moneyWhole(R.inv.balance) + " invested" +
+        (R.inv.contrib > 0 ? " + " + moneyWhole(R.inv.contrib) + "/yr from " + esc(R.inv.source) : " · no yearly contributions found") + ".</p>";
+    }
+    html += "</section>";
+    // 6
+    var rows = dashPurchaseRows();
+    html += '<section class="dash-card dash-buys" id="dash-buys"><p class="dash-k">Upcoming purchases</p>';
+    var upcoming = rows.filter(function (x) { return !x.past; });
+    (upcoming.length ? upcoming : rows).slice(0, 3).forEach(function (x) { html += dashPurchaseRowHtml(x); });
+    if (!rows.length) html += '<p class="caption">Plan a big buy: a date, the cost, and the envelope you’re saving in.</p>';
+    html += '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="p-add">+ Add purchase</button>' +
+      (rows.length > 3 ? '<button type="button" class="text-btn" data-dash="p-all">All ' + rows.length + " ›</button>" : "") + "</div></section>";
+    // 7 (Jan–Apr)
+    var tm = dashToday().getMonth() + 1;
+    if (tm <= 4) {
+      var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
+      html += '<section class="dash-card dash-taxdocs" id="dash-taxdocs"><p class="dash-k">Tax docs · ' + ty + ' <span class="dash-count">' + done + " of " + TL.rows.length + "</span></p>" +
+        dashTaxRowsHtml(ty) + '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' +
+        '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
+    }
+    // 8
+    var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
+    if (pw || pi) {
+      var last = pw ? pw.rows[pw.rows.length - 1] : pi.rows[pi.rows.length - 1];
+      html += '<section class="dash-card dash-est' + (dashEstOpen ? " open" : "") + '" id="dash-est"><button type="button" class="dash-est-line" data-dash="est-toggle" aria-expanded="' + dashEstOpen + '">' +
+        '<span>3-year estimate · ' + last.year + "</span><span class=\"mono\">" + (pw ? "Net worth " + moneyWhole(pw.rows[pw.rows.length - 1].total) : "Income " + moneyWhole(pi.rows[pi.rows.length - 1].total)) +
+        ' <span class="chev" aria-hidden="true">' + (dashEstOpen ? "▴" : "▾") + "</span></span></button>" +
+        (dashEstOpen ? '<div class="dash-est-body">' + (pw ? '<p class="dash-k">Net worth</p>' + estimatedSectionHtml("worth") : "") + (pi ? '<p class="dash-k">Income</p>' + estimatedSectionHtml("income") : "") + "</div>" : "") +
+        "</section>";
+    }
+    // 9
+    html += backupNudgeHtml();
+    return html + "</div>";
+  }
+  function renderDashboard() {
+    return dashboardHtml() + '<div class="dash-doors">' + statsSegmentHtml("dash") + "</div>";
+  }
+
+  function dashRerender() { saveState(); render(); }
+  document.addEventListener("click", function (e) {
+    var t = e.target && e.target.closest ? e.target.closest("[data-dash]") : null;
+    if (!t || t.tagName === "INPUT") return;
+    var k = t.getAttribute("data-dash"), d = dashState();
+    e.preventDefault(); e.stopPropagation();
+    if (k === "est-toggle") { dashEstOpen = !dashEstOpen; render(); }
+    else if (k === "p-add") { closeModal(); openDashPurchase("", "pName"); }
+    else if (k === "p-all") openDashPurchaseList();
+    else if (k === "p-edit") { closeModal(); openDashPurchase(t.getAttribute("data-id"), t.getAttribute("data-focus") || "pName"); }
+    else if (k === "p-del") {
+      var p = d.purchases.filter(function (x) { return x.id === t.getAttribute("data-id"); })[0];
+      if (!p || !confirmDelete(p.name || "this purchase", "It is removed from Upcoming purchases. Your envelope is not touched.")) return;
+      d.purchases = d.purchases.filter(function (x) { return x !== p; });
+      closeModal(); dashRerender();
+    } else if (k === "tax-open" || k === "tax-year") openDashTaxSheet(Number(t.getAttribute("data-year")));
+    else if (k === "tax-add") { closeModal(); openDashTaxItem(Number(t.getAttribute("data-year")), "new"); }
+    else if (k === "tax-edit") { closeModal(); openDashTaxItem(Number(t.getAttribute("data-year")), t.getAttribute("data-key")); }
+    else if (k === "tax-del") {
+      var y = Number(t.getAttribute("data-year")), L = dashTaxList(y), key = t.getAttribute("data-key");
+      var c = L.rec.custom.filter(function (x) { return "c:" + x.id === key; })[0];
+      if (!c || !confirmDelete(c.name || "this item", "It is removed from your " + y + " tax docs checklist.")) return;
+      L.rec.custom = L.rec.custom.filter(function (x) { return x !== c; });
+      closeModal(); dashRerender();
+    }
+  }, true);
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    var d;
+    if (t.getAttribute("data-dash") === "tax-done") {
+      var y = Number(t.getAttribute("data-year")), ref = dashTaxRowRef(y, t.getAttribute("data-key"));
+      if (!ref) return;
+      ref.done = !!t.checked;
+      if (ref.done && !ref.received) ref.received = dashIso(dashToday());
+      var inSheet = !!t.closest("#modal");
+      saveState();
+      if (inSheet) { render(); openDashTaxSheet(y); } else render();
+    } else if (t.getAttribute("data-dashnum")) {
+      var n = parseInt(String(t.value).replace(/\D/g, ""), 10);
+      if (t.getAttribute("data-dashnum") === "retireAge") {
+        state.profile = state.profile || {};
+        state.profile.retireAge = n >= 30 && n <= 100 ? n : null;
+      } else { d = dashState(); d.retire.ageNow = n > 0 && n < 120 ? n : null; }
+      dashRerender();
+    } else if (t.getAttribute("data-dashmoney") === "spend") {
+      d = dashState(); var v = statedParse(t); d.retire.spend = v > 0 ? v : null; dashRerender();
+    } else if (t.getAttribute("data-dashpct")) {
+      d = dashState(); var dg = String(t.value).replace(/\D/g, "");
+      d.retire[t.getAttribute("data-dashpct")] = dg === "" ? null : Math.min(Number(dg), 5000) / 100;
+      dashRerender();
+    }
+  });
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-dashpct")) return;
+    t.setAttribute("data-disp", t.value); t.placeholder = t.getAttribute("data-full") || t.value; t.value = "";
+  });
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-dashpct")) return;
+    if (t.value === "" && t.hasAttribute("data-disp")) t.value = t.getAttribute("data-disp");
+  });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute("data-dashpct")) return;
+    /* Backspace on an emptied field returns the box to its default (3% inflation / 8% return). */
+    if (e.key === "Backspace" && t.value === "") {
+      e.preventDefault();
+      var d = dashState(); d.retire[t.getAttribute("data-dashpct")] = null; dashRerender();
+    }
+  });
+  document.addEventListener("submit", function (e) {
+    var form = e.target && e.target.closest ? e.target.closest("form[data-act]") : null;
+    if (!form) return;
+    var act = form.getAttribute("data-act");
+    if (act !== "dash-save-purchase" && act !== "dash-save-tax" && act !== "dash-noop") return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (act === "dash-noop") { closeModal(); return; }
+    var data = {};
+    Array.prototype.forEach.call(form.elements, function (el) { if (el.name) data[el.name] = el.value; });
+    var d = dashState();
+    if (act === "dash-save-purchase") {
+      var name = String(data.pName || "").replace(/^\s+|\s+$/g, "");
+      var cost = centsFromDigits(data.pCost);
+      var p = d.purchases.filter(function (x) { return x.id === data.pId; })[0];
+      if (!p) { if (!name && !(cost > 0)) { closeModal(); return; } p = { id: "buy-" + nextId() }; d.purchases.push(p); }
+      p.name = name || "Purchase"; p.date = data.pDate || ""; p.cost = cost > 0 ? cost : 0; p.envelope = data.pEnv || "";
+    } else {
+      var y = Number(data.taxYear), key = data.taxKey, L = dashTaxList(y), ref;
+      if (key === "new") {
+        var nm = String(data.taxName || "").replace(/^\s+|\s+$/g, "");
+        if (!nm) { closeModal(); return; }
+        ref = { id: "tx-" + nextId(), name: nm }; L.rec.custom.push(ref);
+      } else {
+        ref = dashTaxRowRef(y, key);
+        if (ref && data.taxName != null && key.indexOf("c:") === 0) ref.name = String(data.taxName).trim() || ref.name;
+      }
+      if (ref) { ref.received = data.taxReceived || ""; if (ref.received) ref.done = true; ref.docId = data.taxDoc || ""; }
+    }
+    closeModal(); dashRerender();
+  }, true);
+
   function renderStatsLanding() {
     /* v37.5.18: busy twin/chip door wall removed. Default is Balance sheet; this path is a quiet Vault/Goals fallback. */
     return '<div class="nav-row"><h2>Stats</h2></div>' +
@@ -4443,6 +4924,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<span class="vault-type-add-item"><button class="vault-type-add" type="button" data-act="vault-add-paystub">+ Pay stub</button>' +
       '<span class="caption">We can read this</span></span>';
     html += "</div>";
+    html += '<button class="stats-vault vault-taxdocs" type="button" data-dash="tax-open" data-year="' + dashTaxYear() + '">Tax docs checklist · ' + dashTaxYear() + "</button>";
     if (!docs.length) {
       html += '<p class="empty">Empty vault. Add a paper or start a typed card.</p>';
       return html;
@@ -13452,7 +13934,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.45";
+  var APP_VERSION = "37.5.59.46";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -14313,7 +14795,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       payStubsConfirmed: docs.filter(function (d) { return d.payStubConfirmed; }).length,
       /* v37.5.59.43: counts only — never vehicle names or values. */
       vehicleCount: ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle; }).length,
-      vehiclesLeftOut: ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle && l.excludeFromNw; }).length
+      vehiclesLeftOut: ((state.worth && state.worth.lines) || []).filter(function (l) { return l.vehicle && l.excludeFromNw; }).length,
+      /* v37.5.59.46: Dashboard — counts and yes/no only, never names, dates or dollars. */
+      upcomingPurchases: ((state.dashboard && state.dashboard.purchases) || []).length,
+      taxDocItems: (function () { try { return dashTaxList(dashTaxYear()).rows.length; } catch (e) { return 0; } })(),
+      taxDocsChecked: (function () { try { return dashTaxList(dashTaxYear()).rows.filter(function (r) { return r.done; }).length; } catch (e) { return 0; } })(),
+      retirementSpendSet: !!(state.dashboard && state.dashboard.retire && Number(state.dashboard.retire.spend) > 0)
     };
   }
 
@@ -15211,11 +15698,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       screen.innerHTML = renderWorth();
       bindMoneyInputs(screen);
       bindNwScrubber(screen);
-    } else if (state.tab === "stats" && !state.statsDoor) {
-      state.statsDoor = "worth";
-      screen.innerHTML = renderWorth();
+    } else if (state.tab === "stats" && (!state.statsDoor || state.statsDoor === "dash")) {
+      state.statsDoor = "dash";
+      screen.innerHTML = renderDashboard();
       bindMoneyInputs(screen);
-      bindNwScrubber(screen);
     } else if (state.tab === "stats" && state.statsDoor === "vault") {
       screen.innerHTML = renderVault();
       bindMoneyInputs(screen);
@@ -16001,10 +16487,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.tab = "stats";
       state.statsDoor = "statement";
     } else {
+      var wasStats = state.tab === "stats";
       state.tab = tab;
       if (tab === "stats") {
-        /* Keep the current door when returning to Stats; only default when unset. */
-        if (!state.statsDoor) state.statsDoor = "worth";
+        /* Keep the current door when returning to Stats; only default when unset.
+         * v37.5.59.46: tapping Stats while already on it goes home to the Dashboard. */
+        if (!state.statsDoor || wasStats) state.statsDoor = "dash";
         if (state.statsDoor !== "vault") state.vaultDocId = "";
         if (state.statsDoor !== "worth") state.worthDetails = false;
         if (state.statsDoor !== "statement") state.statementDetails = false;
