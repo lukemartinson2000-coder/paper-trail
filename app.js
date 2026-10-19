@@ -3299,6 +3299,7 @@
       profile: defaultProfile(),
       plan: "free",
       worthScrubYear: null,
+      worthTrendRange: "all",
       insightsDoor: "",
       gradeSheet: "",
       months: months,
@@ -3831,8 +3832,12 @@
       rule = '<line class="nw-rule" x1="' + sx + '" x2="' + sx + '" y1="' + padT +
         '" y2="' + (h - padB) + '" stroke="rgb(40,28,18)" stroke-width="1.6" stroke-dasharray="4 3"></line>';
     }
+    var lastI = points.length - 1;
     var labels = points.map(function (p, i) {
-      if (i % 2 && i !== points.length - 1) return "";
+      // v37.5.59.55: past 10 years, label only the first, the last, and every 5th year (kept clear of the ends).
+      if (points.length > 10) {
+        if (i !== 0 && i !== lastI && !(p.year % 5 === 0 && i > 1 && i < lastI - 1)) return "";
+      } else if (i !== lastI && (i % 2 || (i === lastI - 1 && points.length > 3))) return "";
       return '<text x="' + x(i).toFixed(1) + '" y="' + (h - 8) +
         '" text-anchor="middle" font-size="9" fill="rgb(107,97,87)">' + p.year + "</text>";
     }).join("");
@@ -9751,12 +9756,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       { name: "Income", color: CHART_INKS[1], points: years.map(function (y) { return { year: y, y: Number((state.worth.income || {})[y]) || 0 }; }) }
     ];
   }
+  /* v37.5.59.55: range chips (5Y / 10Y / All). The chips only narrow what's drawn; stored history is never cut. */
+  var TREND_RANGES = [{ id: "5", n: 5, label: "5Y" }, { id: "10", n: 10, label: "10Y" }, { id: "all", n: 0, label: "All" }];
   function worthTrendHtml(years, year, trend, compact) {
     if (years.filter(function (y) { var t = worthTotals(y); return t.assets !== 0 || t.liabilities !== 0; }).length < 2)
       return '<p class="empty">Your trend line appears once a second year has balances.</p>';
+    var avail = TREND_RANGES.filter(function (r) { return r.n && years.length > r.n; });
+    var range = state.worthTrendRange || "all";
+    var cur = avail.filter(function (r) { return r.id === range; })[0];
+    if (!cur) range = "all";
+    var shown = cur ? years.slice(-cur.n) : years;
+    if (cur) trend = null;
+    var chips = avail.length ? '<div class="trend-chips" role="group" aria-label="Trend range">' + avail.concat([TREND_RANGES[2]]).map(function (r) {
+      return '<button type="button" class="trend-chip' + (r.id === range ? " on" : "") + '" data-act="trend-range" data-range="' + r.id + '" aria-pressed="' + (r.id === range) + '">' + r.label + "</button>";
+    }).join("") + "</div>" : "";
+    var sel = shown.indexOf(state.worthScrubYear) >= 0 ? state.worthScrubYear : (shown.indexOf(year) >= 0 ? year : shown[shown.length - 1]);
+    years = shown;
     return '<section class="card' + (compact ? " dash-card dash-trend" : "") + '"' + (compact ? ' id="dash-trend"' : "") + ">" +
       (compact ? '<p class="dash-k">Trend · net worth and income</p>' : "") +
-      lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: state.worthScrubYear || year }) +
+      chips + lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: sel }) +
       '<p class="caption">' + (compact ? "Drag the line to a year." : "Drag the vertical line to a year. That year’s net worth and income appear under the graph.") + "</p></section>";
   }
   function dashTrendHtml() {
@@ -14507,7 +14525,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.54";
+  var APP_VERSION = "37.5.59.55";
   var pendingRestore = null;
 
   function storagePayload() {
@@ -17693,6 +17711,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "foo-check") {
       state.foo = migrateFoo(state.foo);
       state.foo[actEl.getAttribute("data-field")] = !!actEl.checked;
+      saveState();
+      render();
+    } else if (act === "trend-range") {
+      state.worthTrendRange = actEl.getAttribute("data-range") || "all";
       saveState();
       render();
     } else if (act === "nw-scrub-year") {
