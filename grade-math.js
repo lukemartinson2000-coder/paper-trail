@@ -4009,6 +4009,10 @@
     if (bonusDates.length) bits.push("projected bonus " + bonusDates.join(", "));
     if (basis.ytdBonusPlaced && parseIso(basis.ytdBonusPlaced.date).getMonth() + 1 === Number(month)) bits.push("bonus " + moneyLabel(basis.ytdBonusPlaced.amount) + " from YTD on " + shortDate(basis.ytdBonusPlaced.date));
     return {
+      /* v37.5.59.47: the stub's own take-home for the month (gross − taxes − pre-tax), so True can tell when Budget
+       * paychecks carry income the stubs don't (a second earner, commissions, side work). */
+      takeHome: roundMoney(m.gross - (m.fed || 0) - (m.state || 0) - (m.ss || 0) - (m.med || 0) - (m.otherTax || 0) -
+        (m.e401 || 0) - (m.hsa || 0) - (m.fsa || 0) - (m.otherPre || 0)),
       gross: m.gross, employee401k: m.e401, employer401k: m.er401, employer401kBase: m.er401Base || 0, bonus: m.bonus || 0,
       hsa: roundMoney(m.hsa), employerHsa: m.erHsa,
       fsa: m.fsa, otherPre: m.otherPre, checks: (m.dates || []).filter(function (d) { return d.kind !== "projected-bonus"; }).length + (kinds.ytd || 0),
@@ -4247,6 +4251,24 @@
   /* Premium + confirmed pay stub only. Stub amounts are per paycheck; they are converted
    * to monthly with paychecksPerYear ÷ 12 so they line up with monthly envelopes.
    * Missing stub fields count as $0 and are flagged missing — never estimated. */
+  /* v37.5.59.47: True's denominator = gross pay on the stubs + Budget take-home the stubs don't cover.
+   * Before, savings envelopes funded by ALL Budget paychecks were divided by ONE stub's gross, so a household
+   * with other income (or a stub that doesn't match the Budget) could show True above 100%. Income with no
+   * stub has no known gross, so it counts at take-home. A 2% band absorbs rounding. */
+  function trueOtherIncome(budgetTakeHome, stubTakeHome) {
+    var th = Number(budgetTakeHome), st = Number(stubTakeHome);
+    if (!(th > 0) || !isFinite(th) || !isFinite(st) || st < 0) return 0;
+    var extra = th - st;
+    return extra > Math.max(1, st * 0.02) ? ledgerCents(extra) : 0;
+  }
+  function applyOtherIncome(out, budgetTakeHome, stubTakeHome) {
+    var extra = trueOtherIncome(budgetTakeHome, stubTakeHome);
+    out.stubGross = out.gross;
+    out.otherIncome = extra;
+    out.denominator = ledgerCents((out.gross || 0) + extra);
+    out.rate = safeRatio(out.numerator, out.denominator);
+    return out;
+  }
   function trueSavingsRate(opts) {
     opts = opts || {};
     var snap = opts.snapshot || null;
@@ -4282,6 +4304,7 @@
       out.monthNote = sm.note || "";
       out.basis = "month";
       out.rate = safeRatio(out.numerator, out.gross);
+      if (opts.takeHome != null && sm.takeHome != null) applyOtherIncome(out, opts.takeHome, sm.takeHome);
       return out;
     }
     var gross = Number(snap.gross);
@@ -4437,8 +4460,9 @@
       if (!opts.snapshot || !opts.snapshot.confirmedAt) { outB.state = "needsStub"; return outB; }
       var ms = (opts.stubMonths || []).filter(function (m) { return m && Number(m.gross) > 0; });
       if (!ms.length) { outB.state = "needsStub"; outB.noMonthStub = true; return outB; }
-      var tot = { gross: 0, e401: 0, er: 0, erBase: 0, hsa: 0 };
+      var tot = { gross: 0, e401: 0, er: 0, erBase: 0, hsa: 0, takeHome: 0, hasTakeHome: true };
       ms.forEach(function (m) {
+        if (m.takeHome == null) tot.hasTakeHome = false; else tot.takeHome += Number(m.takeHome) || 0;
         tot.gross += Number(m.gross) || 0; tot.e401 += Number(m.employee401k) || 0;
         tot.er += Number(m.employer401k) || 0; tot.hsa += Number(m.hsa) || 0;
         tot.erBase += Number(m.employer401kBase) || 0;
@@ -4459,6 +4483,8 @@
       outB.periodNote = "Pay stubs month by month: " + (opts.basisShort || "actual year-to-date + projected checks") +
         (covered < all ? " · " + (all - covered) + " month" + (all - covered === 1 ? "" : "s") + " in this period had no paycheck covered by a stub" : "") + ".";
       outB.rate = safeRatio(outB.numerator, outB.gross);
+      /* v37.5.59.47: only months with a stub count, so compare against Budget take-home for those same months. */
+      if (opts.takeHomeCovered != null && tot.hasTakeHome) applyOtherIncome(outB, opts.takeHomeCovered, tot.takeHome);
       return outB;
     }
     var one = trueSavingsRate({

@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.46. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.47. */
 (function () {
   "use strict";
 
@@ -6431,6 +6431,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { income: income, categories: categories };
   }
 
+  /* v37.5.59.47: Budget take-home in the period's months that a pay stub covers (True compares like months). */
+  function wrapTakeHomeCovered(bag) {
+    var tot = 0;
+    (bag.takeHomeBasis || []).forEach(function (m) {
+      var f = stubMonthFigures(Number(m.year), Number(m.month));
+      if (f && Number(f.gross) > 0) tot += Number(m.amount) || 0;
+    });
+    return tot;
+  }
+
   function wrappedFacts(month, cadence) {
     var bounds = periodBounds(month.year, month.month, cadence);
     var bag = activityInPeriod(bounds);
@@ -6537,6 +6547,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         monthCount: bag.monthCount || 0,
         useBasis: useStubBasis(),
         stubMonths: (bag.periodMonths || []).map(function (m) { return stubMonthFigures(m.year, m.month); }),
+        takeHomeCovered: wrapTakeHomeCovered(bag),
         basisShort: stubBasisShort(bag.periodMonths && bag.periodMonths.length ? bag.periodMonths[bag.periodMonths.length - 1].year : currentYearMonth().year)
       });
     } else {
@@ -6575,6 +6586,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       savingsRate: periodSavingsRate(bounds),
       trueSavingsRate: periodTrue && periodTrue.state === "ok" ? periodTrue.rate : null,
       trueSavingsState: periodTrue ? periodTrue.state : null,
+      trueDetail: periodTrue && periodTrue.state === "ok" ? periodTrue : null, // v37.5.59.47: rows for the "?" formula
       truePeriodNote: periodTrue && periodTrue.periodNote ? periodTrue.periodNote : null,
       categoryStories: periodCategoryStories(bounds),
       priorPeriodName: prior && prior.name ? prior.name : "",
@@ -6591,7 +6603,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           savings: pb.savingsPlanned,
           monthCount: pb.monthCount || 0,
           useBasis: useStubBasis(),
-          stubMonths: (pb.periodMonths || []).map(function (m) { return stubMonthFigures(m.year, m.month); })
+          stubMonths: (pb.periodMonths || []).map(function (m) { return stubMonthFigures(m.year, m.month); }),
+          takeHomeCovered: wrapTakeHomeCovered(pb)
         });
         return pt && pt.state === "ok" ? pt.rate : null;
       })(),
@@ -6717,6 +6730,126 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return "";
   }
 
+  /* ---- v37.5.59.47: tidy Wrapped slides ----
+   * Each slide keeps kicker + one headline + one short line + its chart. Formulas, rules, footnotes and
+   * secondary stats move into slide.help (one "?" per slide, the shared help popup). Whole $ and whole %. */
+  function wrapWhole(text) {
+    return String(text == null ? "" : text)
+      .replace(/\$(\d[\d,]*)\.(\d\d)\b/g, function (m, d, c) { return moneyWhole(Math.round(Number(d.replace(/,/g, "") + "." + c))); })
+      .replace(/(\d+)\.(\d)%/g, function (m, d, c) { return Math.round(Number(d + "." + c)) + "%"; });
+  }
+  function wrapHelp(parts) {
+    return (parts || []).filter(function (x) { return x != null && String(x).replace(/\s+/g, "") !== ""; })
+      .map(wrapWhole).join("\n\n");
+  }
+  function wrapRatePct(r) { return r == null || !isFinite(Number(r)) ? "—" : Math.round(Number(r) * 100) + "%"; }
+  function wrapRateSlide(facts, month) {
+    var basic = facts.savingsRate == null || !isFinite(Number(facts.savingsRate)) ? null : Number(facts.savingsRate);
+    var tr = facts.trueSavingsRate == null || !isFinite(Number(facts.trueSavingsRate)) ? null : Number(facts.trueSavingsRate);
+    var takeHome = Math.max(0, Number(facts.moneyIn) || 0);
+    var saved = Math.max(0, Number(facts.savedPlanned) || 0);
+    if (basic == null && tr == null) return null;
+    var d = facts.trueDetail || null;
+    var sub = tr != null ? "True savings rate " + wrapRatePct(tr) + " of gross pay"
+      : facts.trueSavingsState === "locked" ? "True savings rate: Premium with a pay stub"
+      : "True savings rate: add a pay stub";
+    var help = [];
+    help.push("Basic savings rate = savings envelopes " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(takeHome) +
+      " = " + wrapRatePct(basic) + ". Take-home is after tax: finished months count what you received; the current month counts planned paychecks until they all arrive.");
+    if (tr != null && d && d.rows) {
+      var parts = d.rows.filter(function (r) { return r.id === "savings" || Number(r.amount) > 0; }).map(function (r) { return r.label.replace(/\s*\((period|\d+ mo)\)/, "") + " " + moneyWhole(r.amount); });
+      help.push("True savings rate = " + parts.join(" + ") + " ÷ " +
+        (d.otherIncome > 0
+          ? "(gross pay on your stubs " + moneyWhole(d.stubGross) + " + Budget take-home not on a stub " + moneyWhole(d.otherIncome) + ")"
+          : "gross pay " + moneyWhole(d.gross)) + " = " + wrapRatePct(tr) + ".");
+      if (d.otherIncome > 0) help.push("Your Budget paychecks bring in more than your pay stubs pay out (another earner, commissions, side work). That income has no gross on file, so it counts at take-home.");
+      if (d.periodNote) help.push(d.periodNote);
+    } else if (facts.trueSavingsState === "needsStub") {
+      help.push("True savings rate (savings + 401k + employer 401k + HSA ÷ gross pay) needs a confirmed pay stub. It is never estimated.");
+    }
+    var prior = tr != null ? facts.priorTrueSavingsRate : facts.priorSavingsRate;
+    if (prior != null && isFinite(Number(prior))) help.push((tr != null ? "True" : "Basic") + " last year: " + wrapRatePct(prior) + ".");
+    help.push("For reference, the U.S. personal saving rate was about 5% in 2024 (BEA). It is saving ÷ after-tax income, the same footing as Basic.");
+    var segSaved = Math.min(saved, takeHome);
+    return {
+      id: "savings-rate", kicker: "Savings rate · " + month.year,
+      title: basic != null ? "You saved " + wrapRatePct(basic) + " of your take-home" : "You saved " + wrapRatePct(tr) + " of gross pay",
+      sub: basic != null ? sub : "",
+      graph: takeHome > 0 ? { type: "stack", segs: [
+        { label: "Saved", amount: segSaved, ink: "var(--moss)" },
+        { label: "Everything else", amount: Math.max(0, takeHome - segSaved), ink: "var(--rule)" }
+      ] } : null,
+      help: wrapHelp(help), tidy: true
+    };
+  }
+  function wrapTidy(sl, facts) {
+    if (!sl || sl.tidy) return sl;
+    var lines = sl.lines || [];
+    var o = { id: sl.id, kicker: sl.kicker, title: wrapWhole(sl.title), sub: "", chart: sl.chart || null, graph: sl.graph || null,
+      locked: sl.locked, share: sl.share, help: "", tidy: true };
+    var id = String(sl.id || "");
+    if (id === "hook") {
+      o.sub = lines.join(" · ");
+    } else if (id === "spent-saved") {
+      var outAmt = Math.max(0, Number(facts.moneyOut) || 0), sv = Math.max(0, Number(facts.savedPlanned) || 0);
+      if (!(Number(facts.moneyIn) > 0) && !(outAmt > 0)) { o.sub = lines[0] || ""; }
+      else {
+        o.title = "Take-home in " + moneyWhole(Number(facts.moneyIn) || 0);
+        o.sub = "Out " + moneyWhole(outAmt) + " · Saved " + moneyWhole(sv);
+        o.help = wrapHelp(lines);
+      }
+    } else if (id === "locked") {
+      o.sub = lines[0] || "";
+    } else if (id.indexOf("category-") === 0) {
+      var rows = (sl.chart && sl.chart.rows) || [];
+      var spent = 0, inc = 0;
+      rows.forEach(function (r) { if (r.id === "spent") spent = Number(r.amount) || 0; if (r.id === "income") inc = Number(r.amount) || 0; });
+      o.title = moneyWhole(spent) + " on " + sl.title;
+      o.sub = inc > 0 ? (spent > 0 && spent / inc < 0.005 ? "Under 1%" : Math.round(spent / inc * 100) + "%") + " of your take-home" : "";
+      o.help = wrapHelp(lines);
+    } else if (id === "deltas") {
+      if (sl.empty) o.sub = lines[0] || "";
+      else {
+        var bits = [];
+        if (facts.netWorthDelta != null) bits.push("Net worth " + wrapSigned(facts.netWorthDelta));
+        if (facts.debtDelta != null) bits.push("Debt " + wrapSigned(facts.debtDelta));
+        o.sub = bits.join(" · ");
+        o.help = wrapHelp(lines.concat([sl.footnote, "Net worth = assets − debts on your Net worth statement. Debt change is the same lines' balances, year over year."]));
+      }
+    } else if (id === "merchants") {
+      var top = (facts.merchants || [])[0];
+      o.sub = top ? "Most at " + top.name + " · " + moneyWhole(top.amount) : "";
+      o.help = wrapHelp(lines);
+    } else if (id === "biggest") {
+      o.title = moneyWhole(Number(facts.biggestAmount) || 0) + " at " + (facts.biggestPayee || "one place");
+      o.sub = facts.biggestDate ? displayDate(facts.biggestDate) : "";
+      o.help = facts.biggestDayDate && facts.biggestDayAmount > 0
+        ? wrapHelp(["Your biggest single day was " + displayDate(facts.biggestDayDate) + ": " + moneyWhole(facts.biggestDayAmount) + " across everything you logged."]) : "";
+    } else if (id === "delight" || id === "streak") {
+      o.sub = "";
+      o.help = wrapHelp(lines);
+    } else if (id === "foo") {
+      o.sub = lines[0] || "";
+    } else if (id === "grade") {
+      o.sub = lines[0] || "";
+      o.help = wrapHelp(lines.slice(1));
+    } else if (id === "compare") {
+      var cl = facts.compareLines || lines;
+      o.kicker = "How you compare";
+      o.title = wrapWhole(cl[0] || sl.title);
+      o.sub = wrapWhole(cl[1] || "");
+      o.help = wrapHelp([sl.footnote]);
+    } else if (id === "close") {
+      o.sub = lines[0] || "";
+      o.help = shareShowAmounts ? "Dollar amounts are on for this preview." : "Dollar amounts are hidden on the card until you turn them on.";
+    } else {
+      o.sub = lines.length === 1 ? wrapWhole(lines[0]) : "";
+      o.help = wrapHelp((lines.length === 1 ? [] : lines).concat([sl.footnote]));
+    }
+    o.sub = wrapWhole(o.sub);
+    return o;
+  }
+
   function openWrapped(month) {
     captureModalReturnScreenTop();
     wrapSlideIndex = 0;
@@ -6726,14 +6859,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function renderWrapped(month) {
     var cadence = "year";
     state.wrapCadence = "year";
-    var deck = window.GradeMath.buildWrappedDeck(wrappedFacts(month, cadence));
+    var facts = wrappedFacts(month, cadence);
+    var deck = window.GradeMath.buildWrappedDeck(facts);
     if (deck.premium) {
       var gSlides = wrapGraphSlides(month);
       var at = -1;
       deck.slides.forEach(function (sl, i) { if (sl.id === "deltas") at = i; });
       if (at < 0) at = Math.max(0, deck.slides.length - 1);
       deck.slides.splice.apply(deck.slides, [at + 1, 0].concat(gSlides));
+      /* v37.5.59.47: one savings-rate slide. The merged slide takes the graph slide's place; the old
+       * end-of-deck compare slide goes away. */
+      var rateAt = -1, cmpAt = -1;
+      deck.slides.forEach(function (sl, i) { if (sl.id === "g-rate") rateAt = i; if (sl.id === "savings-rate-compare") cmpAt = i; });
+      var merged = wrapRateSlide(facts, month);
+      if (cmpAt >= 0) deck.slides.splice(cmpAt, 1);
+      if (rateAt >= 0) deck.slides.splice(rateAt, 1, merged);
+      else if (merged) deck.slides.splice(cmpAt >= 0 ? cmpAt : Math.max(0, deck.slides.length - 1), 0, merged);
     }
+    deck.slides = deck.slides.filter(Boolean).map(function (sl) { return wrapTidy(sl, facts); });
     if (wrapSlideIndex >= deck.slides.length) wrapSlideIndex = deck.slides.length - 1;
     if (wrapSlideIndex < 0) wrapSlideIndex = 0;
     var slide = deck.slides[wrapSlideIndex];
@@ -6745,11 +6888,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<i class="' + (index === wrapSlideIndex ? "on" : "") + '"></i>';
     });
     html += "</div>";
-    html += '<div class="wrap-slide"><p class="kicker">' + esc(slide.kicker) + "</p>" +
+    /* v37.5.59.47 (owner: "messy"): headline, one short line, the chart. Everything else is behind one "?". */
+    html += '<div class="wrap-slide" data-slide="' + esc(slide.id || "") + '"><p class="kicker wrap-kicker"><span>' + esc(slide.kicker) + "</span>" +
+      (slide.help ? helpQ(slide.help) : "") + "</p>" +
       "<h2>" + esc(slide.title) + "</h2>";
-    (slide.lines || []).forEach(function (line) {
-      html += '<p class="line">' + esc(line) + "</p>";
-    });
+    if (slide.sub) html += '<p class="line wrap-sub">' + esc(slide.sub) + "</p>";
     if (slide.chart && slide.chart.type === "bars" && slide.chart.rows && slide.chart.rows.length) {
       html += '<div class="wrap-chart">' + barChart(slide.chart.rows.map(function (row) {
         return { title: row.title, amount: row.amount, id: row.id || row.title };
@@ -6759,21 +6902,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (slide.chart && slide.chart.type === "donut" && slide.chart.slices && slide.chart.slices.length) {
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
-    if (slide.paystubStack && isPremium()) {
-      var stack = slide.paystubStack;
-      html += '<div class="wrap-paystub-stack"><p class="sheet-label">Paystub ledger</p>';
-      if (stack.gross != null) html += '<div class="row dense"><span>Gross</span><span class="mono">' + money(stack.gross) + "</span></div>";
-      if (stack.federalTax != null) html += '<div class="row dense"><span>Federal</span><span class="mono">' + money(stack.federalTax) + "</span></div>";
-      if (stack.stateTax != null) html += '<div class="row dense"><span>State</span><span class="mono">' + money(stack.stateTax) + "</span></div>";
-      if (stack.fica != null) html += '<div class="row dense"><span>FICA</span><span class="mono">' + money(stack.fica) + "</span></div>";
-      if (stack.employee401k != null) html += '<div class="row dense"><span>Employee 401k</span><span class="mono">' + money(stack.employee401k) + "</span></div>";
-      if (stack.hsa != null) html += '<div class="row dense"><span>HSA</span><span class="mono">' + money(stack.hsa) + "</span></div>";
-      html += '<p class="caption">Premium paystub breakdown — only known stub numbers.</p></div>';
-    } else if (slide.id === "savings-rate-compare" && isPremium() && !slide.paystubStack) {
-      html += '<p class="caption">Add a paystub to unlock gross / tax / 401k ledger.</p>';
-    }
-    if (slide.footnote) html += '<p class="caption">' + esc(slide.footnote) + "</p>";
-    if (slide.chip) html += '<p class="streak-chip">' + esc(slide.chip) + "</p>";
     if (slide.locked) {
       html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full wrap</button>';
     }
@@ -6784,10 +6912,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         "<p>Savings envelopes " + esc(shareSaved) + "</p>" +
         "<p>No-spend streak " + esc(slide.share.streak) + "</p>" +
         "<p>Grade " + esc(slide.share.grade) + "</p></article>" +
-        '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>' +
-        '<p class="caption">' + (shareShowAmounts
-          ? "Dollar amounts are on for this preview."
-          : "Dollar amounts are hidden until you turn them on.") + "</p>";
+        '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>';
     }
     html += "</div>";
     html += '<div class="wrap-nav wrap-nav-pills">';
@@ -7327,6 +7452,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         snapshot: plan.payStubSnapshot || null,
         paychecksPerYear: plan.paychecksPerYear || checksForFrequency(payFrequencyOf(plan)),
         savings: envelopes.total,
+        takeHome: th.amount, // v37.5.59.47: Budget take-home the stub doesn't cover joins the denominator
         useBasis: useStubBasis(),
         stubMonth: useStubBasis() ? stubMonthFigures(month.year, month.month) : null
       })
@@ -7384,7 +7510,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           (row.id === "savings" ? "" : "+ ") + esc(row.label) + "</span><span class='mono'>" +
           (row.missing ? "Not on stub" : money(row.amount)) + "</span></div>";
       });
-      html += '<div class="row dense rate-part total"><span>÷ Gross pay</span><span class="mono">' + money(t.gross) + "</span></div>" +
+      if (t.otherIncome > 0) {
+        html += '<div class="row dense rate-part total"><span>÷ Gross pay (stubs)</span><span class="mono">' + money(t.stubGross) + "</span></div>" +
+          '<div class="row dense rate-part"><span>+ Budget take-home not on a stub</span><span class="mono">' + money(t.otherIncome) + "</span></div>";
+      }
+      html += '<div class="row dense rate-part total"><span>' + (t.otherIncome > 0 ? "÷ Total" : "÷ Gross pay") + '</span><span class="mono">' + money(t.denominator != null ? t.denominator : t.gross) + "</span></div>" +
         (t.basis === "month"
           ? '<p class="caption true-month-basis">This month’s paychecks: ' + esc(t.monthNote) + ". Plus this month’s savings envelopes. Gross pay is the same actual-plus-projected basis as average tax (projected checks are base pay; a bonus only in its month). 401k and HSA stop at their 2026 IRS limits; " +
             esc(stubBasisShort(r.month.year)) + " for the year.</p>"
@@ -13934,7 +14064,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.46";
+  var APP_VERSION = "37.5.59.47";
   var pendingRestore = null;
 
   function storagePayload() {
