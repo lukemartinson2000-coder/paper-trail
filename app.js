@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.40. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.41. */
 (function () {
   "use strict";
 
@@ -12194,11 +12194,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function placeClearChip() {
     if (!clearChipEl || !clearChipTarget) return;
-    var r = clearChipTarget.getBoundingClientRect();
-    clearChipEl.style.left = (r.width < 150 ? Math.max(4, r.left - 70) : Math.max(4, r.left + 6)) + "px";
-    clearChipEl.style.top = (r.top + r.height / 2 - 14) + "px";
+    var el = clearChipTarget;
+    var r = el.getBoundingClientRect();
+    var cw = clearChipEl.offsetWidth || 64, ch = clearChipEl.offsetHeight || 28;
+    var cs = window.getComputedStyle(el);
+    var rightAligned = cs.textAlign === "right" || cs.textAlign === "end";
+    if (r.width >= 150 && rightAligned) {
+      /* Wide, right-aligned field: chip sits inside on the empty left; padding keeps the number clear of it. */
+      if (!el.dataset.chipPad) { el.dataset.chipPad = el.style.paddingLeft || "-"; }
+      el.style.paddingLeft = (cw + 18) + "px";
+      clearChipEl.style.left = (r.left + 8) + "px";
+      clearChipEl.style.top = (r.top + r.height / 2 - ch / 2) + "px";
+    } else {
+      /* Narrow or left-aligned field: chip hangs just below it, right-aligned, never over the number. */
+      clearChipEl.style.left = Math.max(4, Math.min(window.innerWidth - cw - 4, r.right - cw)) + "px";
+      clearChipEl.style.top = (r.bottom + 4) + "px";
+    }
   }
   function hideClearChip() {
+    if (clearChipTarget && clearChipTarget.dataset && clearChipTarget.dataset.chipPad) {
+      var pad = clearChipTarget.dataset.chipPad;
+      clearChipTarget.style.paddingLeft = pad === "-" ? "" : pad;
+      delete clearChipTarget.dataset.chipPad;
+    }
     if (clearChipEl) { clearChipEl.remove(); clearChipEl = null; }
     clearChipTarget = null;
   }
@@ -12954,7 +12972,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.40";
+  var APP_VERSION = "37.5.59.41";
   var pendingRestore = null;
 
   function storagePayload() {
