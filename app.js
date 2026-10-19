@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.48. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.49. */
 (function () {
   "use strict";
 
@@ -6796,6 +6796,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { title: wrapSigned(d), pct: false,
       help: "No % change: last year’s net worth was " + moneyWhole(Number(prior) || 0) + " (zero or below), so a percent wouldn’t mean anything. The dollar change is shown instead." };
   }
+  /* v37.5.59.49: top 3 merchants by $ and by visits, overall and per spending category. */
+  function wrapMerchRank(rows) {
+    var t = {}, c = {}, lab = {};
+    rows.forEach(function (row) {
+      var name = String(row.payee || "").replace(/^\s+|\s+$/g, "");
+      if (!name || !(row.amount > 0)) return;
+      var k = name.toLowerCase();
+      t[k] = (t[k] || 0) + row.amount; c[k] = (c[k] || 0) + 1; if (!lab[k]) lab[k] = name;
+    });
+    var keys = Object.keys(t);
+    return {
+      byAmt: keys.slice().sort(function (a, b) { return t[b] - t[a] || c[b] - c[a]; }).slice(0, 3).map(function (k) { return { name: lab[k], v: moneyWhole(Math.round(t[k])) }; }),
+      byCount: keys.slice().sort(function (a, b) { return c[b] - c[a] || t[b] - t[a]; }).slice(0, 3).map(function (k) { return { name: lab[k], v: c[k] + (c[k] === 1 ? " visit" : " visits") }; })
+    };
+  }
+  function wrapMerchTops(bounds) {
+    var txs = activityInPeriod(bounds).txs || [], byCat = {};
+    txs.forEach(function (r) { var k = r.category || "Spend"; (byCat[k] = byCat[k] || []).push(r); });
+    var out = { all: wrapMerchRank(txs), cats: {} };
+    Object.keys(byCat).forEach(function (k) { out.cats[k] = wrapMerchRank(byCat[k]); });
+    return out;
+  }
+  function wrapMerchHtml(m, noTitle) {
+    if (!m || !m.byAmt || !m.byAmt.length) return "";
+    var col = function (head, list) {
+      return '<div class="wrap-merch-col"><p class="wrap-merch-h">' + head + "</p><ol>" + list.map(function (x) {
+        return '<li><span class="wm-name">' + esc(x.name) + '</span><span class="wm-v mono">' + esc(x.v) + "</span></li>";
+      }).join("") + "</ol></div>";
+    };
+    return '<div class="wrap-merch">' + (noTitle ? "" : '<p class="wrap-merch-title">Top merchants</p>') + '<div class="wrap-merch-cols">' +
+      col("By $", m.byAmt) + col("By visits", m.byCount) + "</div></div>";
+  }
   function wrapTidy(sl, facts) {
     if (!sl || sl.tidy) return sl;
     var lines = sl.lines || [];
@@ -6819,6 +6851,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var spent = 0, inc = 0;
       rows.forEach(function (r) { if (r.id === "spent") spent = Number(r.amount) || 0; if (r.id === "income") inc = Number(r.amount) || 0; });
       o.title = moneyWhole(spent) + " on " + sl.title;
+      o.merch = facts.merchTops && facts.merchTops.cats[sl.title] || null;
       o.sub = inc > 0 ? (spent > 0 && spent / inc < 0.005 ? "Under 1%" : Math.round(spent / inc * 100) + "%") + " of your take-home" : "";
       o.help = wrapHelp(lines);
     } else if (id === "deltas") {
@@ -6837,6 +6870,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (id === "merchants") {
       var top = (facts.merchants || [])[0];
       o.sub = top ? "Most at " + top.name + " · " + moneyWhole(top.amount) : "";
+      o.merch = facts.merchTops ? facts.merchTops.all : null;
+      o.chart = null; // v37.5.59.49: the two lists replace the bar chart here
       o.help = wrapHelp(lines);
     } else if (id === "biggest") {
       o.title = moneyWhole(Number(facts.biggestAmount) || 0) + " at " + (facts.biggestPayee || "one place");
@@ -6878,6 +6913,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cadence = "year";
     state.wrapCadence = "year";
     var facts = wrappedFacts(month, cadence);
+    facts.merchTops = wrapMerchTops(periodBounds(month.year, month.month, cadence)); // v37.5.59.49
     var deck = window.GradeMath.buildWrappedDeck(facts);
     if (deck.premium) {
       var gSlides = wrapGraphSlides(month);
@@ -6920,6 +6956,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (slide.chart && slide.chart.type === "donut" && slide.chart.slices && slide.chart.slices.length) {
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
+    if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.locked) {
       html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full wrap</button>';
     }
@@ -14082,7 +14119,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.48";
+  var APP_VERSION = "37.5.59.49";
   var pendingRestore = null;
 
   function storagePayload() {

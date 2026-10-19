@@ -4688,3 +4688,14 @@ body.night .sheet-delete,.night .sheet-delete{border-color:#ff8a80;color:#ff8a80
 .wrap-slide .wrap-chart{margin-top:6px}
 .help-card{max-height:80vh;overflow:auto}
 .help-card p{white-space:pre-line}
+
+/* v37.5.59.49 Wrapped top merchants block */
+.wrap-merch{margin-top:16px;padding-top:12px;border-top:1px solid var(--rule)}
+.wrap-merch-title{margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;opacity:.75}
+.wrap-merch-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.wrap-merch-h{margin:0 0 4px;font-size:14px;font-weight:700}
+.wrap-merch ol{margin:0;padding:0;list-style:none}
+.wrap-merch li{display:flex;flex-direction:column;padding:5px 0;border-bottom:1px dashed var(--rule);font-size:15px;line-height:1.25}
+.wrap-merch li:last-child{border-bottom:0}
+.wrap-merch .wm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrap-merch .wm-v{font-size:14px;opacity:.8}
