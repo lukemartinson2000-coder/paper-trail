@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.47. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.48. */
 (function () {
   "use strict";
 
@@ -6256,6 +6256,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var then = worthTotals(prior);
     return {
       netWorthDelta: now.equity - then.equity,
+      netWorthPrior: then.equity, // v37.5.59.48: base for the % change
       debtDelta: now.liabilities - then.liabilities,
       netWorthHint: "",
       netWorthDeltaLabel: prior + " → " + latest
@@ -6610,6 +6611,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       })(),
       peerSavingsRates: [],
       netWorthDelta: deltas.netWorthDelta,
+      netWorthPrior: deltas.netWorthPrior == null ? null : deltas.netWorthPrior,
       debtDelta: deltas.debtDelta,
       netWorthHint: deltas.netWorthHint || "",
       netWorthDeltaLabel: deltas.netWorthDeltaLabel || "",
@@ -6782,6 +6784,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       help: wrapHelp(help), tidy: true
     };
   }
+  /* v37.5.59.48 (owner: % is the real goal): net worth % change is the co-headline, "+15% · +$118,110".
+   * Whole percent of the prior year's net worth. A prior year at or below $0 has no meaningful %, so $ only. */
+  function wrapNwHeadline(delta, prior) {
+    var d = Number(delta) || 0;
+    if (prior != null && Number(prior) > 0) {
+      var pc = Math.round(d / Number(prior) * 100);
+      return { title: (pc > 0 ? "+" : pc < 0 ? "−" : "") + Math.abs(pc) + "% · " + wrapSigned(d), pct: true,
+        help: "% change = net worth change " + wrapSigned(d) + " ÷ last year’s net worth " + moneyWhole(prior) + "." };
+    }
+    return { title: wrapSigned(d), pct: false,
+      help: "No % change: last year’s net worth was " + moneyWhole(Number(prior) || 0) + " (zero or below), so a percent wouldn’t mean anything. The dollar change is shown instead." };
+  }
   function wrapTidy(sl, facts) {
     if (!sl || sl.tidy) return sl;
     var lines = sl.lines || [];
@@ -6810,12 +6824,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (id === "deltas") {
       if (sl.empty) o.sub = lines[0] || "";
       else {
-        var bits = [];
-        if (facts.netWorthDelta != null) bits.push("Net worth " + wrapSigned(facts.netWorthDelta));
-        if (facts.debtDelta != null) bits.push("Debt " + wrapSigned(facts.debtDelta));
-        o.sub = bits.join(" · ");
-        o.help = wrapHelp(lines.concat([sl.footnote, "Net worth = assets − debts on your Net worth statement. Debt change is the same lines' balances, year over year."]));
+        var nwh = facts.netWorthDelta != null ? wrapNwHeadline(facts.netWorthDelta, facts.netWorthPrior) : null;
+        if (nwh) o.title = nwh.title;
+        o.sub = (nwh ? "Net worth change" : "") + (facts.debtDelta != null ? (nwh ? " · " : "") + "Debt " + wrapSigned(facts.debtDelta) : "");
+        o.help = wrapHelp(lines.concat([nwh && nwh.help, sl.footnote, "Net worth = assets − debts on your Net worth statement. Debt change is the same lines' balances, year over year."]));
       }
+    } else if (id === "g-networth" && sl.graph) {
+      var gh = wrapNwHeadline(sl.graph.end - sl.graph.start, sl.graph.start);
+      o.title = gh.title;
+      o.sub = "Your net worth this year";
+      o.help = wrapHelp([gh.help, sl.footnote]);
     } else if (id === "merchants") {
       var top = (facts.merchants || [])[0];
       o.sub = top ? "Most at " + top.name + " · " + moneyWhole(top.amount) : "";
@@ -14064,7 +14082,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.47";
+  var APP_VERSION = "37.5.59.48";
   var pendingRestore = null;
 
   function storagePayload() {
