@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.50. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.51. */
 (function () {
   "use strict";
 
@@ -6645,6 +6645,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       out.push({ id: "g-networth", kicker: "Net worth · " + Y, title: "Your net worth changed by " + wrapSigned(d) + " this year",
         lines: [], graph: { type: "startEnd", start: s, end: e, startLabel: "End of " + P, endLabel: String(Y) },
         footnote: "Net worth = assets − debts on your Net worth statement (" + P + " column → " + Y + " column)." });
+    } else {
+      /* v37.5.59.51 (owner): one Net worth year only → a small fallback in the graph's slot. */
+      var nwYears = years.filter(function (yr) { return (state.worth.lines || []).some(function (l) { return !nwLeftOut(l) && lineAmount(l, yr) !== 0; }); })
+        .sort(function (a, b) { return a - b; });
+      if (nwYears.length === 1) {
+        var only = nwYears[0];
+        out.push({ id: "g-networth-empty", kicker: "Net worth · " + Y, title: "Add another Net Worth year to see the change",
+          lines: ["Your " + only + " net worth: " + moneyWhole(worthTotals(only).equity)],
+          footnote: "The change needs two year columns on your Net worth statement (for example " + Math.min(only, P) + " and " + Math.max(only, Y) +
+            "). Add the other year in Stats › Net worth and this slide becomes your % and $ change." });
+      }
     }
     var inv = wrapInvestLines();
     var you = 0, emp = 0, start = 0, end = 0;
@@ -6675,7 +6686,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ] },
         footnote: "Basic savings rate: savings envelopes " + moneyWhole(bag.savingsPlanned) + " ÷ take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross)." });
     }
-    if (inv.length && start > 0 && adds > 0) {
+    if (inv.length && start > 0 && adds > 0 && hasY) { // v37.5.59.51: needs this year's column (no end balance → no growth)
       var growth = end - start - adds;
       var mkt = annualReturn(end, start, adds);
       out.push({ id: "g-contrib", kicker: "Investments · " + Y, title: "Your contributions grew your investments by " + wrapPct(adds / start),
@@ -14121,7 +14132,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.50";
+  var APP_VERSION = "37.5.59.51";
   var pendingRestore = null;
 
   function storagePayload() {
