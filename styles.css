@@ -4733,3 +4733,6 @@ body.night .trend-chip.on{color:var(--paper)}
 body.night .mode-toggle button{color:var(--muted);opacity:1}
 body.night .mode-toggle button.active{color:var(--ink)}
 .screen.has-fab .mode-toggle{margin-right:64px}
+/* v37.5.59.61: public build has no dev banner — let the phone fill the screen. */
+@media (max-width: 480px) { body.no-banner .phone { height: 100vh; height: 100dvh; } }
+body.no-banner .phone { margin-top: 0; }

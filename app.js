@@ -3331,7 +3331,12 @@
     if (rnd() < 0.7) add("Miscellaneous", 0, "Amazon", r2(18, 64));
     add("Debt", 0, "Student loan payment", 300, 6);
     add("Giving", 0, "Neighborhood Food Bank", 100, 1);
-    M.transactions = tx;
+    // Paychecks dated up to today count as received (Income transactions); nothing is dated in the future.
+    var today = isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    M.incomes.forEach(function (inc) {
+      if (inc.date <= today) tx.push({ id: nextId(), type: "income", payee: inc.name, amount: inc.amount, date: inc.date, note: "", incomeId: inc.id });
+    });
+    M.transactions = tx.filter(function (t) { return t.date <= today; });
     return M;
   }
   function buildDemoState() {
@@ -14708,7 +14713,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.60";
+  var APP_VERSION = "37.5.59.61";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
