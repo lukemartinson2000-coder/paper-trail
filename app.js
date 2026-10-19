@@ -1,4 +1,4 @@
-/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.37. */
+/* Browser preview of Paper Trail. SwiftUI remains the source of truth. Cache bust v37.5.59.38. */
 (function () {
   "use strict";
 
@@ -4031,7 +4031,6 @@
       '<button class="text-btn" type="button" data-act="add-category">Add</button></div>' +
       demoBannerHtml() +
       onboardChecklistHtml() +
-      setupNudgeHtml() +
       backupNudgeHtml() +
       fooBudgetStripHtml(month) +
       '<p class="section-label">Income · take-home paychecks ' + helpQ("What lands in your account after tax. Gross pay lives on your Income statement.") + '</p>';
@@ -11146,15 +11145,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var hasStub = false;
     try { hasStub = confirmedPayStubs().length > 0; } catch (e) {}
     if (!hasStub) hasStub = ((state.profile && state.profile.documents) || []).some(function (d) { return d && d.slot === "payStubs"; });
+    var docs = ((state.profile && state.profile.documents) || []).length > 0;
+    var surveyDone = !!(ob.surveyCompletedAt || ob.surveyYear);
     var steps = [
-      { id: "income", n: 1, title: "Add your paycheck", done: hasIncome, go: "add-income" },
-      { id: "envelopes", n: 2, title: "Create envelopes", done: hasEnvelopes, go: "add-category" },
-      { id: "tx", n: 3, title: "Add a transaction", done: hasTx, go: "add-spend" },
-      { id: "paystub", n: 4, title: "Add a pay stub", optional: true, done: hasStub, go: "vault-add-paystub" }
+      { id: "envelopes", n: 1, title: "Build your budget", done: hasEnvelopes, go: "add-category" },
+      { id: "income", n: 2, title: "Add your income", done: hasIncome, go: "add-income" }
     ];
     if (ob.needsWorth !== false || worthHasData()) {
-      steps.push({ id: "worth", n: 5, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
+      steps.push({ id: "worth", n: 3, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
     }
+    steps.push({ id: "paystub", n: 4, title: "Add to the Vault", done: hasStub || docs, go: "vault-add-paystub" });
+    steps.push({ id: "survey", n: 5, title: "Complete the welcome survey", done: surveyDone, go: "ob-finish-survey" });
     steps.forEach(function (st) { st.skipped = !!(ob.skipped || {})[st.id] && !st.done; });
     return steps;
   }
@@ -11163,7 +11164,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var steps = onboardSteps();
     var active = steps.filter(function (s) { return !s.skipped; });
     var done = active.filter(function (s) { return s.done; }).length;
-    var complete = active.every(function (s) { return s.done || s.optional; });
+    var complete = active.every(function (s) { return s.done; });
     return { steps: steps, active: active, done: done, resolved: done, total: active.length, complete: complete };
   }
 
@@ -11188,7 +11189,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     p.active.forEach(function (s) {
       html += '<div class="notif-item' + (s.done ? " is-done" : "") + '">' +
         '<span class="notif-mark" aria-hidden="true">' + (s.done ? "✓" : "") + "</span>" +
-        '<span class="notif-text">' + esc(s.title) + (s.optional ? ' <em>optional</em>' : "") + "</span>" +
+        '<span class="notif-text">' + esc(s.title) + "</span>" +
         (s.done ? "" : '<button class="notif-skip" type="button" data-act="ob-cl-skip" data-id="' + s.id + '">Skip</button>' +
           '<button class="notif-go" type="button" data-act="' + s.go + '">Go</button>') + "</div>";
     });
@@ -12840,7 +12841,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.37";
+  var APP_VERSION = "37.5.59.38";
   var pendingRestore = null;
 
   function storagePayload() {
