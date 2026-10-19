@@ -4527,3 +4527,11 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .worth-line-main>div:first-child{display:flex;align-items:center}
 .ret-table{padding:0 20px}
 .nw-panel-in{padding-left:20px;padding-right:20px}
+
+/* v37.5.59.35 */
+.k401-sum{padding:2px 0 8px;border-bottom:1px solid var(--line,rgba(128,128,128,.25));margin-bottom:6px}
+.k401-pct{font-weight:700;font-size:15px}
+.k401-amt{font-size:13px;opacity:.8;margin-top:2px}
+.k401-tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;border:1px solid currentColor;vertical-align:middle}
+.k401-type{display:flex;align-items:center;gap:10px;margin-top:8px}
+.k401-type .sd-seg{display:inline-flex}
