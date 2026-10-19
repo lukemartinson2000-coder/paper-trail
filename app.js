@@ -3833,6 +3833,25 @@
         '" y2="' + (h - padB) + '" stroke="rgb(40,28,18)" stroke-width="1.6" stroke-dasharray="4 3"></line>';
     }
     var lastI = points.length - 1;
+    // v37.5.59.58: zero line when anything dips below $0, and a small marker where net worth first crosses above $0.
+    if (min < 0) {
+      rule += '<line class="zero-line" x1="' + padL + '" x2="' + (w - padR) + '" y1="' + y(0).toFixed(1) + '" y2="' + y(0).toFixed(1) +
+        '" stroke="rgb(107,97,87)" stroke-width="1" stroke-dasharray="2 3"></line>' +
+        '<text x="' + (w - padR) + '" y="' + (y(0) - 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="rgb(107,97,87)">$0</text>';
+    }
+    var marks = "";
+    if (opts.crossYear != null) {
+      var ci = -1;
+      points.forEach(function (p, i) { if (p.year === opts.crossYear) ci = i; });
+      var nwS = seriesList.filter(function (s2) { return s2.name === "Net worth"; })[0];
+      if (ci >= 0 && nwS) {
+        var cx = x(ci), cy = y(nwS.points[ci].y), left = ci > (points.length - 1) / 2;
+        var ty = Math.max(padT + 8, cy - 24);
+        marks += '<circle class="cross-mark" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="6.5" fill="none" stroke="' + CHART_INKS[0] + '" stroke-width="2"></circle>' +
+          '<text class="cross-label" x="' + (cx + (left ? -9 : 9)).toFixed(1) + '" y="' + ty.toFixed(1) + '" text-anchor="' + (left ? "end" : "start") +
+          '" font-size="9.5" font-weight="700" fill="' + CHART_INKS[0] + '" stroke="#fff" stroke-width="3" paint-order="stroke" stroke-linejoin="round">Above $0 in ' + opts.crossYear + "</text>";
+      }
+    }
     var labels = points.map(function (p, i) {
       // v37.5.59.55: past 10 years, label only the first, the last, and every 5th year (kept clear of the ends).
       if (points.length > 10) {
@@ -3846,7 +3865,7 @@
       return '<span><i class="swatch" style="background:' + color + '"></i>' + esc(series.name) + "</span>";
     }).join("") + "</div>";
     var svg = '<svg class="chart" viewBox="0 0 ' + w + " " + h + '" aria-hidden="true">' +
-      paths + rule + labels + "</svg>";
+      rule + paths + marks + labels + "</svg>";
     if (!opts.interactive) return svg + legend;
     var years = points.map(function (p) { return p.year; });
     function seriesAt(name, year) {
@@ -9790,24 +9809,31 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }).join("") + "</div>" : "";
     var sel = shown.indexOf(state.worthScrubYear) >= 0 ? state.worthScrubYear : (shown.indexOf(year) >= 0 ? year : shown[shown.length - 1]);
     years = shown;
-    // v37.5.59.57: CAGR for the range shown (first → last year), net worth and income; each part hidden when its start is ≤ 0.
-    var cagrHtml = "";
-    if (shown.length >= 2) {
-      var y0 = shown[0], y1 = shown[shown.length - 1], n = y1 - y0, parts = [], fx = [];
-      [["NW", "Net worth", trendNwOf], ["Income", "Income", trendIncOf]].forEach(function (d) {
-        var v0 = d[2](y0), v1 = d[2](y1);
-        if (!(v0 > 0 && v1 > 0 && n > 0)) return;
-        var g = Math.pow(v1 / v0, 1 / n) - 1;
-        parts.push(d[0] + " " + (g >= 0 ? "+" : "−") + pctWhole(Math.abs(g)) + "/yr");
-        fx.push(d[1] + ": (" + moneyWhole(Math.round(v1)) + " ÷ " + moneyWhole(Math.round(v0)) + ")^(1/" + n + ") − 1");
-      });
-      if (parts.length) cagrHtml = '<p class="trend-cagr"><span>' + (cur ? cur.label : "All") + ": " + parts.join(" · ") + "</span> " +
-        helpQ("Growth per year (CAGR) for " + y0 + "–" + y1 + ", smoothing the ups and downs into one steady yearly rate.\n\n" + fx.join("\n") +
-          "\n\nA part is hidden when its starting year is $0 or less.\n\nThe readout’s change is year over year: (this year − prior year) ÷ prior year, for net worth and income. It shows dollars instead when the prior year was $0 or less, and nothing for your first year.") + "</p>";
-    }
+    // v37.5.59.58: CAGR per series from the first year in range with a value above $0 to the last year ("since YYYY"
+    // when that isn't the range start). Hidden only when fewer than 2 years in range are above $0 (or the end isn't).
+    var cagrHtml = "", y1 = shown[shown.length - 1], parts = [], fx = [], sinceNote = false;
+    [["NW", "Net worth", trendNwOf], ["Income", "Income", trendIncOf]].forEach(function (d) {
+      var pos = shown.filter(function (yy) { return d[2](yy) > 0; });
+      if (pos.length < 2 || d[2](y1) <= 0) return;
+      var s0 = pos[0], v0 = d[2](s0), v1 = d[2](y1), n = y1 - s0;
+      if (n <= 0) return;
+      var g = Math.pow(v1 / v0, 1 / n) - 1;
+      var since = s0 !== shown[0];
+      if (since) sinceNote = true;
+      parts.push(d[0] + " " + (g >= 0 ? "+" : "−") + pctWhole(Math.abs(g)) + "/yr" + (since ? " since " + s0 : ""));
+      fx.push(d[1] + " " + s0 + "–" + y1 + ": (" + moneyWhole(Math.round(v1)) + " ÷ " + moneyWhole(Math.round(v0)) + ")^(1/" + n + ") − 1");
+    });
+    // First year net worth crossed above $0, only when an earlier stored year was ≤ 0.
+    var allYs = ((state.worth && state.worth.years) || []).slice().sort(function (a2, b2) { return a2 - b2; }), crossYear = null, sawNeg = false;
+    allYs.forEach(function (yy) { var v = trendNwOf(yy); if (v <= 0) sawNeg = true; else if (sawNeg && crossYear == null) crossYear = yy; });
+    if (parts.length) cagrHtml = '<p class="trend-cagr"><span>' + (cur ? cur.label : "All") + ":</span> <span>" + parts.join(" · ") + "</span> " +
+      helpQ("Growth per year (CAGR) for the range shown, smoothing the ups and downs into one steady yearly rate.\n\n" + fx.join("\n") +
+        "\n\nGrowth can’t be measured from $0 or below, so when the range starts at or under $0 it’s measured from the first year above $0 (“since”). A part is hidden when fewer than 2 years in the range are above $0." +
+        (crossYear != null && shown.indexOf(crossYear) >= 0 ? "\n\nThe ringed dot marks " + crossYear + ", the first year your net worth climbed above $0 after a year at or below it." : "") +
+        "\n\nThe readout’s change is year over year: (this year − prior year) ÷ prior year, for net worth and income. It shows dollars instead when the prior year was $0 or less, and nothing for your first year.") + "</p>";
     return '<section class="card' + (compact ? " dash-card dash-trend" : "") + '"' + (compact ? ' id="dash-trend"' : "") + ">" +
       (compact ? '<p class="dash-k">Trend · net worth and income</p>' : "") +
-      chips + cagrHtml + lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: sel }) +
+      chips + cagrHtml + lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: sel, crossYear: crossYear }) +
       '<p class="caption">' + (compact ? "Drag the line to a year." : "Drag the vertical line to a year. That year’s net worth and income appear under the graph.") + "</p></section>";
   }
   function dashTrendHtml() {
@@ -14558,7 +14584,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.57";
+  var APP_VERSION = "37.5.59.58";
   var pendingRestore = null;
 
   function storagePayload() {
