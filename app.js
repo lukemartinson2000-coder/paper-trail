@@ -9757,17 +9757,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* v37.5.59.56: readout adds that year's net worth change vs the prior stored year (whole %; dollars when the
    * prior year was ≤ 0; nothing for the first year). Uses stored history, so a 5Y view's first year still compares. */
-  function nwYoyText(year) {
+  function trendNwOf(y) { return worthTotals(y).equity; }
+  function trendIncOf(y) { return Number((state.worth.income || {})[y]) || 0; }
+  // v37.5.59.57: same rule for income (state.worth.income by year).
+  function nwYoyText(year, valOf, withYear) {
     var ys = ((state.worth && state.worth.years) || []).filter(function (y) { return y < year; }).sort(function (a, b) { return b - a; });
     if (!ys.length) return "";
-    var prev = ys[0], p = worthTotals(prev).equity, c = worthTotals(year).equity;
-    if (p <= 0) return signedWhole(Math.round(c - p)) + " vs " + prev;
+    valOf = valOf || trendNwOf;
+    var prev = ys[0], p = valOf(prev), c = valOf(year);
+    var tail = withYear === false ? "" : " vs " + prev;
+    if (p <= 0) return signedWhole(Math.round(c - p)) + tail;
     var r = (c - p) / p;
-    return (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)) + " vs " + prev;
+    return (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)) + tail;
   }
   function trendReadoutText(year, nw, inc) {
-    var yoy = nwYoyText(year);
-    return year + " · Net worth " + moneyWhole(Math.round(nw)) + (yoy ? " (" + yoy + ")" : "") + " · Income " + moneyWhole(Math.round(inc));
+    var yoy = nwYoyText(year), iy = nwYoyText(year, trendIncOf, false);
+    return year + " · Net worth " + moneyWhole(Math.round(nw)) + (yoy ? " (" + yoy + ")" : "") + "\nIncome " + moneyWhole(Math.round(inc)) + (iy ? " (" + iy + ")" : "");
   }
   /* v37.5.59.55: range chips (5Y / 10Y / All). The chips only narrow what's drawn; stored history is never cut. */
   var TREND_RANGES = [{ id: "5", n: 5, label: "5Y" }, { id: "10", n: 10, label: "10Y" }, { id: "all", n: 0, label: "All" }];
@@ -9785,15 +9790,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }).join("") + "</div>" : "";
     var sel = shown.indexOf(state.worthScrubYear) >= 0 ? state.worthScrubYear : (shown.indexOf(year) >= 0 ? year : shown[shown.length - 1]);
     years = shown;
-    // v37.5.59.56: CAGR for the range shown (first → last year). Hidden when the start is ≤ 0.
+    // v37.5.59.57: CAGR for the range shown (first → last year), net worth and income; each part hidden when its start is ≤ 0.
     var cagrHtml = "";
     if (shown.length >= 2) {
-      var y0 = shown[0], y1 = shown[shown.length - 1], e0 = worthTotals(y0).equity, e1 = worthTotals(y1).equity, n = y1 - y0;
-      if (e0 > 0 && n > 0 && e1 > 0) {
-        var g = Math.pow(e1 / e0, 1 / n) - 1;
-        cagrHtml = '<p class="trend-cagr">' + (cur ? cur.label : "All") + ": " + (g >= 0 ? "+" : "−") + pctWhole(Math.abs(g)) + "/yr " +
-          helpQ("Net worth growth per year (CAGR) for " + y0 + "–" + y1 + ": (" + moneyWhole(Math.round(e1)) + " ÷ " + moneyWhole(Math.round(e0)) + ")^(1/" + n + ") − 1. It smooths the ups and downs into one steady yearly rate. Year-over-year % in the readout is (this year − prior year) ÷ prior year; it shows dollars instead when the prior year was $0 or less.") + "</p>";
-      }
+      var y0 = shown[0], y1 = shown[shown.length - 1], n = y1 - y0, parts = [], fx = [];
+      [["NW", "Net worth", trendNwOf], ["Income", "Income", trendIncOf]].forEach(function (d) {
+        var v0 = d[2](y0), v1 = d[2](y1);
+        if (!(v0 > 0 && v1 > 0 && n > 0)) return;
+        var g = Math.pow(v1 / v0, 1 / n) - 1;
+        parts.push(d[0] + " " + (g >= 0 ? "+" : "−") + pctWhole(Math.abs(g)) + "/yr");
+        fx.push(d[1] + ": (" + moneyWhole(Math.round(v1)) + " ÷ " + moneyWhole(Math.round(v0)) + ")^(1/" + n + ") − 1");
+      });
+      if (parts.length) cagrHtml = '<p class="trend-cagr"><span>' + (cur ? cur.label : "All") + ": " + parts.join(" · ") + "</span> " +
+        helpQ("Growth per year (CAGR) for " + y0 + "–" + y1 + ", smoothing the ups and downs into one steady yearly rate.\n\n" + fx.join("\n") +
+          "\n\nA part is hidden when its starting year is $0 or less.\n\nThe readout’s change is year over year: (this year − prior year) ÷ prior year, for net worth and income. It shows dollars instead when the prior year was $0 or less, and nothing for your first year.") + "</p>";
     }
     return '<section class="card' + (compact ? " dash-card dash-trend" : "") + '"' + (compact ? ' id="dash-trend"' : "") + ">" +
       (compact ? '<p class="dash-k">Trend · net worth and income</p>' : "") +
@@ -14548,7 +14558,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.56";
+  var APP_VERSION = "37.5.59.57";
   var pendingRestore = null;
 
   function storagePayload() {
