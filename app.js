@@ -3275,6 +3275,92 @@
     return html;
   }
 
+  /* v37.5.59.60: "Show me a demo" = 12 trailing months of realistic synthetic data (deterministic, invented
+   * merchants and amounts; nothing real). Fills Budget, Transactions, Wrapped, the quarterly check-in and the Dashboard. */
+  function demoRng(seed) { var x = seed % 2147483647; if (x <= 0) x += 2147483646; return function () { x = x * 16807 % 2147483647; return (x - 1) / 2147483646; }; }
+  var DEMO_ASSIGN = { Savings: 0, Giving: 100, Housing: 1650, Food: 650, Health: 120, Entertainment: 120, Subscriptions: 80, Transportation: 300,
+    Personal: 120, Utilities: 240, Insurance: 180, Miscellaneous: 100, Debt: 300 };
+  function buildDemoMonth(year, month) {
+    var M = seedBudgetMonth(year, month);
+    var rnd = demoRng(year * 100 + month);
+    var r2 = function (a, b) { return Math.round((a + rnd() * (b - a)) * 100) / 100; };
+    var day = function () { return 1 + Math.floor(rnd() * 27); };
+    var side = month % 3 === 0 ? 650 : (month % 2 ? 400 : 0);
+    M.incomes = [
+      { id: nextId(), name: "Paycheck 1", amount: 2650, date: isoDate(year, month, 1) },
+      { id: nextId(), name: "Paycheck 2", amount: 2650, date: isoDate(year, month, 15) }
+    ];
+    if (side) M.incomes.push({ id: nextId(), name: "Side project", amount: side, date: isoDate(year, month, 20) });
+    var take = M.incomes.reduce(function (n, i) { return n + i.amount; }, 0);
+    var byName = {};
+    M.categories.forEach(function (c) { byName[c.name] = c; });
+    var other = 0;
+    M.categories.forEach(function (c) {
+      if (c.name === "Food") { c.lines[0].assigned = 500; c.lines[1].assigned = 150; c.assigned = 650; other += 650; return; }
+      if (c.name === "Savings") return;
+      var a = DEMO_ASSIGN[c.name] || 0;
+      c.assigned = a; if (c.lines[0]) c.lines[0].assigned = a; other += a;
+    });
+    var sv = byName.Savings; sv.assigned = Math.max(0, take - other); if (sv.lines[0]) sv.lines[0].assigned = sv.assigned;
+    var tx = [];
+    function add(cat, lineIdx, payee, amount, d) {
+      var c = byName[cat]; if (!c || !(amount > 0)) return;
+      var ln = c.lines[lineIdx || 0];
+      tx.push({ id: nextId(), payee: payee, amount: Math.round(amount * 100) / 100, date: isoDate(year, month, Math.min(28, d || day())), categoryId: c.id, lineId: ln ? ln.id : "", note: "" });
+    }
+    var winter = month === 12 || month <= 2, summer = month >= 6 && month <= 8;
+    add("Housing", 0, "Maple Court Apartments", 1650, 1);
+    var gro = ["Trader Joe's", "Kroger", "Costco", "Aldi"];
+    for (var g = 0; g < 4 + (rnd() < 0.5 ? 1 : 0); g++) add("Food", 0, gro[g % gro.length], r2(68, 135));
+    var rest = ["Chipotle", "Corner Diner", "Slice House Pizza", "Bean There Coffee", "Pho Basil"];
+    var nRest = month >= 7 && month <= 9 ? 2 : (month >= 4 && month <= 6 ? 6 : 4);
+    for (var r = 0; r < nRest; r++) add("Food", 1, rest[Math.floor(rnd() * rest.length)], r2(11, 58));
+    if (rnd() < 0.6) add("Health", 0, "CVS Pharmacy", r2(14, 62));
+    if (month === 3) add("Health", 0, "Lakeside Dental", 185, 18);
+    add("Entertainment", 0, rnd() < 0.5 ? "AMC Theatres" : "Bowl-a-Rama", r2(18, 55));
+    if (summer) add("Entertainment", 0, "Riverfront Concert Series", r2(60, 95));
+    add("Subscriptions", 0, "Netflix", 15.49, 5); add("Subscriptions", 0, "Spotify", 11.99, 8);
+    add("Subscriptions", 0, "iCloud+", 2.99, 9); add("Subscriptions", 0, "FitLife Gym", 45, 2);
+    for (var f = 0; f < 3; f++) add("Transportation", 0, f % 2 ? "Shell" : "Exxon", r2(36, 58));
+    if (month === 8) add("Transportation", 0, "Tire Kingdom", 486.4, 22);
+    add("Personal", 0, "Target", r2(24, 72));
+    if (month === 12) { add("Personal", 0, "Holiday gifts", 240, 14); add("Miscellaneous", 0, "Amazon", r2(80, 140)); }
+    add("Utilities", 0, "City Power & Light", winter ? r2(130, 165) : (summer ? r2(140, 175) : r2(85, 110)), 10);
+    add("Utilities", 0, "Comcast Internet", 70, 12);
+    add("Insurance", 0, "Demo Mutual Auto", 180, 3);
+    if (rnd() < 0.7) add("Miscellaneous", 0, "Amazon", r2(18, 64));
+    add("Debt", 0, "Student loan payment", 300, 6);
+    add("Giving", 0, "Neighborhood Food Bank", 100, 1);
+    M.transactions = tx;
+    return M;
+  }
+  function buildDemoState() {
+    var s = freshState();
+    var cur = currentYearMonth();
+    s.months = {};
+    for (var k = 11; k >= 0; k--) {
+      var y = cur.year, m = cur.month - k;
+      while (m <= 0) { m += 12; y -= 1; }
+      s.months[ymKey(y, m)] = buildDemoMonth(y, m);
+    }
+    // Net worth: carry the sample statement forward one year so the Dashboard has "this year".
+    var w = s.worth, last = Math.max.apply(null, w.years);
+    if (w.years.indexOf(cur.year) < 0 && last === cur.year - 1) {
+      w.years.push(cur.year);
+      (w.lines || []).forEach(function (l) {
+        var v = Number((l.amounts || {})[last]) || 0;
+        l.amounts[cur.year] = Math.round(v * (l.kind === "liability" ? 0.9 : 1.09) / 100) * 100;
+        if (l.additions) l.additions[cur.year] = Number(l.additions[last]) || 0;
+      });
+      if (w.income) w.income[cur.year] = Math.round((Number(w.income[last]) || 0) * 1.04 / 100) * 100;
+    }
+    s.worthYear = cur.year;
+    s.dashboard = { retire: { spend: 55000 }, purchases: [
+      { id: "demo-p1", name: "Weekend trip", date: (cur.year + 1) + "-05-15", cost: 1500, envelope: "Savings" },
+      { id: "demo-p2", name: "New laptop", date: (cur.year + 1) + "-02-01", cost: 1400 },
+      { id: "demo-p3", name: "Next car", date: (cur.year + 3) + "-06-01", cost: 24000 }] };
+    return s;
+  }
   function freshState() {
     uid = 1;
     var cur = currentYearMonth();
@@ -3830,14 +3916,14 @@
     if (selectedIndex >= 0) {
       var sx = x(selectedIndex).toFixed(1);
       rule = '<line class="nw-rule" x1="' + sx + '" x2="' + sx + '" y1="' + padT +
-        '" y2="' + (h - padB) + '" stroke="rgb(40,28,18)" stroke-width="1.6" stroke-dasharray="4 3"></line>';
+        '" y2="' + (h - padB) + '" stroke-width="1.6" stroke-dasharray="4 3" style="stroke:var(--ink)"></line>';
     }
     var lastI = points.length - 1;
     // v37.5.59.58: zero line when anything dips below $0, and a small marker where net worth first crosses above $0.
     if (min < 0) {
       rule += '<line class="zero-line" x1="' + padL + '" x2="' + (w - padR) + '" y1="' + y(0).toFixed(1) + '" y2="' + y(0).toFixed(1) +
-        '" stroke="rgb(107,97,87)" stroke-width="1" stroke-dasharray="2 3"></line>' +
-        '<text x="' + (w - padR) + '" y="' + (y(0) - 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="rgb(107,97,87)">$0</text>';
+        '" stroke-width="1" stroke-dasharray="2 3" style="stroke:var(--muted)"></line>' +
+        '<text x="' + (w - padR) + '" y="' + (y(0) - 3).toFixed(1) + '" text-anchor="end" font-size="8" style="fill:var(--muted)">$0</text>';
     }
     var marks = "";
     if (opts.crossYear != null) {
@@ -3849,7 +3935,7 @@
         var ty = Math.max(padT + 8, cy - 24);
         marks += '<circle class="cross-mark" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="6.5" fill="none" stroke="' + CHART_INKS[0] + '" stroke-width="2"></circle>' +
           '<text class="cross-label" x="' + (cx + (left ? -9 : 9)).toFixed(1) + '" y="' + ty.toFixed(1) + '" text-anchor="' + (left ? "end" : "start") +
-          '" font-size="9.5" font-weight="700" fill="' + CHART_INKS[0] + '" stroke="#fff" stroke-width="3" paint-order="stroke" stroke-linejoin="round">Above $0 in ' + opts.crossYear + "</text>";
+          '" font-size="9.5" font-weight="700" fill="' + CHART_INKS[0] + '" stroke-width="3" paint-order="stroke" stroke-linejoin="round" style="stroke:var(--card)">Above $0 in ' + opts.crossYear + "</text>";
       }
     }
     var labels = points.map(function (p, i) {
@@ -3858,7 +3944,7 @@
         if (i !== 0 && i !== lastI && !(p.year % 5 === 0 && i > 1 && i < lastI - 1)) return "";
       } else if (i !== lastI && (i % 2 || (i === lastI - 1 && points.length > 3))) return "";
       return '<text x="' + x(i).toFixed(1) + '" y="' + (h - 8) +
-        '" text-anchor="middle" font-size="9" fill="rgb(107,97,87)">' + p.year + "</text>";
+        '" text-anchor="middle" font-size="9" style="fill:var(--muted)">' + p.year + "</text>";
     }).join("");
     var legend = '<div class="chart-legend">' + seriesList.map(function (series, si) {
       var color = series.color || CHART_INKS[si % CHART_INKS.length];
@@ -6927,6 +7013,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var id = String(sl.id || "");
     if (id === "hook") {
       o.sub = lines.join(" · ");
+      // v37.5.59.60: empty year gets a next step instead of "0 days logged".
+      if (/^0 days logged/.test(lines[0] || "")) {
+        o.sub = "Nothing logged yet. Add a paycheck and a few spends on Budget, and your year fills in here.";
+        o.cta = { label: "Start on Budget", act: "wrap-go-budget" };
+      }
     } else if (id === "spent-saved") {
       var outAmt = Math.max(0, Number(facts.moneyOut) || 0), sv = Math.max(0, Number(facts.savedPlanned) || 0);
       if (!(Number(facts.moneyIn) > 0) && !(outAmt > 0)) { o.sub = lines[0] || ""; }
@@ -7383,6 +7474,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.progress) html += wrapProgressHtml(slide.progress);
     if (slide.preview) html += '<button class="wrap-soft-btn" type="button" data-act="set-plan" data-plan="premium">See your full check-in</button>';
+    if (slide.cta) html += '<button class="wrap-soft-btn" type="button" data-act="' + esc(slide.cta.act) + '">' + esc(slide.cta.label) + "</button>";
     if (slide.locked) {
       html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full wrap</button>';
     }
@@ -12658,15 +12750,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="sheet profile-sheet">' +
       '<div class="sheet-head"><h3>Profile</h3>' +
       '<button class="sheet-close" type="button" data-act="close-modal" aria-label="Close">×</button></div>' +
-      '<p class="caption">Paper on the books. Name can appear on Insights. Birthday drives Accumulation age and whether a loan is Step 3 or Step 9 of the order of operations. Age is never invented.</p>' +
       '<p class="profile-section">Basics</p>' +
       '<label class="field">Name' +
       '<input data-act="profile-name" type="text" autocomplete="name" value="' +
-      esc(profile.name || "") + '" placeholder="owner"></label>' +
+      esc(profile.name || "") + '" placeholder="Your name"></label>' +
       '<label class="field">Phone' +
       '<input data-act="profile-phone" type="tel" autocomplete="tel" inputmode="tel" value="' +
       esc(profile.phone || "") + '" placeholder="(555) 010-0100"></label>' +
-      '<p class="caption">Stored on device for a future OTP. No SMS in this preview.</p>' +
       '<p class="profile-section">Plan</p>' +
       '<p class="plan-test-label" id="plan-test-label">Test mode: Premium is free during testing.</p>' +
       '<div class="plan-toggle" role="tablist" aria-labelledby="plan-test-label">' +
@@ -14276,7 +14366,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       renderOnboarding();
     } else if (act === "ob-demo") {
       if (hasRealData()) return; // never overwrite real data
-      state = freshState();
+      state = buildDemoState();
       state.onboarding = { status: "done", demo: true, skipped: {} };
       saveState();
       render();
@@ -14618,7 +14708,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.59";
+  var APP_VERSION = "37.5.59.60";
+  /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
+   * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
+  try {
+    if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+      window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js?v=" + APP_VERSION).catch(function () {}); });
+    }
+  } catch (swErr) {}
   var pendingRestore = null;
 
   function storagePayload() {
@@ -17804,6 +17901,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "foo-check") {
       state.foo = migrateFoo(state.foo);
       state.foo[actEl.getAttribute("data-field")] = !!actEl.checked;
+      saveState();
+      render();
+    } else if (act === "wrap-go-budget") {
+      closeModal();
+      state.tab = "budget";
       saveState();
       render();
     } else if (act === "vehicle-dup-out") {

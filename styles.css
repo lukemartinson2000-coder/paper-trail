@@ -4728,3 +4728,8 @@ body.night .sheet-delete,.night .sheet-delete{border-color:#ff8a80;color:#ff8a80
 .vehicle-dup .help-q{flex:0 0 auto}
 .vehicle-dup-acts button{flex:1 1 auto;width:auto;padding:9px 14px;border-radius:999px;font:600 14px/1.2 inherit;border:1.5px solid var(--plum);background:transparent;color:var(--plum)}
 .vehicle-dup-acts button[data-act=vehicle-dup-out]{background:var(--plum);color:#fff}
+/* v37.5.59.60 (QA #3/#4) */
+body.night .trend-chip.on{color:var(--paper)}
+body.night .mode-toggle button{color:var(--muted);opacity:1}
+body.night .mode-toggle button.active{color:var(--ink)}
+.screen.has-fab .mode-toggle{margin-right:64px}
