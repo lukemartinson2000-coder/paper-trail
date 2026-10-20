@@ -2521,7 +2521,7 @@
       loanOriginalBalance: vaultNum(doc.originalBalance),
       loanDebtType: type === "mortgage" ? "mortgage" : (doc.loanDebtType || "")
     };
-    line.amounts[year] = vaultNum(doc.balance);
+    line.amounts[year] = vaultNum(doc.balance); nwStamp(line, year);
     state.worth.lines.push(line);
     doc.linkedKind = "loan";
     doc.linkedId = line.id;
@@ -2538,7 +2538,7 @@
     if (!line) return;
     var year = currentWorthYear();
     if (!line.amounts) line.amounts = {};
-    if (vaultNum(doc.balance) > 0 || line.amounts[year] == null) line.amounts[year] = vaultNum(doc.balance);
+    if (vaultNum(doc.balance) > 0 || line.amounts[year] == null) { line.amounts[year] = vaultNum(doc.balance); nwStamp(line, year); }
     if (vaultNum(doc.balance) > 0) line.loanBalance = vaultNum(doc.balance);
     if (vaultNum(doc.rate) > 0) line.loanApr = vaultNum(doc.rate);
     if (vaultNum(doc.minPayment) > 0) line.loanMinPayment = vaultNum(doc.minPayment);
@@ -4614,10 +4614,66 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return names;
   }
+  /* v37.5.59.77: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
+   * its year-end (Dec 31); this year with no stamp starts from the day the goal was linked (p.linkedOn). */
+  function nwStamp(line, year) {
+    if (!line) return;
+    if (!line.balDates || typeof line.balDates !== "object") line.balDates = {};
+    line.balDates[year] = dashIso(dashToday());
+  }
+  function goalBalanceDate(line, b, p) {
+    if (!line || !b) return null;
+    var st = line.balDates && line.balDates[b.year];
+    if (st) return st;
+    var today = dashIso(dashToday()), ye = b.year + "-12-31";
+    if (ye < today) return ye;
+    return (p && p.linkedOn) || today;
+  }
+  /* Money put into a budget line after a date, through today. A month with transactions on that line counts
+   * those dated after the date (day by day); a month with none counts its budgeted amount once the whole month is
+   * after the date. Nothing after this month counts. */
+  function goalBudgetSince(name, after) {
+    if (!name || !after) return 0;
+    var today = dashIso(dashToday()), t = dashToday(), lim = t.getFullYear() * 12 + t.getMonth() + 1, tot = 0;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m || (Number(m.year) * 12 + Number(m.month)) > lim) return;
+      var mEnd = isoDate(m.year, m.month, new Date(m.year, m.month, 0).getDate()), mStart = isoDate(m.year, m.month, 1);
+      if (mEnd <= after) return;
+      var catIds = {}, lineIds = {}, assigned = 0, hit = false;
+      (m.categories || []).forEach(function (cat) {
+        if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name === name) { hit = true; lineIds[l.id] = 1; assigned += Number(l.assigned) || 0; } });
+        else if (cat.name === name) { hit = true; catIds[cat.id] = 1; assigned += catAssigned(cat); }
+      });
+      if (!hit) return;
+      var any = false, sum = 0;
+      (m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        txLegs(tx).forEach(function (leg) {
+          if (!(leg.lineId && lineIds[leg.lineId]) && !(!leg.lineId && catIds[leg.categoryId])) return;
+          any = true;
+          var d = tx.date || mStart;
+          if (d > after && d <= today) sum += (Number(leg.amount) || 0) - (Number(leg.refund) || 0);
+        });
+      });
+      tot += any ? sum : (mStart > after ? assigned : 0);
+    });
+    return Math.max(0, roundCents(tot));
+  }
   function goalProgress(p) {
-    if (p.source === "nw") {
+    if (p.source === "manual") {
+      var mv = Number(p.manualSaved) || 0;
+      return { saved: mv, manual: true, label: "Manually tracked" };
+    }
+    if (p.source === "nw" || p.source === "both") {
       var line = goalNwLine(p.nwLineId), b = goalNwBalance(line);
       if (!line) return { saved: null, label: "Net worth account not found" };
+      if (p.source === "both" && p.envelope) {
+        var since = goalBalanceDate(line, b, p), add = b ? goalBudgetSince(p.envelope, since) : goalBudgetTotal(p.envelope) || 0;
+        var base = b ? b.amount : 0;
+        return { saved: roundCents(base + add), base: base, added: add, label: "From " + line.name + " " + moneyWhole(base) +
+          (b ? " (as of " + displayDate(since) + ")" : " (no balance yet)") + " + " + p.envelope + " " + moneyWhole(add) + (b ? " since" : "") };
+      }
       return { saved: b ? b.amount : 0, label: "From Net worth: " + line.name + (b ? " · " + b.year : " · no balance yet") };
     }
     if (p.envelope) {
@@ -4627,13 +4683,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { saved: null, label: "" };
   }
   var GOAL_SOURCE_HELP = "Track progress from a Net worth account: progress is that account’s latest balance (the newest year you filled in on Net worth).\n\n" +
-    "Or from a budget line: progress is everything you’ve budgeted to that line, added up across all months so far (not just this month).";
+    "Add a budget line too and progress is that balance plus what you’ve put into the line since the balance was entered. Transactions on the line count day by day; a month with none counts its budgeted amount. When you update the balance, the count starts again from that day.\n\n" +
+    "Or from a budget line alone: everything you’ve budgeted to that line, added up across all months so far (not just this month).\n\n" +
+    "Or Manually track: type what you’ve saved so far and update it yourself.";
   function dashPurchaseRows() {
     var today = dashIso(dashToday());
     return dashState().purchases.map(function (p) {
       var gp = goalProgress(p), saved = gp.saved;
       var s = saved == null ? 0 : saved, cost = Number(p.cost) || 0;
-      return { p: p, saved: s, linked: saved != null, srcLabel: gp.label, need: Math.max(0, cost - s), pct: cost > 0 ? Math.min(1, s / cost) : 0, past: p.date && p.date < today };
+      return { p: p, saved: s, linked: saved != null, manual: !!gp.manual, srcLabel: gp.label, need: Math.max(0, cost - s), pct: cost > 0 ? Math.min(1, s / cost) : 0, past: p.date && p.date < today };
     }).sort(function (a, b) { return String(a.p.date || "9999").localeCompare(String(b.p.date || "9999")); });
   }
 
@@ -4725,16 +4783,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var names = goalAllBudgetNames();
     if (p && p.envelope && names.indexOf(p.envelope) < 0) names.push(p.envelope);
     var lines = goalAssetLines();
-    var sel = p ? (p.source === "nw" && p.nwLineId ? "nw:" + p.nwLineId : (p.envelope ? "env:" + p.envelope : "")) : "";
-    var sug = p && p.source !== "nw" ? goalNwLine(p.suggestNw) || goalMatchLine(p) : null;
+    var isNw = p && (p.source === "nw" || p.source === "both") && p.nwLineId;
+    var sel = p ? (p.source === "manual" ? "manual" : isNw ? "nw:" + p.nwLineId : (p.envelope ? "env:" + p.envelope : "")) : "";
+    var sel2 = p && p.source === "both" ? p.envelope || "" : "";
+    var sug = p && !isNw && p.source !== "manual" ? goalNwLine(p.suggestNw) || goalMatchLine(p) : null;
     var html = field("Name", "pName", p ? p.name : "") + field("Target date", "pDate", p ? p.date : "", "date") +
       field("Cost", "pCost", String(p ? p.cost || 0 : 0), "number") +
       '<label class="field goal-src-field"><span>Track progress from ' + helpQ(GOAL_SOURCE_HELP) + '</span><select name="pSrc" data-goal-src="1"' + (p ? "" : ' data-goal-auto="1"') + '><option value="">None</option>' +
+      '<option value="manual"' + (sel === "manual" ? " selected" : "") + ">Manually track</option>" +
       (lines.length ? '<optgroup label="Net worth account (latest balance)">' + lines.map(function (l) {
         return '<option value="nw:' + esc(l.id) + '"' + (sel === "nw:" + l.id ? " selected" : "") + ">" + esc(l.name) + "</option>"; }).join("") + "</optgroup>" : "") +
       (names.length ? '<optgroup label="Budget line (all months)">' + names.map(function (n) {
         return '<option value="env:' + esc(n) + '"' + (sel === "env:" + n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</optgroup>" : "") +
       "</select></label>" +
+      '<label class="field goal-also"' + (sel.indexOf("nw:") === 0 ? "" : " hidden") + '><span>Plus money put into a budget line</span><select name="pEnv2"><option value="">None</option>' +
+      names.map(function (n) { return '<option value="' + esc(n) + '"' + (sel2 === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select></label>" +
+      '<div class="goal-manual"' + (sel === "manual" ? "" : " hidden") + ">" + field("Saved so far", "pManual", String(p && p.source === "manual" ? p.manualSaved || 0 : 0), "number") + "</div>" +
       (sug ? '<p class="caption goal-suggest">Net worth has <strong>' + esc(sug.name) + '</strong>. <button type="button" class="link-btn" data-goal-use="nw:' + esc(sug.id) + '">Track from it</button></p>' : "") +
       '<input type="hidden" name="pId" value="' + esc(p ? p.id : "") + '">';
     if (p) html += deleteBtnHtml("", "Delete purchase", ' data-dash="p-del" data-id="' + esc(p.id) + '"');
@@ -4754,18 +4818,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target;
     if (!t || t.name !== "pName" || !t.closest || !t.closest("#modal")) return;
     var sel = document.querySelector('#modal select[data-goal-auto="1"]');
-    if (sel) sel.value = goalAutoPick(t.value);
+    if (sel) { sel.value = goalAutoPick(t.value); goalSrcVis(); }
   });
+  function goalSrcVis() {
+    var sel = document.querySelector("#modal select[data-goal-src]");
+    if (!sel) return;
+    var also = document.querySelector("#modal .goal-also"), man = document.querySelector("#modal .goal-manual");
+    if (also) also.hidden = sel.value.indexOf("nw:") !== 0;
+    if (man) man.hidden = sel.value !== "manual";
+  }
   document.addEventListener("change", function (e) {
     var t = e.target;
-    if (t && t.matches && t.matches("select[data-goal-src]")) t.removeAttribute("data-goal-auto");
+    if (t && t.matches && t.matches("select[data-goal-src]")) { t.removeAttribute("data-goal-auto"); goalSrcVis(); }
   });
   document.addEventListener("click", function (e) {
     var b = e.target && e.target.closest ? e.target.closest("[data-goal-use]") : null;
     if (!b) return;
     e.preventDefault();
     var sel = document.querySelector("#modal select[data-goal-src]");
-    if (sel) { sel.value = b.getAttribute("data-goal-use"); sel.removeAttribute("data-goal-auto"); }
+    if (sel) { sel.value = b.getAttribute("data-goal-use"); sel.removeAttribute("data-goal-auto"); goalSrcVis(); }
     var tip = b.closest(".goal-suggest"); if (tip) tip.remove();
   });
   function openDashPurchaseList() {
@@ -4784,7 +4855,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="dash-bar"><span style="width:' + Math.round(x.pct * 100) + '%"></span></div>' +
       '<p class="caption dash-buy-sub">' + (p.date ? esc(displayDate(p.date)) : "No date") + " · " +
       (x.need > 0 ? moneyWhole(x.need) + " still needed" : "Fully saved") +
-      (x.linked ? " · " + moneyWhole(x.saved) + " saved" : "") + "</p>" +
+      (x.linked ? " · " + (x.manual ? moneyEntry(x.saved) : moneyWhole(x.saved)) + " saved" : "") + "</p>" +
       (x.srcLabel ? '<p class="caption dash-buy-src">' + esc(x.srcLabel) + " " + helpQ(GOAL_SOURCE_HELP) + "</p>" : "") + "</div>";
   }
 
@@ -4991,7 +5062,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!p) { if (!name && !(cost > 0)) { closeModal(); return; } p = { id: "buy-" + nextId() }; d.purchases.push(p); }
       p.name = name || "Purchase"; p.date = data.pDate || ""; p.cost = cost > 0 ? cost : 0;
       var src = String(data.pSrc || "");
-      if (src.indexOf("nw:") === 0) { p.source = "nw"; p.nwLineId = src.slice(3); delete p.suggestNw; }
+      if (src === "manual") { p.source = "manual"; p.manualSaved = Math.max(0, centsFromDigits(data.pManual) || 0); p.envelope = ""; delete p.nwLineId; delete p.suggestNw; }
+      else if (src.indexOf("nw:") === 0) {
+        var env2 = String(data.pEnv2 || "");
+        if (p.nwLineId !== src.slice(3) || p.envelope !== env2 || p.source !== "both") p.linkedOn = dashIso(dashToday());
+        p.source = env2 ? "both" : "nw"; p.envelope = env2; p.nwLineId = src.slice(3); delete p.suggestNw;
+      }
       else if (src.indexOf("env:") === 0) { p.source = "budget"; p.envelope = src.slice(4); delete p.nwLineId; }
       else { p.source = ""; p.envelope = ""; delete p.nwLineId; }
     } else {
@@ -9710,7 +9786,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      /* v37.5.59.76: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
+      /* v37.5.59.77: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
        * (Improvements, Appreciation). Cash, vehicles and other assets get no dropdown. */
       var subKind = nwSubKind(l);
       var isAsset = l.kind !== "liability" && !!subKind;
@@ -9901,6 +9977,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       } else {
         if (!line.amounts) line.amounts = {};
         line.amounts[ed.year] = clampMoney(value == null ? 0 : value);
+        nwStamp(line, ed.year);
         if (state.worth.blankYears) delete state.worth.blankYears[ed.year];
       }
     } else {
@@ -15522,7 +15599,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.76";
+  var APP_VERSION = "37.5.59.77";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
