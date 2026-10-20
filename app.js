@@ -4408,6 +4408,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!d || typeof d !== "object") d = state.dashboard = {};
     if (!d.retire || typeof d.retire !== "object") d.retire = {};
     if (!Array.isArray(d.purchases)) d.purchases = [];
+    /* v37.5.59.71: goals track a Net worth account or a budget line (all months). Existing goals keep
+     * their budget line (now cumulative) and get a suggested matching account, never switched silently. */
+    d.purchases.forEach(function (p) {
+      if (!p || typeof p !== "object" || p.source) return;
+      p.source = p.envelope ? "budget" : "";
+      var sug = goalMatchLine(p);
+      if (sug) p.suggestNw = sug.id;
+    });
     if (!d.taxDocs || typeof d.taxDocs !== "object") d.taxDocs = {};
     if (!d.nwSnaps || typeof d.nwSnaps !== "object") d.nwSnaps = {};
     return d;
@@ -4549,12 +4557,83 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return found ? Math.max(0, roundCents(bal)) : null;
   }
+  /* v37.5.59.71: goal sources. */
+  var GOAL_STOP = { fund: 1, funds: 1, savings: 1, saving: 1, account: 1, acct: 1, the: 1, my: 1, new: 1, next: 1, for: 1, and: 1, a: 1, of: 1, to: 1, payment: 1, down: 1, schwab: 1, ally: 1, hysa: 1 };
+  function goalWords(t) {
+    return String(t || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(function (w) { return w.length > 1 && !GOAL_STOP[w]; });
+  }
+  function goalAssetLines() {
+    return ((state.worth && state.worth.lines) || []).filter(function (l) { return l && l.kind !== "liability" && l.group !== "debt" && !l.vehicle; });
+  }
+  function goalMatchLine(p) {
+    var want = goalWords((p.name || "") + " " + (p.envelope || ""));
+    if (!want.length) return null;
+    var best = null, bestN = 0;
+    /* Suggest savings-type accounts only: a car or home you own isn't money saved toward the next one. */
+    goalAssetLines().filter(function (l) { return l.group !== "realEstate" && (l.group !== "lifestyle" || /fund|saving|account|acct|hysa|cash|reserve/i.test(l.name || "")); }).forEach(function (l) {
+      var n = goalWords(l.name).filter(function (w) { return want.indexOf(w) >= 0; }).length;
+      if (n > bestN) { best = l; bestN = n; }
+    });
+    return best;
+  }
+  function goalNwLine(id) { return goalAssetLines().filter(function (l) { return String(l.id) === String(id); })[0] || null; }
+  /* Latest filled balance: newest non-blank year that has a number on this line. */
+  function goalNwBalance(line) {
+    if (!line) return null;
+    var ys = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return b - a; });
+    for (var i = 0; i < ys.length; i++) {
+      var y = ys[i];
+      if (worthBlank(y)) continue;
+      var raw = line.amounts ? line.amounts[y] : null;
+      if (raw == null || raw === "") continue;
+      return { year: y, amount: Math.max(0, Number(lineAmount(line, y)) || 0) };
+    }
+    return null;
+  }
+  /* Budget line, all months through this month: total budgeted (planned) to that line. */
+  function goalBudgetTotal(name) {
+    if (!name) return null;
+    var t = dashToday(), lim = t.getFullYear() * 12 + t.getMonth() + 1, tot = 0, found = false;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m || (Number(m.year) * 12 + Number(m.month)) > lim) return;
+      (m.categories || []).forEach(function (cat) {
+        if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name === name) { found = true; tot += Number(l.assigned) || 0; } });
+        else if (cat.name === name) { found = true; tot += catAssigned(cat); }
+      });
+    });
+    return found ? Math.max(0, roundCents(tot)) : null;
+  }
+  function goalAllBudgetNames() {
+    var names = dashEnvelopeNames();
+    Object.keys(state.months || {}).forEach(function (k) {
+      ((state.months[k] && state.months[k].categories) || []).forEach(function (cat) {
+        if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name && names.indexOf(l.name) < 0) names.push(l.name); });
+        else if (cat.name && names.indexOf(cat.name) < 0) names.push(cat.name);
+      });
+    });
+    return names;
+  }
+  function goalProgress(p) {
+    if (p.source === "nw") {
+      var line = goalNwLine(p.nwLineId), b = goalNwBalance(line);
+      if (!line) return { saved: null, label: "Net worth account not found" };
+      return { saved: b ? b.amount : 0, label: "From Net worth: " + line.name + (b ? " · " + b.year : " · no balance yet") };
+    }
+    if (p.envelope) {
+      var v = goalBudgetTotal(p.envelope);
+      return { saved: v, label: "From budget: " + p.envelope + " · all months" };
+    }
+    return { saved: null, label: "" };
+  }
+  var GOAL_SOURCE_HELP = "Track progress from a Net worth account: progress is that account’s latest balance (the newest year you filled in on Net worth).\n\n" +
+    "Or from a budget line: progress is everything you’ve budgeted to that line, added up across all months so far (not just this month).";
   function dashPurchaseRows() {
     var today = dashIso(dashToday());
     return dashState().purchases.map(function (p) {
-      var saved = p.envelope ? dashEnvelopeBalance(p.envelope) : null;
+      var gp = goalProgress(p), saved = gp.saved;
       var s = saved == null ? 0 : saved, cost = Number(p.cost) || 0;
-      return { p: p, saved: s, linked: saved != null, need: Math.max(0, cost - s), pct: cost > 0 ? Math.min(1, s / cost) : 0, past: p.date && p.date < today };
+      return { p: p, saved: s, linked: saved != null, srcLabel: gp.label, need: Math.max(0, cost - s), pct: cost > 0 ? Math.min(1, s / cost) : 0, past: p.date && p.date < today };
     }).sort(function (a, b) { return String(a.p.date || "9999").localeCompare(String(b.p.date || "9999")); });
   }
 
@@ -4643,17 +4722,52 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function openDashPurchase(id, focus) {
     var p = dashState().purchases.filter(function (x) { return x.id === id; })[0] || null;
-    var names = dashEnvelopeNames();
+    var names = goalAllBudgetNames();
     if (p && p.envelope && names.indexOf(p.envelope) < 0) names.push(p.envelope);
+    var lines = goalAssetLines();
+    var sel = p ? (p.source === "nw" && p.nwLineId ? "nw:" + p.nwLineId : (p.envelope ? "env:" + p.envelope : "")) : "";
+    var sug = p && p.source !== "nw" ? goalNwLine(p.suggestNw) || goalMatchLine(p) : null;
     var html = field("Name", "pName", p ? p.name : "") + field("Target date", "pDate", p ? p.date : "", "date") +
       field("Cost", "pCost", String(p ? p.cost || 0 : 0), "number") +
-      '<label class="field">Budget envelope (its balance counts as saved)<select name="pEnv"><option value="">None</option>' +
-      names.map(function (n) { return '<option value="' + esc(n) + '"' + (p && p.envelope === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select></label>" +
+      '<label class="field goal-src-field"><span>Track progress from ' + helpQ(GOAL_SOURCE_HELP) + '</span><select name="pSrc" data-goal-src="1"' + (p ? "" : ' data-goal-auto="1"') + '><option value="">None</option>' +
+      (lines.length ? '<optgroup label="Net worth account (latest balance)">' + lines.map(function (l) {
+        return '<option value="nw:' + esc(l.id) + '"' + (sel === "nw:" + l.id ? " selected" : "") + ">" + esc(l.name) + "</option>"; }).join("") + "</optgroup>" : "") +
+      (names.length ? '<optgroup label="Budget line (all months)">' + names.map(function (n) {
+        return '<option value="env:' + esc(n) + '"' + (sel === "env:" + n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</optgroup>" : "") +
+      "</select></label>" +
+      (sug ? '<p class="caption goal-suggest">Net worth has <strong>' + esc(sug.name) + '</strong>. <button type="button" class="link-btn" data-goal-use="nw:' + esc(sug.id) + '">Track from it</button></p>' : "") +
       '<input type="hidden" name="pId" value="' + esc(p ? p.id : "") + '">';
     if (p) html += deleteBtnHtml("", "Delete purchase", ' data-dash="p-del" data-id="' + esc(p.id) + '"');
     openSheet(p ? "Edit purchase" : "Add a purchase", html, "dash-save-purchase");
     if (focus) focusSheetField(focus);
   }
+  /* v37.5.59.71: new goal — as the name is typed, default the source to a matching Net worth account,
+   * else a matching budget line. Stops once the user picks a source themselves. */
+  function goalAutoPick(name) {
+    var l = goalMatchLine({ name: name });
+    if (l) return "nw:" + l.id;
+    var want = goalWords(name), hit = "";
+    goalAllBudgetNames().some(function (n) { if (goalWords(n).some(function (w) { return want.indexOf(w) >= 0; })) { hit = "env:" + n; return true; } return false; });
+    return hit;
+  }
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || t.name !== "pName" || !t.closest || !t.closest("#modal")) return;
+    var sel = document.querySelector('#modal select[data-goal-auto="1"]');
+    if (sel) sel.value = goalAutoPick(t.value);
+  });
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (t && t.matches && t.matches("select[data-goal-src]")) t.removeAttribute("data-goal-auto");
+  });
+  document.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest("[data-goal-use]") : null;
+    if (!b) return;
+    e.preventDefault();
+    var sel = document.querySelector("#modal select[data-goal-src]");
+    if (sel) { sel.value = b.getAttribute("data-goal-use"); sel.removeAttribute("data-goal-auto"); }
+    var tip = b.closest(".goal-suggest"); if (tip) tip.remove();
+  });
   function openDashPurchaseList() {
     var rows = dashPurchaseRows(), html = "";
     rows.forEach(function (x) { html += dashPurchaseRowHtml(x); });
@@ -4670,7 +4784,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="dash-bar"><span style="width:' + Math.round(x.pct * 100) + '%"></span></div>' +
       '<p class="caption dash-buy-sub">' + (p.date ? esc(displayDate(p.date)) : "No date") + " · " +
       (x.need > 0 ? moneyWhole(x.need) + " still needed" : "Fully saved") +
-      (x.linked ? " · " + esc(p.envelope) + " " + moneyWhole(x.saved) : "") + "</p></div>";
+      (x.linked ? " · " + moneyWhole(x.saved) + " saved" : "") + "</p>" +
+      (x.srcLabel ? '<p class="caption dash-buy-src">' + esc(x.srcLabel) + " " + helpQ(GOAL_SOURCE_HELP) + "</p>" : "") + "</div>";
   }
 
   function dashPctInput(kind, label, value, manual, def) {
@@ -4874,7 +4989,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var cost = centsFromDigits(data.pCost);
       var p = d.purchases.filter(function (x) { return x.id === data.pId; })[0];
       if (!p) { if (!name && !(cost > 0)) { closeModal(); return; } p = { id: "buy-" + nextId() }; d.purchases.push(p); }
-      p.name = name || "Purchase"; p.date = data.pDate || ""; p.cost = cost > 0 ? cost : 0; p.envelope = data.pEnv || "";
+      p.name = name || "Purchase"; p.date = data.pDate || ""; p.cost = cost > 0 ? cost : 0;
+      var src = String(data.pSrc || "");
+      if (src.indexOf("nw:") === 0) { p.source = "nw"; p.nwLineId = src.slice(3); delete p.suggestNw; }
+      else if (src.indexOf("env:") === 0) { p.source = "budget"; p.envelope = src.slice(4); delete p.nwLineId; }
+      else { p.source = ""; p.envelope = ""; delete p.nwLineId; }
     } else {
       var y = Number(data.taxYear), key = data.taxKey, L = dashTaxList(y), ref;
       if (key === "new") {
@@ -7296,7 +7415,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           sub: bars.length > 1 ? bars.length + " goals in progress" : "Keep feeding it",
           progress: bars,
           help: wrapHelp(["Emergency fund: what you have on hand (Order of operations step) ÷ 6 months of your Budget essentials.",
-            "Upcoming purchases: the linked Budget envelope’s balance (planned − spent, every month so far) ÷ the cost. Only purchases with a linked envelope show here."]) });
+            "Upcoming purchases: progress ÷ the cost. Progress comes from the source shown on each goal: a Net worth account’s latest balance, or everything budgeted to a budget line across all months so far. Only goals with a source show here."]) });
       }
       // streak inside the quarter
       var days = {}; spendTxsBetween(b.start, b.end).forEach(function (r) { days[r.date] = 1; });
@@ -15152,7 +15271,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.70";
+  var APP_VERSION = "37.5.59.71";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

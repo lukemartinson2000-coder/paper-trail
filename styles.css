@@ -4812,3 +4812,8 @@ body.no-banner .phone { margin-top: 0; }
 .sg-grid td.editing input{width:132px}
 .sg-grid .sg-name{min-width:146px;max-width:146px}
 .sg-grid tr > :last-child{padding-right:16px}
+/* v37.5.59.71: goal source */
+.dash-buy-src{margin:2px 0 0;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.dash-buy-src .help-q{width:20px;height:20px;font-size:11px}
+.goal-src-field > span{display:flex;align-items:center;gap:6px}
+.goal-suggest{margin-top:4px}
