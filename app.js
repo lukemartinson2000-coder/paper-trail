@@ -9703,14 +9703,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      var nameBtn = '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button>";
-      return sgRow(l.name, years, function (y) {
+      var isAsset = l.kind !== "liability";
+      var open = isAsset && !!(state.worth.gridOpen && state.worth.gridOpen[l.id]);
+      var chev = isAsset ? '<button type="button" class="sg-chev' + (open ? " open" : "") + '" data-act="nw-sub-toggle" data-id="' + esc(l.id) + '" aria-expanded="' + open + '" aria-label="' + (open ? "Hide" : "Show") + " additions, match and return for " + esc(l.name) + '">›</button>' : "";
+      var nameBtn = '<span class="sg-name-in">' + chev + '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button></span>";
+      var out = sgRow(l.name, years, function (y) {
         var blank = worthBlank(y);
         return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "" });
       }, nwLeftOut(l) ? "sg-left-out" : "", nameBtn);
+      if (!open) return out;
+      /* v37.5.59.73: per-line sub-rows (same fields as the name sheet). Added and Employer match are editable;
+       * Return is calculated, as before: (balance − prior balance − amounts added) ÷ prior; employer money counts as growth. */
+      function sub(label, prefix, getter) {
+        return sgRow(label, years, function (y) {
+          var v = worthBlank(y) ? null : getter(y);
+          return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel });
+        }, "sg-subline", '<span class="sg-sub-name">' + esc(label) + "</span>");
+      }
+      out += sub("Added", "add", function (y) { var a = l.additions ? l.additions[y] : null; return a == null ? null : Number(a); });
+      if (is401k(l)) {
+        out += sub("Employer match", "match", function (y) { var m = (l.employerMatch || {})[y]; return m == null ? null : Number(m); });
+        if (Object.keys(l.employerBase || {}).some(function (k) { return Number(l.employerBase[k]); })) out += sub("Employer base", "base", function (y) { var m = (l.employerBase || {})[y]; return m == null ? null : Number(m); });
+      }
+      out += sgRow("Return", years, function (y) {
+        if (worthBlank(y)) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
+        var prev = filled.filter(function (p) { return p < y; }).pop();
+        var r = prev == null ? null : annualReturn(lineAmount(l, y), lineAmount(l, prev), treatedAdditions(l, y, true));
+        return sgCell("nw", "", y, r, { calc: true, on: y === sel, text: r == null ? "—" : (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)), cls: r != null && r < 0 ? "neg" : "" });
+      }, "sg-subline sg-ratio", '<span class="sg-sub-name">Return ' + helpQ("Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. Calculated, not editable.") + "</span>");
+      return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
-      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap a line’s name for its year-over-year change, 401k match and returns.") + "</div>";
+      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Added, Employer match and Return rows; tap its name for a year-by-year summary.") + "</div>";
     if (!lines.length) {
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
@@ -9853,11 +9877,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function sgCommitValue(ed, value) {
     if (!ed) return;
     if (ed.kind === "nw") {
-      var line = (state.worth.lines || []).filter(function (l) { return l.id === ed.key; })[0];
+      var kp = String(ed.key).match(/^(add|match|base):(.+)$/);
+      var line = (state.worth.lines || []).filter(function (l) { return l.id === (kp ? kp[2] : ed.key); })[0];
       if (!line) return;
-      if (!line.amounts) line.amounts = {};
-      line.amounts[ed.year] = clampMoney(value == null ? 0 : value);
-      if (state.worth.blankYears) delete state.worth.blankYears[ed.year];
+      if (kp) {
+        var field = kp[1] === "add" ? "additions" : kp[1] === "match" ? "employerMatch" : "employerBase";
+        if (!line[field]) line[field] = {};
+        if (value == null) delete line[field][ed.year]; else line[field][ed.year] = clampMoney(value);
+      } else {
+        if (!line.amounts) line.amounts = {};
+        line.amounts[ed.year] = clampMoney(value == null ? 0 : value);
+        if (state.worth.blankYears) delete state.worth.blankYears[ed.year];
+      }
     } else {
       var book = ensureAnnualStatement();
       var raw = book.years[String(ed.year)] || (book.years[String(ed.year)] = {});
@@ -9875,13 +9906,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     sgEdit = { kind: td.getAttribute("data-sg"), key: td.getAttribute("data-key"), year: Number(td.getAttribute("data-year")), label: td.getAttribute("data-label") };
     var v = td.getAttribute("data-v");
     td.classList.add("editing");
+    document.body.classList.add("sg-editing");
     td.innerHTML = '<input class="cents-input sg-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : moneyEntry(Number(v))) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">';
     bindMoneyInputs(td);
     var bar = document.getElementById("sg-bar");
     if (bar) {
       bar.hidden = false;
       document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
-      bar.querySelector('[data-sgbar="clear"]').hidden = sgEdit.kind !== "is";
+      bar.querySelector('[data-sgbar="clear"]').hidden = !(sgEdit.kind === "is" || /^(add|match|base):/.test(sgEdit.key));
     }
     var input = td.querySelector("input");
     input.focus();
@@ -9899,6 +9931,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var input = td && td.querySelector("input");
     var value = mode === "clear" ? null : readOptionalCents(input);
     sgEdit = null;
+    document.body.classList.remove("sg-editing");
     if (mode !== "cancel") sgCommitValue(ed, value);
     var wrap = document.querySelector('#screen .sg-wrap[data-sgk="' + ed.kind + '"]');
     if (wrap) sgLeft[ed.kind] = wrap.scrollLeft;
@@ -9911,7 +9944,33 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (nx) sgOpen(nx);
     }
   }
+  /* v37.5.59.73: hide the tab bar while a grid cell is being edited and whenever the on-screen keyboard is up
+   * (iOS Safari / home-screen: visualViewport shrinks), so only the Line · Year / Next / Done bar sits above it. */
+  (function () {
+    function kb() {
+      var vv = window.visualViewport;
+      var up = !!(vv && window.innerHeight - vv.height > 140);
+      var ae = document.activeElement;
+      var typing = !!(ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT") && ae.type !== "checkbox" && ae.type !== "radio");
+      document.body.classList.toggle("kb-up", up && typing);
+      if (vv) document.documentElement.style.setProperty("--vv-bottom", Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + "px");
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", kb);
+      window.visualViewport.addEventListener("scroll", kb);
+    }
+    document.addEventListener("focusin", function () { setTimeout(kb, 50); });
+    document.addEventListener("focusout", function (e) {
+      setTimeout(function () {
+        kb();
+        if (sgEdit && !(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("sg-input"))) {
+          document.body.classList.remove("sg-editing");
+        }
+      }, 120);
+    });
+  })();
   function sgAfterRender() {
+    if (!sgEdit) document.body.classList.remove("sg-editing");
     [].forEach.call(document.querySelectorAll("#screen .sg-wrap"), function (wrap) {
       var k = wrap.getAttribute("data-sgk");
       if (sgPendingScroll && sgPendingScroll.kind === k) {
@@ -15337,7 +15396,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.72";
+  var APP_VERSION = "37.5.59.73";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18827,6 +18886,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       closeModal();
       render();
       openAnnualYear(clrYear);
+    } else if (act === "nw-sub-toggle") {
+      var gid = actEl.getAttribute("data-id");
+      if (!state.worth.gridOpen) state.worth.gridOpen = {};
+      if (state.worth.gridOpen[gid]) delete state.worth.gridOpen[gid]; else state.worth.gridOpen[gid] = true;
+      saveState();
+      render();
     } else if (act === "nw-line-sheet") {
       openNwLineSheet(actEl.getAttribute("data-id"));
     } else if (act === "add-prior-year") {
