@@ -11803,6 +11803,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (form.amount) spendDraft.amount = centsFromDigits(form.amount.value);
     if (form.incomeId) spendDraft.incomeId = form.incomeId.value;
     if (form.refundKind) spendDraft.refundKind = form.refundKind.value;
+    if (spendDraft.type !== "income" && splitReadInto(form)) return;
     (spendDraft.legs || []).forEach(function (leg, i) {
       var key = form["legLine" + i];
       var amt = form["legAmount" + i];
@@ -11885,7 +11886,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<p class="caption">Income counts toward this line’s Received. Leave the line on auto and it goes to the next paycheck that isn’t fully received. It never counts as spending and doesn’t change envelopes.</p>';
     } else {
       var kind = spendDraft.refundKind || "";
-      var split = spendDraft.legs.length > 1;
+      var split = spendDraft.legs.length > 1 || !!spendDraft.splitMode;
       var legSum = spendDraft.legs.reduce(function (n, leg) { return n + (Number(leg.amount) || 0); }, 0);
       var mismatch = split && cents(legSum) !== cents(spendDraft.amount);
       // v37.5.59.2 (owner): merchant first — Payee + suggested merchants, then the envelope (never preselected).
@@ -11915,32 +11916,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           html += field("Refund amount", "legRefund0", String((spendDraft.legs[0] && spendDraft.legs[0].refund) || 0), "number");
         }
         html += field("Optional note", "legNote0", (spendDraft.legs[0] && spendDraft.legs[0].note) || "");
-        html += '<button class="planner-apply" type="button" data-act="add-split-leg">Add another envelope</button>';
+        html += '<button class="planner-apply" type="button" data-act="add-split-leg">Split across envelopes</button>';
       } else {
-        spendDraft.legs.forEach(function (leg, i) {
-          html += '<p class="sheet-label">Split ' + (i + 1) + " envelope</p>" +
-            lineOptionsNamed("legLine" + i, month, leg.lineId) +
-            field(kind === "standalone" ? "Refund amount" : "Amount", "legAmount" + i, String(leg.amount || 0), "number");
-          if (kind === "partial") {
-            html += field("Refund piece (this envelope)", "legRefund" + i, String(leg.refund || 0), "number");
-          }
-          html += field("Optional note", "legNote" + i, leg.note || "");
-          html += deleteBtnHtml("remove-split-leg", "Delete this split", ' data-index="' + i + '"', true);
-        });
-        html += '<button class="planner-apply" type="button" data-act="add-split-leg">Add another envelope</button>';
-        // Splits: remaining/chips still track primary (first) leg envelope.
-        html += spendAmountAccessoryHtml(month, false);
-        html += field(kind === "standalone" ? "Refund total" : "Total", "amount", String(spendDraft.amount), "number") +
-          field("Date", "date", spendDraft.date, "date") +
+        // v37.5.59.74: EveryDollar-style split — Total first, then a checklist of envelope lines.
+        html += field(kind === "standalone" ? "Refund total" : "Total", "amount", String(spendDraft.amount), "number");
+        html += splitChecklistHtml(month, kind);
+        html += field("Date", "date", spendDraft.date, "date") +
           field("Note", "note", spendDraft.note || "") +
           refundKindSelectHtml(kind);
       }
-      if (mismatch) {
-        html += '<p class="caption rust">Legs are ' + money(legSum) + ". They must equal " +
-          money(spendDraft.amount) + ".</p>";
-      } else if (split) {
-        html += '<p class="caption">One purchase. Legs sum to ' + money(legSum) + ".</p>";
-      }
+      void mismatch;
       if (kind === "full") html += '<p class="caption refund-note">Full refund: every envelope on this purchase nets to $0. Never counts as income.</p>';
       if (kind === "partial") html += '<p class="caption refund-note">Partial refund: the refund piece comes back to that envelope only. Never counts as income.</p>';
       if (kind === "standalone") html += '<p class="caption refund-note">Money back from a store (e.g. a return of last month’s purchase). Lowers that envelope’s spent. Never counts as income.</p>';
@@ -11957,6 +11942,133 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     }
     openSheet(spendDraft.id ? "Edit transaction" : "Add transaction", html, "save-spend-sheet");
+    splitArm();
+  }
+
+  /* ---- v37.5.59.74: split checklist ---------------------------------------------------------------
+   * Every envelope line grouped by envelope group; check as many as you want, each checked line gets a cents
+   * amount. Live Left to split / Over by vs the Total; tapping an empty amount fills what's left; Save stays
+   * disabled until the lines add up exactly. All changes are live in the DOM; spendDraft is read on Save. */
+  function splitChecklistHtml(month, kind) {
+    var byLine = {};
+    (spendDraft.legs || []).forEach(function (leg) { if (leg.lineId) byLine[leg.lineId] = leg; });
+    var count = 0;
+    var body = "";
+    sortedCategories(month).forEach(function (cat) {
+      var rows = "";
+      sortedLines(cat).forEach(function (line) {
+        count++;
+        var leg = byLine[line.id], on = !!leg;
+        var key = cat.id + ":" + line.id;
+        rows += '<div class="split-row' + (on ? " on" : "") + '" data-split-row="' + esc(key) + '" data-search="' + esc((cat.name + " " + line.name).toLowerCase()) + '">' +
+          '<label class="split-check"><input type="checkbox" data-split-check value="' + esc(key) + '"' + (on ? " checked" : "") + '><span class="split-name">' + esc(line.name) + "</span></label>" +
+          '<input class="cents-input split-amt mono" data-cents="1" data-split-amt="' + esc(key) + '" inputmode="numeric" autocomplete="off" type="text" aria-label="Amount for ' + esc(line.name) + '" value="' +
+          esc(moneyEntry(on ? Number(leg.amount) || 0 : 0)) + '"' + (on ? "" : " hidden") + ">" +
+          (kind === "partial" ? '<input class="cents-input split-ref mono" data-cents="1" data-split-ref="' + esc(key) + '" inputmode="numeric" autocomplete="off" type="text" aria-label="Refund piece for ' + esc(line.name) + '" value="' +
+            esc(moneyEntry(on ? Number(leg.refund) || 0 : 0)) + '"' + (on ? "" : " hidden") + ">" : "") +
+          "</div>";
+      });
+      if (rows) body += '<div class="split-grp" data-split-grp><p class="split-grp-name">' + esc(cat.name) + "</p>" + rows + "</div>";
+    });
+    return '<div class="split-box" id="split-box">' +
+      '<p class="sheet-label split-head">Split across envelopes ' + helpQ("Check every envelope this purchase came out of and type how much went to each. Tap an empty amount to fill in what’s left. Save turns on once the amounts add up to the Total exactly.") + "</p>" +
+      (count > 10 ? '<input type="search" class="split-search" data-split-search placeholder="Find an envelope" aria-label="Find an envelope" autocomplete="off">' : "") +
+      '<div class="split-list">' + body + "</div>" +
+      '<p class="split-status" id="split-status" aria-live="polite"></p></div>';
+  }
+  /* Programmatic fill must update the cash-register digit buffer too, or the next keystroke/blur repaints the old value. */
+  function splitSetAmt(el, amount) {
+    var a = roundCents(Number(amount) || 0);
+    el.dataset.digits = String(Math.round(a * 100));
+    el.value = moneyEntry(a);
+    el.dataset.lastPainted = el.value;
+  }
+  function splitBoxState() {
+    var box = document.getElementById("split-box");
+    if (!box) return null;
+    var form = box.closest("form");
+    var total = form && form.amount ? centsFromDigits(form.amount.value) : 0;
+    var sum = 0, n = 0;
+    [].forEach.call(box.querySelectorAll(".split-row.on"), function (row) {
+      n++;
+      sum += centsFromDigits(row.querySelector("[data-split-amt]").value);
+    });
+    return { box: box, form: form, total: roundCents(total), sum: roundCents(sum), n: n, left: roundCents(total - sum) };
+  }
+  function splitRefresh() {
+    var st = splitBoxState();
+    if (!st) return;
+    var out = document.getElementById("split-status");
+    var ok = st.n >= 1 && st.total > 0 && cents(st.sum) === cents(st.total);
+    if (out) {
+      out.className = "split-status " + (ok ? "ok" : st.left < 0 ? "over" : "left");
+      out.innerHTML = !(st.total > 0) ? "Enter the Total first"
+        : st.n === 0 ? "Check at least one envelope"
+        : ok ? "Fully split · " + formatMoney(st.total, 2)
+        : st.left > 0 ? "Left to split <strong class=\"mono\">" + formatMoney(st.left, 2) + "</strong>"
+        : "Over by <strong class=\"mono\">" + formatMoney(-st.left, 2) + "</strong>";
+    }
+    var save = st.form && st.form.querySelector('.sheet-actions button[type="submit"]');
+    if (save) { save.disabled = !ok; save.setAttribute("aria-disabled", ok ? "false" : "true"); }
+  }
+  function splitArm() {
+    var st = splitBoxState();
+    if (!st) return;
+    var box = st.box;
+    box.addEventListener("change", function (e) {
+      var cb = e.target.closest && e.target.closest("[data-split-check]");
+      if (!cb) return;
+      var row = cb.closest(".split-row");
+      row.classList.toggle("on", cb.checked);
+      [].forEach.call(row.querySelectorAll(".split-amt, .split-ref"), function (inp) { inp.hidden = !cb.checked; });
+      var amt = row.querySelector("[data-split-amt]");
+      if (cb.checked) {
+        var s2 = splitBoxState();
+        if (!(centsFromDigits(amt.value) > 0) && s2.left > 0) splitSetAmt(amt, s2.left);
+      } else splitSetAmt(amt, 0);
+      splitRefresh();
+    });
+    function amtFill(e) {
+      var amt = e.target.closest && e.target.closest("[data-split-amt]");
+      if (!amt) return;
+      if (!(centsFromDigits(amt.value) > 0)) {
+        var s2 = splitBoxState();
+        if (s2.left > 0) { splitSetAmt(amt, s2.left); splitRefresh(); }
+      }
+    }
+    box.addEventListener("focusin", amtFill);
+    box.addEventListener("click", amtFill);
+    ["input", "keyup", "change"].forEach(function (ev) {
+      box.addEventListener(ev, function (e) { if (e.target.matches && e.target.matches("[data-split-amt]")) splitRefresh(); });
+      if (st.form && st.form.amount) st.form.amount.addEventListener(ev, splitRefresh);
+    });
+    var q = box.querySelector("[data-split-search]");
+    if (q) q.addEventListener("input", function () {
+      var t = q.value.toLowerCase().trim();
+      [].forEach.call(box.querySelectorAll(".split-row"), function (row) {
+        row.hidden = !!t && row.getAttribute("data-search").indexOf(t) < 0 && !row.classList.contains("on");
+      });
+      [].forEach.call(box.querySelectorAll("[data-split-grp]"), function (g) {
+        g.hidden = !g.querySelector(".split-row:not([hidden])");
+      });
+    });
+    splitRefresh();
+  }
+  function splitReadInto(form) {
+    var box = form && form.querySelector("#split-box");
+    if (!box || !spendDraft) return false;
+    var old = {};
+    (spendDraft.legs || []).forEach(function (leg) { if (leg.lineId) old[leg.lineId] = leg; });
+    var legs = [];
+    [].forEach.call(box.querySelectorAll(".split-row.on"), function (row) {
+      var parts = String(row.getAttribute("data-split-row")).split(":");
+      var prev = old[parts[1]] || {};
+      var ref = row.querySelector("[data-split-ref]");
+      legs.push({ id: prev.id || nextId(), categoryId: parts[0], lineId: parts[1] || "", amount: centsFromDigits(row.querySelector("[data-split-amt]").value),
+        refund: ref ? centsFromDigits(ref.value) : (prev.refund || 0), note: prev.note || "" });
+    });
+    spendDraft.legs = legs.length ? legs : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, note: "" }];
+    return true;
   }
 
   function lineOptionsNamed(name, month, selectedId) {
@@ -15396,7 +15508,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.73";
+  var APP_VERSION = "37.5.59.74";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18637,7 +18749,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var addForm = actEl.closest("form");
       readSpendDraft(addForm);
       if (spendDraft) {
-        spendDraft.legs.push({ id: nextId(), categoryId: "", lineId: "", amount: Math.max(0, (Number(spendDraft.amount) || 0) - spendDraft.legs.reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), note: "" });
+        spendDraft.splitMode = true;
+        spendDraft.legs = spendDraft.legs.filter(function (l) { return l.lineId; });
         renderSpendSheet(month);
       }
     } else if (act === "remove-split-leg") {

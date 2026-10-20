@@ -4845,3 +4845,24 @@ body.sg-editing .sg-bar, body.kb-up .sg-bar{bottom:0}
 .sg-grid tr.sg-subline td.sg-amt{color:var(--muted)}
 .sg-grid tr.sg-subline td.sg-amt.neg{color:var(--rust)}
 .sg-sub-name{display:inline-flex;align-items:center;gap:4px}
+/* v37.5.59.74: EveryDollar-style split checklist */
+.split-box{margin:10px 0 6px}
+.split-head{display:flex;align-items:center;gap:6px}
+.split-search{width:100%;box-sizing:border-box;min-height:44px;margin:4px 0 8px;padding:0 12px;border:1px solid rgba(127,127,127,.35);border-radius:10px;background:var(--card);color:var(--ink);font:15px var(--serif)}
+.split-list{border-top:1px solid rgba(127,127,127,.2)}
+.split-grp-name{margin:12px 0 2px;font:700 11.5px var(--serif);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.split-row{display:flex;align-items:center;gap:8px;min-height:48px;border-bottom:1px solid rgba(127,127,127,.14)}
+.split-row[hidden],.split-grp[hidden]{display:none}
+.split-check{flex:1;min-width:0;display:flex;align-items:center;gap:10px;min-height:48px;cursor:pointer;font:15px var(--serif);color:var(--ink)}
+.split-check input{width:22px;height:22px;flex:none;accent-color:var(--moss);margin:0}
+.split-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.split-row.on .split-name{font-weight:600}
+.split-amt,.split-ref{flex:none;width:118px;min-height:40px;text-align:right;font:600 14px var(--mono);border:1px solid rgba(127,127,127,.4);border-radius:8px;padding:0 10px;background:var(--card);color:var(--ink);box-sizing:border-box}
+.split-ref{width:96px;font-weight:400}
+.split-amt:focus,.split-ref:focus{outline:none;border:2px solid var(--ink);box-shadow:0 0 0 3px rgba(31,122,97,.22)}
+.split-status{position:sticky;bottom:0;margin:8px 0 0;padding:10px 12px;border-radius:10px;font:15px var(--serif);background:rgba(127,127,127,.1);color:var(--ink)}
+.split-status.left strong{color:var(--ink)}
+.split-status.over{background:rgba(160,60,60,.12);color:var(--rust)}
+.split-status.over strong{color:var(--rust)}
+.split-status.ok{background:rgba(31,122,97,.12);color:var(--moss);font-weight:600}
+#modal .sheet-actions button[type=submit]:disabled{opacity:.45;cursor:not-allowed}
