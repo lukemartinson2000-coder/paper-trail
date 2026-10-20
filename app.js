@@ -9692,6 +9692,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- Net worth grid ---- */
+  function isHsaLine(l) { return /\bHSA\b|health savings/i.test(String(l && l.name || "")); }
+  function nwSubKind(l) {
+    if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return "";
+    if (isHsaLine(l) || l.group === "taxable" || l.group === "retirement") return "invest";
+    if (l.group === "realEstate" && !VEHICLE_WORDS.test(String(l.name || "").toLowerCase())) return "home";
+    return "";
+  }
   function renderWorthGrid(years) {
     var cy = new Date().getFullYear();
     var filled = worthFilledYears(years);
@@ -9703,7 +9710,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      var isAsset = l.kind !== "liability";
+      /* v37.5.59.76: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
+       * (Improvements, Appreciation). Cash, vehicles and other assets get no dropdown. */
+      var subKind = nwSubKind(l);
+      var isAsset = l.kind !== "liability" && !!subKind;
       var open = isAsset && !!(state.worth.gridOpen && state.worth.gridOpen[l.id]);
       var chev = isAsset ? '<button type="button" class="sg-chev' + (open ? " open" : "") + '" data-act="nw-sub-toggle" data-id="' + esc(l.id) + '" aria-expanded="' + open + '" aria-label="' + (open ? "Hide" : "Show") + " additions, match and return for " + esc(l.name) + '">›</button>' : "";
       var nameBtn = '<span class="sg-name-in">' + chev + '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button></span>";
@@ -9720,17 +9730,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel });
         }, "sg-subline", '<span class="sg-sub-name">' + esc(label) + "</span>");
       }
-      out += sub("Added", "add", function (y) { var a = l.additions ? l.additions[y] : null; return a == null ? null : Number(a); });
-      if (is401k(l)) {
+      var home = subKind === "home";
+      out += sub(home ? "Improvements" : "Added", "add", function (y) { var a = l.additions ? l.additions[y] : null; return a == null ? null : Number(a); });
+      if (!home && (is401k(l) || isHsaLine(l))) {
         out += sub("Employer match", "match", function (y) { var m = (l.employerMatch || {})[y]; return m == null ? null : Number(m); });
         if (Object.keys(l.employerBase || {}).some(function (k) { return Number(l.employerBase[k]); })) out += sub("Employer base", "base", function (y) { var m = (l.employerBase || {})[y]; return m == null ? null : Number(m); });
       }
-      out += sgRow("Return", years, function (y) {
+      var retLabel = home ? "Appreciation" : "Return";
+      out += sgRow(retLabel, years, function (y) {
         if (worthBlank(y)) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
         var prev = filled.filter(function (p) { return p < y; }).pop();
         var r = prev == null ? null : annualReturn(lineAmount(l, y), lineAmount(l, prev), treatedAdditions(l, y, true));
         return sgCell("nw", "", y, r, { calc: true, on: y === sel, text: r == null ? "—" : (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)), cls: r != null && r < 0 ? "neg" : "" });
-      }, "sg-subline sg-ratio", '<span class="sg-sub-name">Return ' + helpQ("Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. Calculated, not editable.") + "</span>");
+      }, "sg-subline sg-ratio", '<span class="sg-sub-name">' + retLabel + " " + helpQ(home
+        ? "Appreciation = (value − prior filled year’s value − improvements) ÷ prior value. Calculated, not editable."
+        : "Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. Calculated, not editable.") + "</span>");
       return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
@@ -15508,7 +15522,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.75";
+  var APP_VERSION = "37.5.59.76";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
