@@ -10176,8 +10176,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function incomeAddPriorButton(years) {
     var cy = new Date().getFullYear();
-    var open = false;
-    for (var y = cy - 1; y >= cy - 40; y--) if (years.indexOf(y) < 0) { open = true; break; }
+    var open = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     return open
       ? '<button class="year-add-prior" type="button" data-act="add-prior-income-year" aria-label="Add a prior year">+</button>'
       : "";
@@ -14802,7 +14801,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.64";
+  var APP_VERSION = "37.5.59.65";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18293,7 +18292,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "add-prior-year") {
       openPriorYearSheet();
     } else if (act === "add-prior-income-year") {
-      openPriorIncomeYearSheet();
+      /* v37.5.59.65 (owner): one tap adds the year before the earliest column. No picker, no confirm. */
+      var piyBook = ensureAnnualStatement(), piyHave = annualYearList(piyBook);
+      var piyNew = piyHave.length ? Math.min.apply(null, piyHave) - 1 : new Date().getFullYear();
+      if (!piyBook.years[String(piyNew)]) {
+        piyBook.years[String(piyNew)] = {
+          salary: null, bonus: null, sideGig: null, other: null, match: null,
+          taxes: null, opex: null, investments: null,
+          taxFederal: null, taxState: null, taxFica: null, taxOther: null,
+          federalBracket: null, stateBracket: null, stateOtherPct: null
+        };
+      }
+      state.worthYear = piyNew;
+      state.incomeYear = piyNew;
+      saveState();
+      render();
+      var piyTile = document.querySelector('.year-tiles[data-kind="income"] [data-year="' + piyNew + '"]');
+      if (piyTile && piyTile.scrollIntoView) piyTile.scrollIntoView({ block: "nearest", inline: "nearest" });
     } else if (act === "add-year") {
       var max = state.worth.years.length ? Math.max.apply(null, state.worth.years) : new Date().getFullYear() - 1;
       var nextYear = max + 1;
