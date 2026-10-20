@@ -2931,7 +2931,7 @@
     var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var withNW = null;
     years.forEach(function (year) {
-      if (worthTotals(year).equity !== 0) withNW = year;
+      if (!worthBlank(year) && worthTotals(year).equity !== 0) withNW = year;
     });
     if (withNW == null) withNW = years.length ? years[years.length - 1] : null;
     if (withNW == null) return { year: null, amount: 0 };
@@ -3698,6 +3698,9 @@
     return gm().envelopeNetSpent(month.transactions || [], "category", categoryId);
   }
 
+  /* v37.5.59.66: a year added with + stays blank ("—") until a balance is typed. Charts, CAGR and YoY skip blank years. */
+  function worthBlank(y) { return !!(state.worth && state.worth.blankYears && state.worth.blankYears[y]); }
+  function worthFilledYears(years) { return (years || []).filter(function (y) { return !worthBlank(y); }); }
   function lineAmount(line, year) {
     var value = line.amounts[year];
     return value == null ? 0 : Number(value);
@@ -4418,7 +4421,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var base = null, label = "";
     if (d.nwSnaps[back] != null) { base = Number(d.nwSnaps[back]); label = "vs 12 months ago"; }
     else {
-      var years = (state.worth.years || []).slice().sort(function (a, b) { return a - b; });
+      var years = worthFilledYears(state.worth.years || []).slice().sort(function (a, b) { return a - b; });
       var prior = years.filter(function (y) { return y < head.year; }).pop();
       if (prior != null) { base = worthTotals(prior).equity; label = "vs " + prior + " year-end"; }
     }
@@ -5716,7 +5719,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!(takeHome > 0) && income > 0) takeHome = income; // fall back to planned/annualized income already resolved
     var savingsEnv = GM.savingsEnvelopeTotal(used.categories || []).total;
     var savingsRate = GM.basicSavingsRate({ savings: savingsEnv, takeHome: takeHome }).rate;
-    var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
+    var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var latestYear = years.length ? years[years.length - 1] : 2025;
     var cashYear = latestYear;
     var yi;
@@ -6424,7 +6427,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function netWorthDebtDelta() {
-    var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
+    var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     if (!years.length) {
       return { netWorthDelta: null, debtDelta: null, netWorthHint: "Add a Net Worth year to see the change.", netWorthDeltaLabel: "" };
     }
@@ -6833,7 +6836,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function wrapGraphSlides(month) {
     var Y = month.year, P = Y - 1;
-    var years = (state.worth && state.worth.years) || [];
+    var years = worthFilledYears((state.worth && state.worth.years) || []);
     var out = [];
     var hasY = years.indexOf(Y) >= 0;
     var priorHas = years.indexOf(P) >= 0 && ((state.worth.lines || []).some(function (l) { return !nwLeftOut(l) && lineAmount(l, P) !== 0; }));
@@ -9818,7 +9821,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return '<div class="stmt-pass">' + shell +
         '<div class="stmt-foot">' +
         '<button class="text-btn details-btn" type="button" data-act="worth-details">Details</button></div>' +
-        '<p class="empty">No annual review yet. Open Details and add a year.</p></div>';
+        renderYearTiles("worth", [], null) +
+        '<p class="empty">No annual review yet. Tap + to start this year, or open Details.</p></div>';
     }
     var year = state.worthYear;
     // v37.5.59.12 (QA L11): don't land the headline on a brand-new $0 year when older years have balances.
@@ -9848,6 +9852,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     /* v37.5.31: Details sits under the hero, before the account list — one control, not the footer. */
     html += "</div>" + yearLine +
+      (worthBlank(year) ? '<p class="caption stmt-blank-note">No balances for ' + year + " yet. Open Details and tap a line’s amount to fill it in.</p>" : "") +
       '<div class="stmt-foot stmt-details-high">' +
       '<button class="text-btn details-btn" type="button" data-act="worth-details">Details</button></div>' +
       '<p class="caption quiet stmt-details-note">Line edits, tax triangle, and year-over-year live under Details.</p>' +
@@ -9967,7 +9972,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function trendIncOf(y) { return Number((state.worth.income || {})[y]) || 0; }
   // v37.5.59.57: same rule for income (state.worth.income by year).
   function nwYoyText(year, valOf, withYear) {
-    var ys = ((state.worth && state.worth.years) || []).filter(function (y) { return y < year; }).sort(function (a, b) { return b - a; });
+    var ys = worthFilledYears((state.worth && state.worth.years) || []).filter(function (y) { return y < year; }).sort(function (a, b) { return b - a; });
     if (!ys.length) return "";
     valOf = valOf || trendNwOf;
     var prev = ys[0], p = valOf(prev), c = valOf(year);
@@ -9983,6 +9988,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.55: range chips (5Y / 10Y / All). The chips only narrow what's drawn; stored history is never cut. */
   var TREND_RANGES = [{ id: "5", n: 5, label: "5Y" }, { id: "10", n: 10, label: "10Y" }, { id: "all", n: 0, label: "All" }];
   function worthTrendHtml(years, year, trend, compact) {
+    years = worthFilledYears(years);
     if (years.filter(function (y) { var t = worthTotals(y); return t.assets !== 0 || t.liabilities !== 0; }).length < 2)
       return '<p class="empty">Your trend line appears once a second year has balances.</p>';
     var avail = TREND_RANGES.filter(function (r) { return r.n && years.length > r.n; });
@@ -10011,7 +10017,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       fx.push(d[1] + " " + s0 + "–" + y1 + ": (" + moneyWhole(Math.round(v1)) + " ÷ " + moneyWhole(Math.round(v0)) + ")^(1/" + n + ") − 1");
     });
     // First year net worth crossed above $0, only when an earlier stored year was ≤ 0.
-    var allYs = ((state.worth && state.worth.years) || []).slice().sort(function (a2, b2) { return a2 - b2; }), crossYear = null, sawNeg = false;
+    var allYs = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a2, b2) { return a2 - b2; }), crossYear = null, sawNeg = false;
     allYs.forEach(function (yy) { var v = trendNwOf(yy); if (v <= 0) sawNeg = true; else if (sawNeg && crossYear == null) crossYear = yy; });
     if (parts.length) cagrHtml = '<p class="trend-cagr"><span>' + (cur ? cur.label : "All") + ":</span> <span>" + parts.join(" · ") + "</span> " +
       helpQ("Growth per year (CAGR) for the range shown, smoothing the ups and downs into one steady yearly rate.\n\n" + fx.join("\n") +
@@ -10031,6 +10037,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return inner.indexOf('class="empty"') >= 0 ? '<section class="dash-card dash-trend" id="dash-trend"><p class="dash-k">Trend</p>' + inner + "</section>" : inner;
   }
   function renderWorthAnalytics(years, year, current) {
+    years = worthFilledYears(years);
     var priorYear = years.indexOf(year - 1) >= 0 ? year - 1 : null;
     var prior = priorYear == null ? null : worthTotals(priorYear);
     var delta = prior ? current.equity - prior.equity : 0;
@@ -10139,7 +10146,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function worthAddPriorButton() {
-    return worthCurrentYearFilled()
+    var wy = (state.worth && state.worth.years) || [];
+    return (!wy.length || Math.min.apply(null, wy) - 1 >= new Date().getFullYear() - 40)
       ? '<button class="year-add-prior" type="button" data-act="add-prior-year" aria-label="Add a prior year">+</button>'
       : "";
   }
@@ -10183,6 +10191,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function renderYearTiles(kind, years, selected) {
+    if ((!years || !years.length) && kind === "worth") return '<div class="year-slider-bar year-tiles" data-kind="worth"><p class="section-label">By year</p><div class="year-slider">' + worthAddPriorButton() + "</div></div>";
     if (!years || !years.length) return "";
     var book = kind === "income" ? ensureAnnualStatement() : null;
     var html = '<div class="year-slider-bar year-tiles" data-kind="' + kind + '"><p class="section-label">By year</p><div class="year-slider">' +
@@ -10192,7 +10201,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (kind === "income") {
         figure = annualMoney(annualMetrics(syncedAnnualRow(annualRow(book.years[String(year)]), year), year).total);
       } else {
-        figure = moneyWhole(worthTotals(year).equity);
+        figure = worthBlank(year) ? "—" : moneyWhole(worthTotals(year).equity);
       }
       html += '<button class="year-slide' + (year === selected ? " on" : "") +
         '" type="button" data-act="pick-year" data-year="' + year + '"' + (year === selected ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
@@ -10241,7 +10250,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<header class="stmt-header stmt-hero-center">' +
       '<p class="stmt-year">' + (year || "") + "</p>" +
       '<p class="stmt-hero-label">Net worth</p>' +
-      '<p class="stmt-hero-amount">' + moneyWhole(totals.equity) + "</p></header>" +
+      '<p class="stmt-hero-amount">' + (worthBlank(year) ? "—" : moneyWhole(totals.equity)) + "</p></header>" +
+      (worthBlank(year) ? '<p class="caption stmt-blank-note">No balances for ' + year + " yet. Tap a line’s amount to fill it in.</p>" : "") +
       /* v37.5.59.36: large numbers first; By-year tiles (+ prior year) directly beneath the hero. */
       renderWorthYearSlider(years);
     if (years.length && worthHasData()) {
@@ -10249,7 +10259,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       html += taxTriangleHtml({ paycheckStrip: false, context: "worth" });
     }
-    var priorYear = years.indexOf(year - 1) >= 0 ? year - 1 : null;
+    var priorYear = years.indexOf(year - 1) >= 0 && !worthBlank(year - 1) ? year - 1 : null;
     var priorTotals = priorYear == null ? null : worthTotals(priorYear);
     var incomeNote = ((state.worth.notes || {})[year] || "").replace(/^\s+|\s+$/g, "");
     html += '<p class="section-label">Year column</p><div class="sheet-table worth-sheet">';
@@ -10315,12 +10325,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
             '<span class="worth-years-name">' + chev + '<span class="name">' + esc(line.name) + "</span></span>" +
             '<span class="mono worth-col">' + moneyWhole(prior) + "</span>" +
-            '<span class="mono worth-col nw-amt"' + amtAttr + '>' + moneyWhole(current) + "</span>" +
+            '<span class="mono worth-col nw-amt"' + amtAttr + '>' + (worthBlank(year) ? "—" : moneyWhole(current)) + "</span>" +
             '<span class="mono worth-delta ' + tone(yoy) + '">' + worthDeltaText(yoy, yoyPct) + "</span></button>";
         } else {
           html += '<button class="row-btn worth-line-main" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
             "<div>" + chev + "<span class='name'>" + esc(line.name) + "</span></div>" +
-            '<span class="mono nw-amt"' + amtAttr + '>' + money(current) + "</span></button>";
+            '<span class="mono nw-amt"' + amtAttr + '>' + (worthBlank(year) ? "—" : money(current)) + "</span></button>";
         }
         html += "</div>";
         if (line.vehicle) html += vehicleLeaveOutHtml(line) + vehicleDupHtml(year, line.id);
@@ -13915,7 +13925,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* No cap: the true CAGR is used. A plain note shows when it is very high. */
   var CAGR_NOTE_ABOVE = 0.25;
   function netWorthHistory() {
-    var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
+    var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var rows = years.map(function (y, i) {
       var eq = worthTotals(y).equity;
       var prev = i > 0 ? worthTotals(years[i - 1]).equity : null;
@@ -14801,7 +14811,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.65";
+  var APP_VERSION = "37.5.59.66";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18290,7 +18300,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
       openAnnualYear(clrYear);
     } else if (act === "add-prior-year") {
-      openPriorYearSheet();
+      /* v37.5.59.66 (owner): one tap adds the year before the earliest column. No sheet, picker or confirm. */
+      var wys = state.worth.years || (state.worth.years = []);
+      var py = wys.length ? Math.min.apply(null, wys) - 1 : new Date().getFullYear();
+      if (wys.indexOf(py) < 0) {
+        state.worth.lines.forEach(function (line) {
+          if (!line.amounts) line.amounts = {};
+          line.amounts[py] = 0;
+          if (!line.additions) line.additions = {};
+          line.additions[py] = 0;
+        });
+        wys.push(py);
+        wys.sort(function (a, b) { return a - b; });
+        if (!state.worth.income) state.worth.income = {};
+        if (!state.worth.notes) state.worth.notes = {};
+        if (state.worth.income[py] == null) state.worth.income[py] = 0;
+        if (state.worth.notes[py] == null) state.worth.notes[py] = "";
+        if (!state.worth.blankYears) state.worth.blankYears = {};
+        state.worth.blankYears[py] = true;
+      }
+      state.worthYear = py;
+      saveState();
+      render();
+      [].forEach.call(document.querySelectorAll('.year-tiles[data-kind="worth"] [data-year="' + py + '"]'), function (t) { if (t.scrollIntoView) t.scrollIntoView({ block: "nearest", inline: "nearest" }); });
     } else if (act === "add-prior-income-year") {
       /* v37.5.59.65 (owner): one tap adds the year before the earliest column. No picker, no confirm. */
       var piyBook = ensureAnnualStatement(), piyHave = annualYearList(piyBook);
@@ -19002,6 +19034,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           if (exBox && line.vehicle) line.excludeFromNw = !!exBox.checked;
           line.name = (data.name || line.name).replace(/^\s+|\s+$/g, "") || line.name;
           line.amounts[state.worthYear] = clampMoney(Number(data.amount) || 0);
+          if (state.worth.blankYears) delete state.worth.blankYears[state.worthYear];
           if (line.kind === "liability") {
             line.loanBalance = line.amounts[state.worthYear];
             if (Object.prototype.hasOwnProperty.call(data, "loanApr")) line.loanApr = Number(data.loanApr) || 0;
