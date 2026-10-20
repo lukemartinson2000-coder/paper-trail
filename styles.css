@@ -4807,3 +4807,8 @@ body.no-banner .phone { margin-top: 0; }
 .nw-line-table th:first-child{text-align:left}
 .nw-line-table thead th{color:var(--muted);font-weight:600}
 .dash-proj-label{margin-top:20px}
+/* v37.5.59.68: grid polish — Done readable in light/dark, wider edit box and name column */
+.sg-bar .sg-bar-btn:not(.ghost){background:var(--moss);border-color:var(--moss);color:#fff}
+.sg-grid td.editing input{width:132px}
+.sg-grid .sg-name{min-width:146px;max-width:146px}
+.sg-grid tr > :last-child{padding-right:16px}

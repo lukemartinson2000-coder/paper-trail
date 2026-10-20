@@ -4754,7 +4754,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         dashTaxRowsHtml(ty) + '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' +
         '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
     }
-    // 8 v37.5.59.67: Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
+    // 8 v37.5.59.68: Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
     html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml();
     var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
     if (pw || pi) {
@@ -9029,7 +9029,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var gp = basis.grossPay;
       var er = roundCents((basis.total.er401 || 0) + (basis.total.er401Base || 0));
       var extra = (Number(side) || 0) + (Number(other) || 0);
-      /* v37.5.59.67: a number typed on the Income statement grid wins over the stub for salary, bonus and employer 401k. */
+      /* v37.5.59.68: a number typed on the Income statement grid wins over the stub for salary, bonus and employer 401k. */
       var TY = row._typed || {};
       if ((TY.salary && row.salary != null) || (TY.bonus && row.bonus != null) || (TY.match && row.match != null)) {
         var tSal = TY.salary && row.salary != null ? row.salary : roundCents(gp.basePay);
@@ -9519,7 +9519,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return touched;
   }
 
-  /* ===== v37.5.59.67 (owner): statement grids for Net worth and Income statement. =====
+  /* ===== v37.5.59.68 (owner): statement grids for Net worth and Income statement. =====
    * Years are columns (newest right, opens scrolled to newest; + at the left adds the prior year). Every amount
    * cell is tap-to-edit inline with cash-register cents; a bar shows "Line · Year" with Next (down the column) and Done.
    * Whole dollars on screen. Blank years show —. Calculated rows are read-only with a ? for the formula. */
@@ -15136,7 +15136,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.67";
+  var APP_VERSION = "37.5.59.68";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
