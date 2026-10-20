@@ -9922,10 +9922,76 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else wrap.scrollLeft = wrap.scrollWidth;
       if (!wrap.dataset.sgBound) {
         wrap.dataset.sgBound = "1";
-        wrap.addEventListener("scroll", function () { sgLeft[k] = wrap.scrollLeft; }, { passive: true });
+        wrap.addEventListener("scroll", function () { sgLeft[k] = wrap.scrollLeft; sgFloatSync(wrap); }, { passive: true });
       }
+      sgFloatBuild(wrap);
     });
+    sgFloatAll();
   }
+  /* v37.5.59.72: frozen year header. The grid scrolls sideways in .sg-wrap (overflow-x), and an overflow
+   * box becomes the sticky container for its thead, so the header could never stick to the page's vertical
+   * scroll (#screen). Fix: a clone of the header row in a sticky, zero-height strip just above the grid,
+   * shown once the real header leaves the top, kept in sync with the grid's horizontal scroll. */
+  function sgFloatBuild(wrap) {
+    var old = wrap.previousElementSibling;
+    if (old && old.classList.contains("sg-float")) old.remove();
+    var table = wrap.querySelector("table.sg-grid"), thead = table && table.querySelector("thead");
+    if (!thead) return;
+    var fl = document.createElement("div");
+    fl.className = "sg-float";
+    fl.setAttribute("aria-hidden", "true");
+    var inner = document.createElement("div");
+    inner.className = "sg-float-in";
+    var t2 = document.createElement("table");
+    t2.className = table.className;
+    t2.appendChild(thead.cloneNode(true));
+    inner.appendChild(t2);
+    fl.appendChild(inner);
+    wrap.parentNode.insertBefore(fl, wrap);
+    [].forEach.call(t2.querySelectorAll("[id]"), function (n) { n.removeAttribute("id"); });
+    [].forEach.call(t2.querySelectorAll("button"), function (n) { n.setAttribute("tabindex", "-1"); });
+    sgFloatSize(wrap);
+  }
+  function sgFloatSize(wrap) {
+    var fl = wrap.previousElementSibling;
+    if (!fl || !fl.classList.contains("sg-float")) return;
+    var src = wrap.querySelectorAll("thead th"), dst = fl.querySelectorAll("thead th");
+    var t1 = wrap.querySelector("table.sg-grid"), t2 = fl.querySelector("table");
+    t2.style.width = t1.offsetWidth + "px";
+    for (var i = 0; i < src.length && i < dst.length; i++) {
+      var w = src[i].getBoundingClientRect().width + "px";
+      dst[i].style.width = w; dst[i].style.minWidth = w; dst[i].style.maxWidth = w;
+    }
+    var inner = fl.firstChild;
+    inner.style.width = wrap.clientWidth + "px";
+    sgFloatSync(wrap);
+  }
+  function sgFloatSync(wrap) {
+    var fl = wrap.previousElementSibling;
+    if (!fl || !fl.classList.contains("sg-float")) return;
+    fl.firstChild.scrollLeft = wrap.scrollLeft;
+    var screen = document.getElementById("screen"), head = wrap.querySelector("thead");
+    if (!screen || !head) return;
+    var top = fl.getBoundingClientRect().top;
+    var hr = head.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    var show = hr.top < top - 0.5 && wr.bottom > top + hr.height + 8;
+    fl.classList.toggle("on", show);
+  }
+  function sgFloatAll() {
+    [].forEach.call(document.querySelectorAll("#screen .sg-wrap"), sgFloatSync);
+  }
+  (function () {
+    var bound = false;
+    function bind() {
+      var sc = document.getElementById("screen");
+      if (!sc || bound) return;
+      bound = true;
+      sc.addEventListener("scroll", sgFloatAll, { passive: true });
+      window.addEventListener("scroll", sgFloatAll, { passive: true });
+      window.addEventListener("resize", function () { [].forEach.call(document.querySelectorAll("#screen .sg-wrap"), sgFloatSize); });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind); else bind();
+  })();
   document.addEventListener("click", function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
@@ -15271,7 +15337,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.71";
+  var APP_VERSION = "37.5.59.72";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

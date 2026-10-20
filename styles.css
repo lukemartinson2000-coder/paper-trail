@@ -4817,3 +4817,12 @@ body.no-banner .phone { margin-top: 0; }
 .dash-buy-src .help-q{width:20px;height:20px;font-size:11px}
 .goal-src-field > span{display:flex;align-items:center;gap:6px}
 .goal-suggest{margin-top:4px}
+/* v37.5.59.72: frozen year header for statement grids */
+.sg-float{position:sticky;top:-8px;height:0;z-index:7;margin:0 -16px}
+.sg-float-in{position:absolute;left:0;top:0;overflow:hidden;visibility:hidden;pointer-events:none;background:var(--paper);box-shadow:0 6px 10px -8px rgba(0,0,0,.35)}
+.sg-float.on .sg-float-in{visibility:visible;pointer-events:auto}
+.sg-float table{border-collapse:separate;border-spacing:0;table-layout:fixed}
+/* v37.5.59.72: #screen has no side padding here, so the grid, its frozen header and edit bar sit flush (were 16px off the left edge) */
+.sg-wrap{margin-left:0;margin-right:0}
+.sg-float{margin-left:0;margin-right:0}
+.sg-bar{margin-left:0;margin-right:0}
