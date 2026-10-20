@@ -4690,7 +4690,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             ' <span class="caption">' + esc(nw.label) + "</span></p>") +
         '<button type="button" class="dash-go" data-act="stats-door" data-door="worth">Net worth ›</button>';
     } else html += '<p class="caption">Add your accounts to see net worth.</p><button type="button" class="dash-go" data-act="stats-door" data-door="worth">Start your net worth ›</button>';
-    html += "</section>" + dashTrendHtml();
+    html += "</section>";
     // 2
     var inc = dashIncome();
     html += '<section class="dash-card dash-inc" id="dash-inc"><p class="dash-k">Income ' + (inc ? inc.year : currentYearMonth().year) + " · estimated full year</p>";
@@ -4754,7 +4754,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         dashTaxRowsHtml(ty) + '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' +
         '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
     }
-    // 8
+    // 8 v37.5.59.67: Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
+    html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml();
     var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
     if (pw || pi) {
       var last = pw ? pw.rows[pw.rows.length - 1] : pi.rows[pi.rows.length - 1];
@@ -4764,6 +4765,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (dashEstOpen ? '<div class="dash-est-body">' + (pw ? '<p class="dash-k">Net worth</p>' + estimatedSectionHtml("worth") : "") + (pi ? '<p class="dash-k">Income</p>' + estimatedSectionHtml("income") : "") + "</div>" : "") +
         "</section>";
     }
+    if (worthHasData()) { try { html += taxTriangleHtml({ paycheckStrip: false, context: "worth" }).replace('<p class="section-label">Tax triangle</p>', ""); } catch (e) {} }
     // 9
     html += backupNudgeHtml();
     return html + "</div>";
@@ -8531,6 +8533,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var row = {};
     ANNUAL_FIELDS.forEach(function (id) { row[id] = annualNumber(raw[id]); });
     ANNUAL_TAX_PART_FIELDS.forEach(function (id) { row[id] = annualNumber(raw[id]); });
+    ["dedRetire", "dedHealth", "dedOther"].forEach(function (id) { row[id] = annualNumber(raw[id]); });
+    row._typed = raw._typed && typeof raw._typed === "object" ? raw._typed : null;
     /* Prefer the current match field. Fall back to the old key only when match is blank, so it is not added twice. */
     if (row.match == null) row.match = annualLegacyMatch(raw);
     row.federalBracket = annualBracketRate(raw.federalBracket);
@@ -8754,8 +8758,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var t = incomeTargetFor(year);
     var sync = compSyncValues(year);
-    Object.keys(sync).forEach(function (id) { set(id, sync[id]); });
-    if (t.salaryTarget) set("salary", t.salaryTarget);
+    var typedNow = row._typed || {};
+    Object.keys(sync).forEach(function (id) { if (!typedNow[id]) set(id, sync[id]); });
+    if (t.salaryTarget && !typedNow.salary) set("salary", t.salaryTarget);
     return out;
   }
 
@@ -9024,6 +9029,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var gp = basis.grossPay;
       var er = roundCents((basis.total.er401 || 0) + (basis.total.er401Base || 0));
       var extra = (Number(side) || 0) + (Number(other) || 0);
+      /* v37.5.59.67: a number typed on the Income statement grid wins over the stub for salary, bonus and employer 401k. */
+      var TY = row._typed || {};
+      if ((TY.salary && row.salary != null) || (TY.bonus && row.bonus != null) || (TY.match && row.match != null)) {
+        var tSal = TY.salary && row.salary != null ? row.salary : roundCents(gp.basePay);
+        var tBon = TY.bonus && row.bonus != null ? row.bonus : (gp.bonusTotal > 0 ? roundCents(gp.bonusTotal) : null);
+        var tEr = TY.match && row.match != null ? row.match : (er > 0 ? er : null);
+        var tGross = roundCents(tSal + (tBon || 0));
+        return {
+          source: "stubs", basis: basis, grossPay: tGross, salary: tSal, bonus: tBon, sideGig: side, other: other,
+          match: tEr, matchOnly: roundCents(basis.total.er401 || 0), matchBase: roundCents(basis.total.er401Base || 0),
+          taxedIncome: roundCents(tGross + extra), total: roundCents(tGross + extra + (tEr || 0))
+        };
+      }
       return {
         source: "stubs", basis: basis,
         grossPay: roundCents(gp.total),
@@ -9501,6 +9519,311 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return touched;
   }
 
+  /* ===== v37.5.59.67 (owner): statement grids for Net worth and Income statement. =====
+   * Years are columns (newest right, opens scrolled to newest; + at the left adds the prior year). Every amount
+   * cell is tap-to-edit inline with cash-register cents; a bar shows "Line · Year" with Next (down the column) and Done.
+   * Whole dollars on screen. Blank years show —. Calculated rows are read-only with a ? for the formula. */
+  var sgEdit = null;            // { kind, key, year, label }
+  var sgPendingScroll = null;   // { kind, year } after +
+  var sgLeft = {};              // remembered horizontal scroll per grid
+  function sgWhole(n) { return n == null || !isFinite(n) ? "—" : moneyWhole(n); }
+  function sgHead(kind, years, selected, plusAct, canAdd, corner) {
+    var cy = new Date().getFullYear();
+    return '<thead><tr><th class="sg-name" scope="col">' + esc(corner) + '</th><th class="sg-add">' +
+      (canAdd ? '<button class="year-add-prior" type="button" data-act="' + plusAct + '" aria-label="Add a prior year">+</button>' : "") + "</th>" +
+      years.map(function (y) {
+        return '<th scope="col" class="sg-y' + (y === selected ? " on" : "") + '" data-year="' + y + '">' + y + (y === cy ? "<small>so far</small>" : "") + "</th>";
+      }).join("") + "</tr></thead>";
+  }
+  function sgCell(kind, key, year, value, opts) {
+    opts = opts || {};
+    var cls = "sg-amt" + (value == null ? " blank" : "") + (opts.cls ? " " + opts.cls : "") + (opts.on ? " on" : "");
+    var txt = opts.text != null ? opts.text : sgWhole(value);
+    if (opts.calc) return '<td class="' + cls + ' calc">' + txt + "</td>";
+    return '<td class="' + cls + '" role="button" tabindex="0" data-sg="' + kind + '" data-key="' + esc(key) + '" data-year="' + year +
+      '" data-v="' + (value == null ? "" : value) + '" data-label="' + esc(opts.label || key) + '" aria-label="Edit ' + esc(opts.label || key) + " " + year + '">' +
+      txt + (opts.typed ? '<i class="sg-typed">typed</i>' : "") + "</td>";
+  }
+  function sgRow(name, years, cellFn, rowCls, nameHtml) {
+    return '<tr class="' + (rowCls || "") + '"><th scope="row" class="sg-name">' + (nameHtml || esc(name)) + '</th><td class="sg-add"></td>' +
+      years.map(cellFn).join("") + "</tr>";
+  }
+  function sgGroup(title, years) {
+    return '<tr class="sg-grp"><th scope="row" class="sg-name">' + esc(title) + '</th><td class="sg-add"></td>' + years.map(function () { return "<td></td>"; }).join("") + "</tr>";
+  }
+  function sgBar() {
+    return '<div class="sg-bar" id="sg-bar" hidden><span class="sg-bar-k" id="sg-bar-k"></span>' +
+      '<button type="button" class="sg-bar-btn ghost" data-sgbar="clear" hidden>Clear</button>' +
+      '<button type="button" class="sg-bar-btn ghost" data-sgbar="next">Next</button>' +
+      '<button type="button" class="sg-bar-btn" data-sgbar="done">Done</button></div>';
+  }
+
+  /* ---- Net worth grid ---- */
+  function renderWorthGrid(years) {
+    var cy = new Date().getFullYear();
+    var filled = worthFilledYears(years);
+    var lastFilled = filled.length ? filled[filled.length - 1] : years[years.length - 1];
+    var sel = years.indexOf(Number(state.worthYear)) >= 0 ? Number(state.worthYear) : lastFilled;
+    var lines = state.worth.lines || [];
+    var assets = lines.filter(function (l) { return l.kind !== "liability"; });
+    var liabs = lines.filter(function (l) { return l.kind === "liability"; });
+    var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
+    function lineRow(l) {
+      var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
+      var nameBtn = '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button>";
+      return sgRow(l.name, years, function (y) {
+        var blank = worthBlank(y);
+        return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "" });
+      }, nwLeftOut(l) ? "sg-left-out" : "", nameBtn);
+    }
+    var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
+      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap a line’s name for its year-over-year change, 401k match and returns.") + "</div>";
+    if (!lines.length) {
+      html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
+    }
+    html += vehicleDupHtml(lastFilled) +
+      '<div class="sg-wrap" data-sgk="nw"><table class="sg-grid">' + sgHead("nw", years, sel, "add-prior-year", canAdd, "Year-end") + "<tbody>";
+    if (assets.length) {
+      html += sgGroup("Assets", years);
+      assets.forEach(function (l) { html += lineRow(l); });
+      html += sgRow("Total assets", years, function (y) { return sgCell("nw", "", y, worthBlank(y) ? null : worthTotals(y).assets, { calc: true, on: y === sel }); }, "sg-sub");
+    }
+    if (liabs.length) {
+      html += sgGroup("Liabilities", years);
+      liabs.forEach(function (l) { html += lineRow(l); });
+      html += sgRow("Total liabilities", years, function (y) { return sgCell("nw", "", y, worthBlank(y) ? null : worthTotals(y).liabilities, { calc: true, on: y === sel }); }, "sg-sub");
+    }
+    html += sgRow("Net worth", years, function (y) {
+      var v = worthBlank(y) ? null : worthTotals(y).equity;
+      return sgCell("nw", "", y, v, { calc: true, on: y === sel, cls: v != null && v < 0 ? "neg" : "" });
+    }, "sg-total");
+    html += sgRow("Change", years, function (y) {
+      if (worthBlank(y)) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
+      var prev = filled.filter(function (p) { return p < y; }).pop();
+      if (prev == null) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
+      var p = worthTotals(prev).equity, c = worthTotals(y).equity;
+      var t = p > 0 ? ((c - p) >= 0 ? "+" : "−") + pctWhole(Math.abs((c - p) / p)) : signedWhole(Math.round(c - p));
+      return sgCell("nw", "", y, c - p, { calc: true, text: t, on: y === sel, cls: c - p < 0 ? "neg" : "" });
+    }, "sg-ratio", 'Change ' + helpQ("Change = (this year − the prior filled year) ÷ the prior year. Shown in dollars when the prior year was $0 or less. Blank years are skipped."));
+    html += "</tbody></table></div>" + sgBar() +
+      '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
+      '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button></div>' +
+      '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on Dashboard → Projections.</p></div>';
+    return html;
+  }
+  function openNwLineSheet(id) {
+    var line = (state.worth.lines || []).filter(function (l) { return l.id === id; })[0];
+    if (!line) return;
+    var years = worthFilledYears((state.worth.years || []).slice().sort(function (a, b) { return a - b; }));
+    var contrib = tracksContributions(line);
+    var rows = years.map(function (y, i) {
+      var cur = lineAmount(line, y), prior = i ? lineAmount(line, years[i - 1]) : null;
+      var yoy = prior == null ? "—" : prior > 0 ? ((cur - prior) >= 0 ? "+" : "−") + pctWhole(Math.abs((cur - prior) / prior)) : signedWhole(Math.round(cur - prior));
+      var r = "<tr><th>" + y + '</th><td class="mono">' + moneyWhole(cur) + '</td><td class="mono">' + yoy + "</td>";
+      if (contrib) {
+        var add = lineAddition(line, y), m = is401k(line) ? lineEmployerMatch(line, y) + lineEmployerBase(line, y) : 0;
+        var ret = prior == null ? null : annualReturn(cur, prior, treatedAdditions(line, y, true));
+        r += '<td class="mono">' + moneyWhole(add) + "</td>" + (is401k(line) ? '<td class="mono">' + moneyWhole(m) + "</td>" : "") +
+          '<td class="mono">' + (ret == null ? "—" : pctWhole(ret)) + "</td>";
+      }
+      return r + "</tr>";
+    }).reverse().join("");
+    var head = "<tr><th>Year</th><th>Balance</th><th>Change</th>" + (contrib ? "<th>Added</th>" + (is401k(line) ? "<th>Match</th>" : "") + "<th>Return</th>" : "") + "</tr>";
+    captureModalReturnScreenTop();
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet nw-line-sheet"><h3>' + esc(line.name) + "</h3>" +
+      vehicleDupHtml(years[years.length - 1], line.vehicle ? line.id : undefined) +
+      '<div class="nw-line-scroll"><table class="nw-line-table"><thead>' + head + "</thead><tbody>" + rows + "</tbody></table></div>" +
+      '<p class="caption">' + (contrib ? "Return = (balance − prior balance − amounts added) ÷ prior balance; employer money counts as growth. " : "") +
+      "Edit balances by tapping them on the Net worth grid.</p>" +
+      '<div class="sheet-actions"><button type="button" data-act="close-modal">Close</button>' +
+      '<button class="primary" type="button" data-act="edit-line" data-id="' + esc(line.id) + '">Edit line</button></div></div>';
+    armSheetA11y(modal);
+  }
+
+  /* ---- Income statement grid ---- */
+  var ANNUAL_DED_FIELDS = ["dedRetire", "dedHealth", "dedOther"];
+  function sgBudgetSaved(year) {
+    var t = new Date(), any = false, sum = 0;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var rec = state.months[k];
+      if (!rec || Number(rec.year) !== Number(year)) return;
+      if (Number(year) === t.getFullYear() && Number(rec.month) > t.getMonth() + 1) return;
+      var env = gm().savingsEnvelopeTotal(rec.categories || []).total;
+      var inc = (rec.incomes || []).some(function (i) { return Number(i.amount) > 0; });
+      if (env > 0 || inc) { any = true; sum += env; }
+    });
+    return any ? roundCents(sum) : null;
+  }
+  function renderIncomeGrid(book, years) {
+    var cy = new Date().getFullYear();
+    var sel = years.indexOf(Number(state.incomeYear)) >= 0 ? Number(state.incomeYear) : (years.indexOf(cy) >= 0 ? cy : years[years.length - 1]);
+    var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
+    var D = {};
+    years.forEach(function (y) {
+      var raw = book.years[String(y)] || {};
+      var row = annualRow(raw), inc = annualIncomeParts(row, y), est = annualTaxEstimateParts(y), T = raw._typed || {};
+      var taxes = annualTaxesAmount(row, y), ded = null;
+      ANNUAL_DED_FIELDS.forEach(function (f) { if (row[f] != null) ded = (ded || 0) + row[f]; });
+      var takeHome = inc.taxedIncome == null || taxes == null ? null : roundCents(inc.taxedIncome - taxes - (ded || 0));
+      var saved = sgBudgetSaved(y), savedFrom = "budget";
+      var m = annualMetrics(row, y);
+      if (saved == null && m.ocf != null) { saved = m.ocf; savedFrom = "statement"; }
+      D[y] = { row: row, inc: inc, est: est, T: T, taxes: taxes, ded: ded, takeHome: takeHome, saved: saved, savedFrom: savedFrom, avgTax: m.avgTax, legacyRate: m.savings, stub: inc.source === "stubs" };
+    });
+    function edit(key, label, valFn, typedFn) {
+      return function (y) { var d = D[y]; return sgCell("is", key, y, valFn(d), { label: label, on: y === sel, typed: typedFn ? typedFn(d) : false }); };
+    }
+    function calc(valFn, textFn, clsFn) {
+      return function (y) { var v = valFn(D[y]); return sgCell("is", "", y, v, { calc: true, on: y === sel, text: textFn ? textFn(v) : null, cls: clsFn ? clsFn(v) : "" }); };
+    }
+    function pct(v) { return v == null ? "—" : pctWhole(v); }
+    var html = '<div class="sg-pass">' + statsSegmentHtml("statement") +
+      '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.") + "</div>" +
+      payFreqMismatchHtml() + annualStubBasisHtml(sel) +
+      '<div class="sg-wrap" data-sgk="is"><table class="sg-grid">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
+    html += sgRow("Salary", years, edit("salary", "Salary", function (d) { return d.inc.salary; }, function (d) { return d.stub && d.T.salary; }));
+    html += sgRow("Bonus", years, edit("bonus", "Bonus", function (d) { return d.inc.bonus; }, function (d) { return d.stub && d.T.bonus; }));
+    html += sgRow("Side gig", years, edit("sideGig", "Side gig", function (d) { return d.row.sideGig; }));
+    html += sgRow("Other", years, edit("other", "Other income", function (d) { return d.row.other; }));
+    html += sgRow("Employer 401k", years, edit("match", "Employer 401k", function (d) { return d.inc.match; }, function (d) { return d.stub && d.T.match; }));
+    html += sgRow("Total income", years, calc(function (d) { return d.inc.total; }), "sg-sub", "Total income " + helpQ("Total income = salary + bonus + side gig + other + employer 401k. In a year with a pay stub, salary and bonus come from the stub (year-to-date plus the checks still ahead) unless you typed your own."));
+    html += sgGroup("Taxes", years);
+    [["taxFederal", "Federal"], ["taxState", "State"], ["taxFica", "FICA"], ["taxOther", "Other"]].forEach(function (t) {
+      html += sgRow(t[1], years, edit(t[0], t[1] + " tax", function (d) { return d.row[t[0]] != null ? d.row[t[0]] : (d.est && d.est[t[0]] != null ? d.est[t[0]] : null); },
+        function (d) { return d.row[t[0]] != null && d.est && d.est[t[0]] != null; }));
+    });
+    html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here."));
+    html += sgGroup("Deductions", years);
+    html += sgRow("401k (pre-tax)", years, edit("dedRetire", "401k (pre-tax)", function (d) { return d.row.dedRetire; }));
+    html += sgRow("Health", years, edit("dedHealth", "Health insurance", function (d) { return d.row.dedHealth; }));
+    html += sgRow("Other", years, edit("dedOther", "Other deductions", function (d) { return d.row.dedOther; }));
+    html += sgRow("Total deductions", years, calc(function (d) { return d.ded; }), "sg-sub");
+    html += sgRow("Take-home", years, calc(function (d) { return d.takeHome; }), "sg-total", "Take-home " + helpQ("Take-home = (salary + bonus + side gig + other) − total taxes − total deductions. Employer 401k isn’t pay you take home, so it’s left out."));
+    html += sgRow("Saved", years, calc(function (d) { return d.saved; }), "", "Saved " + helpQ("Saved = what you put in savings envelopes on Budget that year (months after today are left out). Years with no budget use your statement: total income − taxes − operating expenses."));
+    html += sgRow("Savings rate", years, calc(function (d) { return d.saved != null && d.takeHome > 0 ? d.saved / d.takeHome : (d.savedFrom === "statement" ? d.legacyRate : null); }, pct), "sg-ratio",
+      "Savings rate " + helpQ("Savings rate = Saved ÷ Take-home. For years without a budget it’s operating cash flow ÷ total income, as before."));
+    html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
+    var filing = annualFilingStatus(book);
+    html += "</tbody></table></div>" + sgBar() +
+      '<section class="card sg-stub"><p class="pay-card-title">Pay stub &amp; pay details</p><p class="caption">Import a pay stub and this year fills in from it. Typed cells win. Salary can follow the stub or be set by hand (Stub / Manual) in Pay details.</p>' +
+      '<button class="planner-apply" type="button" data-act="open-income-statement">Pay details</button></section>' +
+      '<label class="field annual-filing">Filing status<select data-act="annual-filing">' +
+      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
+      '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
+      '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option></select></label></div>";
+    return html;
+  }
+
+  /* ---- inline editing ---- */
+  function sgCommitValue(ed, value) {
+    if (!ed) return;
+    if (ed.kind === "nw") {
+      var line = (state.worth.lines || []).filter(function (l) { return l.id === ed.key; })[0];
+      if (!line) return;
+      if (!line.amounts) line.amounts = {};
+      line.amounts[ed.year] = clampMoney(value == null ? 0 : value);
+      if (state.worth.blankYears) delete state.worth.blankYears[ed.year];
+    } else {
+      var book = ensureAnnualStatement();
+      var raw = book.years[String(ed.year)] || (book.years[String(ed.year)] = {});
+      raw[ed.key] = value == null ? null : roundCents(value);
+      if (["salary", "bonus", "match"].indexOf(ed.key) >= 0) {
+        raw._typed = raw._typed || {};
+        if (value == null) delete raw._typed[ed.key]; else raw._typed[ed.key] = true;
+      }
+      payStubBasisCache = {};
+    }
+    saveState();
+  }
+  function sgOpen(td) {
+    var wrap = td.closest(".sg-wrap");
+    sgEdit = { kind: td.getAttribute("data-sg"), key: td.getAttribute("data-key"), year: Number(td.getAttribute("data-year")), label: td.getAttribute("data-label") };
+    var v = td.getAttribute("data-v");
+    td.classList.add("editing");
+    td.innerHTML = '<input class="cents-input sg-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : money(Number(v))) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">';
+    bindMoneyInputs(td);
+    var bar = document.getElementById("sg-bar");
+    if (bar) {
+      bar.hidden = false;
+      document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
+      bar.querySelector('[data-sgbar="clear"]').hidden = sgEdit.kind !== "is";
+    }
+    var input = td.querySelector("input");
+    input.focus();
+    try { input.select(); } catch (e) {}
+    if (wrap) {
+      var a = td.getBoundingClientRect(), w = wrap.getBoundingClientRect(), nameW = (wrap.querySelector(".sg-name") || {}).offsetWidth || 0;
+      if (a.left < w.left + nameW) wrap.scrollLeft -= (w.left + nameW - a.left) + 8;
+      else if (a.right > w.right) wrap.scrollLeft += a.right - w.right + 8;
+    }
+  }
+  function sgFinish(mode) {
+    var ed = sgEdit;
+    if (!ed) return;
+    var td = document.querySelector("#screen td.editing");
+    var input = td && td.querySelector("input");
+    var value = mode === "clear" ? null : readOptionalCents(input);
+    sgEdit = null;
+    if (mode !== "cancel") sgCommitValue(ed, value);
+    var wrap = document.querySelector('#screen .sg-wrap[data-sgk="' + ed.kind + '"]');
+    if (wrap) sgLeft[ed.kind] = wrap.scrollLeft;
+    render();
+    if (mode === "next") {
+      var cells = [].slice.call(document.querySelectorAll('#screen td[data-sg="' + ed.kind + '"][data-year="' + ed.year + '"]'));
+      var i = -1;
+      cells.forEach(function (c, j) { if (c.getAttribute("data-key") === ed.key) i = j; });
+      var nx = cells[i + 1];
+      if (nx) sgOpen(nx);
+    }
+  }
+  function sgAfterRender() {
+    [].forEach.call(document.querySelectorAll("#screen .sg-wrap"), function (wrap) {
+      var k = wrap.getAttribute("data-sgk");
+      if (sgPendingScroll && sgPendingScroll.kind === k) {
+        wrap.scrollLeft = 0;
+        sgPendingScroll = null;
+        sgLeft[k] = 0;
+      } else if (sgLeft[k] != null) wrap.scrollLeft = sgLeft[k];
+      else wrap.scrollLeft = wrap.scrollWidth;
+      if (!wrap.dataset.sgBound) {
+        wrap.dataset.sgBound = "1";
+        wrap.addEventListener("scroll", function () { sgLeft[k] = wrap.scrollLeft; }, { passive: true });
+      }
+    });
+  }
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var bb = t.closest("[data-sgbar]");
+    if (bb) { e.preventDefault(); e.stopPropagation(); sgFinish(bb.getAttribute("data-sgbar")); return; }
+    var td = t.closest("#screen td[data-sg]");
+    if (td && td.classList.contains("editing")) return;
+    if (sgEdit && !td && !t.closest("#sg-bar")) { sgFinish("done"); return; }
+    if (!td) return;
+    e.preventDefault(); e.stopPropagation();
+    if (sgEdit) {
+      var key = td.getAttribute("data-key"), yr = td.getAttribute("data-year"), kd = td.getAttribute("data-sg");
+      sgFinish("done");
+      var again = document.querySelector('#screen td[data-sg="' + kd + '"][data-key="' + key + '"][data-year="' + yr + '"]');
+      if (again) sgOpen(again);
+      return;
+    }
+    sgOpen(td);
+  }, true);
+  document.addEventListener("keydown", function (e) {
+    if (!sgEdit || !e.target || !e.target.classList || !e.target.classList.contains("sg-input")) return;
+    if (e.key === "Enter") { e.preventDefault(); sgFinish("done"); }
+    else if (e.key === "Escape") { e.preventDefault(); sgFinish("cancel"); }
+    else if (e.key === "Tab") { e.preventDefault(); sgFinish("next"); }
+  }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var td = e.target && e.target.closest && e.target.closest("#screen td[data-sg]");
+    if (td && !td.classList.contains("editing")) { e.preventDefault(); sgOpen(td); }
+  });
+
   function renderAnnualStatement() {
     var book = ensureAnnualStatement();
     var nowYear = currentYearMonth().year;
@@ -9540,6 +9863,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<button class="primary" type="button" data-act="add-annual-year">Add ' + currentYearMonth().year + "</button>" +
         "</div></div>";
     }
+    return renderIncomeGrid(book, years);
     /* v37.5.53: same opening as net worth — year, enlarged income total, then the yearly columns.
        Salary and savings rate sit in that summary. Income is annualTotal, which already includes 401k match once. */
     var summaryRow = syncedAnnualRow(annualRow(book.years[String(highlight)]), highlight);
@@ -9815,6 +10139,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function renderWorth() {
     var years = state.worth.years.slice().sort(function (a, b) { return a - b; });
+    if (years.length) return renderWorthGrid(years);
     if (state.worthDetails) return renderWorthDetails(years);
     var shell = statsSegmentHtml("worth");
     if (!years.length) {
@@ -14811,7 +15136,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.66";
+  var APP_VERSION = "37.5.59.67";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -16622,6 +16947,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     }
     lastPaintKey = key;
+    sgAfterRender();
     requestAnimationFrame(function () {
       var scroller = document.querySelector("#screen .annual-scroll");
       var current = scroller && scroller.querySelector("th.is-current, th .is-current");
@@ -18299,7 +18625,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       closeModal();
       render();
       openAnnualYear(clrYear);
+    } else if (act === "nw-line-sheet") {
+      openNwLineSheet(actEl.getAttribute("data-id"));
     } else if (act === "add-prior-year") {
+      sgPendingScroll = { kind: "nw" };
       /* v37.5.59.66 (owner): one tap adds the year before the earliest column. No sheet, picker or confirm. */
       var wys = state.worth.years || (state.worth.years = []);
       var py = wys.length ? Math.min.apply(null, wys) - 1 : new Date().getFullYear();
@@ -18324,6 +18653,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
       [].forEach.call(document.querySelectorAll('.year-tiles[data-kind="worth"] [data-year="' + py + '"]'), function (t) { if (t.scrollIntoView) t.scrollIntoView({ block: "nearest", inline: "nearest" }); });
     } else if (act === "add-prior-income-year") {
+      sgPendingScroll = { kind: "is" };
       /* v37.5.59.65 (owner): one tap adds the year before the earliest column. No picker, no confirm. */
       var piyBook = ensureAnnualStatement(), piyHave = annualYearList(piyBook);
       var piyNew = piyHave.length ? Math.min.apply(null, piyHave) - 1 : new Date().getFullYear();
