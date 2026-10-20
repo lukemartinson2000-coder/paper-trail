@@ -11918,7 +11918,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += field("Optional note", "legNote0", (spendDraft.legs[0] && spendDraft.legs[0].note) || "");
         html += '<button class="planner-apply" type="button" data-act="add-split-leg">Split across envelopes</button>';
       } else {
-        // v37.5.59.74: EveryDollar-style split — Total first, then a checklist of envelope lines.
+        // v37.5.59.75: EveryDollar-style split — Total first, then a checklist of envelope lines.
         html += field(kind === "standalone" ? "Refund total" : "Total", "amount", String(spendDraft.amount), "number");
         html += splitChecklistHtml(month, kind);
         html += field("Date", "date", spendDraft.date, "date") +
@@ -11945,7 +11945,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     splitArm();
   }
 
-  /* ---- v37.5.59.74: split checklist ---------------------------------------------------------------
+  /* ---- v37.5.59.75: split checklist ---------------------------------------------------------------
    * Every envelope line grouped by envelope group; check as many as you want, each checked line gets a cents
    * amount. Live Left to split / Over by vs the Total; tapping an empty amount fills what's left; Save stays
    * disabled until the lines add up exactly. All changes are live in the DOM; spendDraft is read on Save. */
@@ -15508,7 +15508,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.74";
+  var APP_VERSION = "37.5.59.75";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
