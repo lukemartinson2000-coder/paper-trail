@@ -959,7 +959,12 @@
     }
   }
 
+  /* v37.5.59.69: display amounts are whole dollars (locked rule). Entry boxes use moneyEntry (cents). */
   function money(n) {
+    return formatMoney(Math.round(Number(n) || 0), 0);
+  }
+
+  function moneyEntry(n) {
     return formatMoney(n, 2);
   }
 
@@ -2239,7 +2244,7 @@
         var v = Number(stub[f[0]]);
         return '<label class="field">' + esc(f[1]) +
           '<input class="cents-input" data-cents="1" data-act="paystub-field" data-field="' + f[0] + '" data-id="' + esc(doc.id) +
-          '" inputmode="decimal" autocomplete="off" type="text" value="' + esc(money(v > 0 ? v : 0)) + '"></label>';
+          '" inputmode="decimal" autocomplete="off" type="text" value="' + esc(moneyEntry(v > 0 ? v : 0)) + '"></label>';
       }).join("") + "</div>";
   }
 
@@ -4719,7 +4724,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (I.ageFromBirthday ? "" : '<label class="dash-in">Your age<input data-dashnum="ageNow" inputmode="numeric" type="text" value="' + esc(I.ageNow == null ? "" : String(I.ageNow)) + '" placeholder="Age"></label>') +
       '<label class="dash-in">Retire at<input data-dashnum="retireAge" inputmode="numeric" type="text" value="' + I.retireAge + '"></label>' +
       '<label class="dash-in dash-in-wide">Yearly spending in retirement (today’s $)<input class="cents-input mono" data-dashmoney="spend" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(I.spend == null ? "" : money(I.spend)) + '" placeholder="Add yearly spending"></label>' +
+      esc(I.spend == null ? "" : moneyEntry(I.spend)) + '" placeholder="Add yearly spending"></label>' +
       dashPctInput("infl", "Inflation", I.infl, I.inflManual) + dashPctInput("ret", "Return", I.ret, I.retManual) + "</div>";
     if (!R.ready) {
       html += '<p class="dash-ask">' + (I.ageNow == null ? "Add your age (or birthday on Profile)" : "") + (I.ageNow == null && I.spend == null ? " and " : "") +
@@ -5194,7 +5199,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<input data-act="vault-field" data-field="' + field + '" data-id="' + esc(docId || "") +
       '" data-cents="1" class="cents-input" name="' +
       esc(vaultControlName(docId, field)) + '" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(Number(value) || 0)) + '"></label>';
+      esc(moneyEntry(Number(value) || 0)) + '"></label>';
   }
 
   function vaultRateField(label, field, value, docId) {
@@ -5536,7 +5541,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="foo-worst-deductible">' +
       '<label class="field">Worst-case / highest deductible' +
       '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="highestDeductible" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(foo.highestDeductible)) + '"></label>' +
+      esc(moneyEntry(foo.highestDeductible)) + '"></label>' +
       '<p class="caption">The largest insurance deductible — not your emergency fund.</p></div>';
   }
 
@@ -6102,7 +6107,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<section class="card insight-card" id="payoff-card"><p class="kicker">Payoff</p>' +
       '<label class="field extra-field">Extra $ / mo' +
       '<input class="cents-input" data-dollars="1" data-act="payoff-extra" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(extra)) + '"></label>' +
+      esc(moneyEntry(extra)) + '"></label>' +
       '<div id="payoff-results">' + payoffResultsHtml(loans, extra) + "</div>" +
       '<p class="caption">Estimate — not advice.</p></section>';
     return html;
@@ -7642,7 +7647,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += fooStep(1, "Deductibles covered",
         '<label class="field">Amount' +
         '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="deductibles" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(money(foo.deductibles || 0)) + '"></label>' +
+        esc(moneyEntry(foo.deductibles || 0)) + '"></label>' +
         highestDeductibleNoteHtml(foo),
         statuses[1]);
     }
@@ -7700,7 +7705,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (foo.emergencyFunded ? " checked" : "") + "> Fully funded</label>" +
       '<label class="field">On hand $' +
       '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="emergencyAmount" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(foo.emergencyAmount || 0)) + '"></label>';
+      esc(moneyEntry(foo.emergencyAmount || 0)) + '"></label>';
     if (burn > 0) {
       var three = burn * 3;
       var six = burn * 6;
@@ -7728,7 +7733,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (foo.rothOnTrack ? " checked" : "") + "> On track</label>" +
       '<label class="field">This year $' +
       '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="rothAmount" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(foo.rothAmount || 0)) + '"></label>' +
+      esc(moneyEntry(foo.rothAmount || 0)) + '"></label>' +
       '<p class="caption">Tax-free slot — Roth or HSA. Extra-payment math lives on Step 3 only when a loan is listed.</p>',
       statuses[5]);
 
@@ -7778,7 +7783,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<label class="field extra-field">Extra $ / mo' +
         '<input class="cents-input" data-dollars="1" data-act="loan-extra" data-loan="' +
         esc(loan.name) + '" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(money(extra)) + '"></label>';
+        esc(moneyEntry(extra)) + '"></label>';
       html += '<p class="payoff-copy">' + esc(payoffCopyFor(loan, extra)) + "</p>" +
         '<p class="caption">Estimate — not advice.</p>';
     }
@@ -9086,7 +9091,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function annualMoney(n) {
     if (n == null) return "—";
-    // v37.5.59.5 (QA): always show cents so a column never mixes $70,959 with $5,700.03.
+    // v37.5.59.69: whole dollars everywhere on display.
     return money(n);
   }
 
@@ -9742,7 +9747,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     sgEdit = { kind: td.getAttribute("data-sg"), key: td.getAttribute("data-key"), year: Number(td.getAttribute("data-year")), label: td.getAttribute("data-label") };
     var v = td.getAttribute("data-v");
     td.classList.add("editing");
-    td.innerHTML = '<input class="cents-input sg-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : money(Number(v))) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">';
+    td.innerHTML = '<input class="cents-input sg-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : moneyEntry(Number(v))) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">';
     bindMoneyInputs(td);
     var bar = document.getElementById("sg-bar");
     if (bar) {
@@ -10933,7 +10938,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (dest.incomes || []).forEach(function (item) {
         body += '<div class="planner-row"><label>' + esc(item.name) + "</label>" +
           '<input class="cents-input" data-cents="1" data-act="ritual-paycheck" data-id="' + esc(item.id) +
-          '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(money(item.amount)) + '"></div>';
+          '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(moneyEntry(item.amount)) + '"></div>';
       });
       action = '<button class="primary" type="button" data-act="ritual-continue">Continue</button>';
     } else {
@@ -12120,7 +12125,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function moneyRow(label, name, value) {
     return '<div class="planner-row"><label>' + esc(label) + "</label>" +
       '<input name="' + name + '" class="cents-input" data-dollars="1" data-act="comp-field" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(value)) + '"></div>';
+      esc(moneyEntry(value)) + '"></div>';
   }
 
   function incomeSyncSectionHtml() {
@@ -12142,7 +12147,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ? '<input name="' + valueName + '" data-act="comp-field" inputmode="decimal" type="text" placeholder="0" value="' +
         esc(value || "") + '">'
       : '<input name="' + valueName + '" class="cents-input" data-dollars="1" data-act="comp-field" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(money(value)) + '">';
+        esc(moneyEntry(value)) + '">';
     return '<div class="deduct-row">' +
       '<span class="deduct-name">' + esc(label) +
       (valueName.indexOf("401k") >= 0 ? docCueHtml("k401") : "") +
@@ -12172,7 +12177,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return '<input class="cents-input" data-dollars="1" data-act="comp-deduct" data-kind="' + kind +
       '" data-id="' + esc(row.id) + '" data-field="value" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(row.value)) + '">';
+      esc(moneyEntry(row.value)) + '">';
   }
 
   function preTaxRowsHtml(plan, est) {
@@ -12633,7 +12638,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var maxed = kind === "hsa" && r.maxHsa;
       html += '<div class="pc-row pc-manual' + (maxed ? " is-max" : "") + '" data-pc-id="' + esc(r.id) + '">' +
         '<input class="pc-name-in" data-pc="name" data-id="' + esc(r.id) + '" type="text" maxlength="60" placeholder="Name (e.g. Medical insurance)" value="' + esc(r.name) + '" aria-label="Deduction name">' +
-        '<input class="pc-amt-in cents-input mono" data-pc="amount" data-dollars="1" data-id="' + esc(r.id) + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(money(amt)) + '"' + (maxed ? " readonly" : "") + ' aria-label="' + esc(r.name || "Deduction") + ' per check">' +
+        '<input class="pc-amt-in cents-input mono" data-pc="amount" data-dollars="1" data-id="' + esc(r.id) + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(moneyEntry(amt)) + '"' + (maxed ? " readonly" : "") + ' aria-label="' + esc(r.name || "Deduction") + ' per check">' +
         '<div class="pc-tools"><div class="sd-seg" role="group" aria-label="Tax treatment">' +
         '<button type="button" class="' + (r.preTax !== false ? "on" : "") + '" data-pc="pre" data-id="' + esc(r.id) + '" aria-pressed="' + (r.preTax !== false) + '">Pre-tax</button>' +
         '<button type="button" class="' + (r.preTax === false ? "on" : "") + '" data-pc="post" data-id="' + esc(r.id) + '" aria-pressed="' + (r.preTax === false) + '">Post-tax</button></div>' +
@@ -12652,7 +12657,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           '<button type="button" class="' + (er.mode === "stub" ? "on" : "") + '" data-pc="er-stub" data-id="' + rid + '"' + (er.stub ? "" : " disabled") + ' aria-pressed="' + (er.mode === "stub") + '">Stub</button>' +
           '<button type="button" class="' + (er.mode === "manual" ? "on" : "") + '" data-pc="er-manual" data-id="' + rid + '" aria-pressed="' + (er.mode === "manual") + '">Manual</button></div></div>' +
           '<input class="pc-amt-in pc-er-in cents-input mono" data-pc="er-amt" data-dollars="1" data-id="' + rid + '" inputmode="numeric" autocomplete="off" type="text" value="' +
-          esc(money(er.year)) + '"' + (er.mode === "stub" ? " readonly" : "") + ' aria-label="Employer HSA per year">' +
+          esc(moneyEntry(er.year)) + '"' + (er.mode === "stub" ? " readonly" : "") + ' aria-label="Employer HSA per year">' +
           (er.mode === "stub" && er.stub ? '<p class="caption pc-ernote">From your stub: ' + money(er.stub.ytd) + " in so far + " + money(er.stub.ahead) + " still to come.</p>" : "") +
           "</div>";
         html += '<label class="check pc-max"><input type="checkbox" data-pc="maxhsa" data-id="' + rid + '"' + (r.maxHsa ? " checked" : "") + "> Max out HSA</label>";
@@ -12769,7 +12774,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         else html += '<p class="sd-nostub">' + (hasStub ? "No stub data, " : "No pay stub yet, ") + '<button type="button" class="link-btn" data-sd="mode-manual" data-line="' + ln.id + '">switch to Manual</button></p>';
         if (st.v != null) html += '<p class="caption quiet">Your saved Manual value: ' + esc(statedFmt(ln.unit, Number(st.v))) + "</p>";
       } else {
-        var shown = st.v == null ? "" : (ln.unit === "$" ? money(Number(st.v)) : Number(st.v).toFixed(2) + "%");
+        var shown = st.v == null ? "" : (ln.unit === "$" ? moneyEntry(Number(st.v)) : Number(st.v).toFixed(2) + "%");
         html += (ln.unit === "$"
           ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
           : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
@@ -15136,7 +15141,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.68";
+  var APP_VERSION = "37.5.59.69";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -17122,7 +17127,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     };
     var fields = ANNUAL_FIELDS.map(function (id) {
       var value = id === "taxes" ? annualTaxesAmount(row, year) : row[id];
-      var shown = value == null ? "" : money(value);
+      var shown = value == null ? "" : moneyEntry(value);
       var extra = id === "taxes" && (annualHasTaxParts(row) || (annualTaxEstimateParts(year) && row.taxes == null))
         ? ' data-tax-total="1" readonly'
         : (id === "taxes" ? ' data-tax-total="1"' : "");
@@ -17133,7 +17138,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }).join("");
     var taxParts = ANNUAL_TAX_PART_FIELDS.map(function (id) {
       var shownPart = annualTaxPartDisplay(row, id, year);
-      var shown = shownPart.value == null ? "" : money(shownPart.value);
+      var shown = shownPart.value == null ? "" : moneyEntry(shownPart.value);
       var estAttr = shownPart.estimate ? ' data-tax-estimate="1"' : "";
       return '<label class="field annual-tax-part">' + esc(ANNUAL_TAX_PART_LABELS[id]) +
         (shownPart.estimate ? ' <span class="caption">(estimate from pay stub)</span>' : "") +
@@ -17156,7 +17161,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var targetBlock = '<p class="section-label">Year-end salary target</p>' +
       '<label class="field">Projected full-year salary' +
       '<input name="salaryTarget" class="cents-input" data-cents="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" placeholder="—" value="' +
-      esc(tg.salaryTarget ? money(tg.salaryTarget) : "") + '"></label>' +
+      esc(tg.salaryTarget ? moneyEntry(tg.salaryTarget) : "") + '"></label>' +
       '<p class="caption">Optional. With pay stubs, remaining paychecks = (target − salary already paid) ÷ checks left, within IRS limits. Blank means no target.</p>' +
       (tg.salaryTarget ? deleteBtnHtml("clear-salary-target", "Clear year-end target", ' data-year="' + year + '"', true) : "") +
       '<p class="section-label">Notes</p>' +
@@ -17201,7 +17206,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       });
       if (any) {
         totalEl.readOnly = true;
-        totalEl.value = money(roundCents(sum));
+        totalEl.value = moneyEntry(roundCents(sum));
         totalEl.dataset.digits = String(Math.round(roundCents(sum) * 100));
       } else {
         totalEl.readOnly = false;
@@ -17228,7 +17233,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     openSheet(year + " income",
       '<label class="field">Income' +
       '<input name="yearIncome" class="cents-input" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(money(state.worth.income[year] || 0)) + '"></label>' +
+      esc(moneyEntry(state.worth.income[year] || 0)) + '"></label>' +
       '<label class="field">Notes' +
       '<textarea name="notes" rows="5" placeholder="June prior year pay bump to $75k; May this year $87,885 with 20% target bonus.">' +
       esc(state.worth.notes[year] || "") + "</textarea></label>" +
@@ -17346,7 +17351,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }
         el.dataset.digits = next;
         el.dataset.painting = "1";
-        el.value = money(moneyFromDigits(next, asDollars));
+        el.value = moneyEntry(moneyFromDigits(next, asDollars));
         el.dataset.lastPainted = el.value;
         el.dataset.painting = "";
         if (moneyCapWarned || priorWarn) {
@@ -17655,12 +17660,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (type === "dollars") {
       return '<label class="field">' + esc(label) +
         '<input name="' + name + '" class="cents-input" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(money(Number(value) || 0)) + '">' + MONEY_HINT_HTML + '</label>';
+        esc(moneyEntry(Number(value) || 0)) + '">' + MONEY_HINT_HTML + '</label>';
     }
     if (type === "number" || type === "money") {
       return '<label class="field">' + esc(label) +
         '<input name="' + name + '" class="cents-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(money(Number(value) || 0)) + '">' + MONEY_HINT_HTML + '</label>';
+        esc(moneyEntry(Number(value) || 0)) + '">' + MONEY_HINT_HTML + '</label>';
     }
     return '<label class="field">' + esc(label) +
       '<input name="' + name + '" type="' + (type || "text") + '" value="' + esc(value == null ? "" : value) +
