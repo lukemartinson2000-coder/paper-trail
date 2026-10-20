@@ -3651,6 +3651,28 @@
     return state.months[key];
   }
 
+  /* v37.5.59.64: Left to budget, live, where income is planned. Planned paychecks − assigned to envelopes, whole dollars. */
+  function leftToBudgetText(n) {
+    var r = Math.round(n);
+    return r < 0 ? { cls: "rust", label: "Over-assigned by", val: moneyWhole(-r) } : { cls: r > 0 ? "moss" : "ink", label: "Left to budget", val: moneyWhole(r) };
+  }
+  function incomeLeftHtml(month, editingId) {
+    var t = sums(month);
+    var own = 0;
+    (month.incomes || []).forEach(function (i) { if (editingId && i.id === editingId) own = Number(i.amount) || 0; });
+    var base = t.income - own - t.assigned, v = leftToBudgetText(base + own);
+    return '<p class="income-left" id="income-left" data-base="' + base + '" aria-live="polite"><span>' + v.label + '</span> <strong class="mono ' + v.cls + '">' + v.val + "</strong>" +
+      ' <span class="caption">Planned income − assigned to envelopes</span></p>';
+  }
+  function updateIncomeLeft(e) {
+    var t = e.target, box = document.getElementById("income-left");
+    if (!box || !t || t.name !== "amount" || !t.closest || !t.closest("#modal")) return;
+    var v = leftToBudgetText(Number(box.getAttribute("data-base")) + centsFromDigits(t.value));
+    box.firstChild.textContent = v.label;
+    var st = box.querySelector("strong"); st.textContent = v.val; st.className = "mono " + v.cls;
+  }
+  /* Cash-register entry rewrites the value on keydown, so also refresh on keyup / beforeinput. */
+  ["input", "keyup", "change"].forEach(function (n) { document.addEventListener(n, updateIncomeLeft); });
   function sums(month) {
     migrateSubsections(month);
     // income = planned paychecks (left-to-budget stays planned − assigned, EveryDollar style).
@@ -4187,6 +4209,7 @@
         docCueHtml("income") + "</div>";
     });
     html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
+    (function () { var v = leftToBudgetText(totals.leftover); html += '<p class="income-left inline" id="budget-income-left"><span>' + v.label + '</span> <strong class="mono ' + v.cls + '">' + v.val + "</strong></p>"; })();
     html +=
       '<section class="hero">' +
       "<div><p class='kicker'>" + headline + "</p>" +
@@ -10611,7 +10634,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var lineLeft = (Number(line.assigned) || 0) - lineSpent;
       html += '<div class="detail-line">' +
         lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + line.id + '"') +
-        '<div class="caption">Planned ' + money(line.assigned) + " · Spent " + money(lineSpent) + "</div>" +
+        '<div class="caption">Planned <span class="mono detail-amt" role="button" tabindex="0" data-act="edit-line-item" data-focus="assigned" data-id="' + line.id + '" aria-label="Edit ' + esc(line.name) + ' planned amount">' + money(line.assigned) + "</span> · Spent " + money(lineSpent) + "</div>" +
         '<div class="caption ' + (lineLeft < 0 ? "ink" : tone(lineLeft)) + '">' + money(lineLeft) + " remaining</div>" +
         "</div>";
     });
@@ -11986,7 +12009,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var stt = plan.stated || {};
     function srcTag(id) { return (stt[id] && stt[id].mode === "manual") ? "Manual" : "Stub"; }
     var typedCard = '<div class="pay-card"><p class="pay-card-title">Type your pay</p>' +
-      '<p class="caption">Base salary / yr · <strong>' + srcTag("salary") + '</strong></p><p class="pay-card-fig mono">' + esc(money(plan.baseSalary)) + '</p>' +
+      '<p class="caption">Base salary / yr · <strong>' + srcTag("salary") + '</strong></p><p class="pay-card-fig mono" role="button" tabindex="0" data-act="sd-jump" data-focus="salary" aria-label="Edit base salary">' + esc(money(plan.baseSalary)) + '</p>' +
       '<p class="caption">Bonus target · <strong>' + srcTag("bonus") + '</strong> ' + esc(String(plan.bonusTargetPercent || 0)) + '%</p>' +
       '<button class="planner-apply" type="button" data-act="sd-jump">Type or override</button>' +
       '<button class="text-btn pay-year-link" type="button" data-act="edit-annual-year" data-year="' + year + '">Type ' + year + ' income lines</button></div>';
@@ -14779,7 +14802,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.63";
+  var APP_VERSION = "37.5.59.64";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18079,7 +18102,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (act === "backup-now") render();
     } else if (act === "sd-jump") {
       var sdl = document.getElementById("sd-lines");
-      if (sdl) sdl.scrollIntoView({ block: "start" });
+      /* v37.5.59.64: tapping the salary $ focuses the salary amount when it is Manual; else lands on the Salary line. */
+      var sdIn = actEl.getAttribute("data-focus") ? document.getElementById("sd-" + actEl.getAttribute("data-focus")) : null;
+      if (sdIn) { sdIn.scrollIntoView({ block: "center" }); sdIn.focus(); try { sdIn.select(); } catch (e2) {} }
+      else if (sdl) sdl.scrollIntoView({ block: "start" });
     } else if (act === "pf-switch") {
       applyPayFrequency(actEl.getAttribute("data-freq"));
       payStubBasisCache = {};
@@ -18395,14 +18421,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "add-income") {
       openSheet("Add paycheck",
         field("Name", "name", nextPaycheckName(month)) + field("Amount", "amount", "0", "money") +
-        field("Date", "date", isoDate(state.year, state.month, 1), "date"),
+        field("Date", "date", isoDate(state.year, state.month, 1), "date") + incomeLeftHtml(month, ""),
         "save-income");
     } else if (act === "edit-income") {
       var income = month.incomes.filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
       if (!income) return;
       openSheet("Edit income",
         field("Name", "name", income.name) + field("Amount", "amount", String(income.amount), "money") +
-        field("Date", "date", income.date, "date") +
+        field("Date", "date", income.date, "date") + incomeLeftHtml(month, income.id) +
         deleteBtnHtml("delete-income", "Delete " + esc(income.name || "paycheck"), ' data-id="' + esc(income.id) + '"') +
         '<input type="hidden" name="id" value="' + esc(income.id) + '">',
         "save-income");

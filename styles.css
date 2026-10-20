@@ -4745,6 +4745,14 @@ body.no-banner .phone { margin-top: 0; }
 .dash-step .chev{grid-column:2;grid-row:1/span 2;color:var(--muted);font-size:20px}
 .theme-pick{grid-template-columns:repeat(3,1fr)}
 .theme-pick button{min-height:44px}
-.help-q,.add-line,.text-btn,.dash-go,.dash-buy-name,.trend-chip,.line-name,.line-assigned-btn,.mode-toggle button,[data-act=edit-income],.wrap-qbtn{position:relative}
+.help-q,.add-line,.text-btn,.dash-go,.dash-buy-name,.trend-chip,.line-name,.line-assigned-btn,.mode-toggle button,.wrap-qbtn{position:relative}
 .help-q,.add-line{z-index:1}
-.help-q::after,.add-line::after,.text-btn::after,.dash-go::after,.dash-buy-name::after,.trend-chip::after,.line-name::after,.line-assigned-btn::after,.mode-toggle button::after,[data-act=edit-income]::after,.wrap-qbtn::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+.help-q::after,.add-line::after,.text-btn::after,.dash-go::after,.dash-buy-name::after,.trend-chip::after,.line-name::after,.line-assigned-btn::after,.mode-toggle button::after,.wrap-qbtn::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+/* v37.5.59.64: a tappable $ amount always sits above its row's hit area, so tapping it edits the amount. */
+[data-focus]{position:relative;z-index:2}
+[data-focus]::after{content:"";position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+.income-left{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin:12px 0 0;padding:10px 12px;border-radius:10px;background:rgba(127,127,127,.08);font-size:15px}
+.income-left .caption{flex-basis:100%;margin:0}
+.income-left.inline{margin:4px 16px 12px;padding:8px 12px}
+.income-left strong.rust{color:var(--danger)}
+.detail-amt{text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
