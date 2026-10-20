@@ -960,7 +960,14 @@
   }
 
   /* v37.5.59.69: display amounts are whole dollars (locked rule). Entry boxes use moneyEntry (cents). */
+  /* v37.5.59.70: Budget + Transactions tabs (and their sheets) show exact cents; everything else whole dollars.
+   * Display only: stored values are never rounded. Profile / Income statement / Wrapped sheets stay whole. */
+  var moneyWholeModal = false;
+  function moneyCentsScope() {
+    return !moneyWholeModal && typeof state !== "undefined" && state && (state.tab === "budget" || state.tab === "spend");
+  }
   function money(n) {
+    if (moneyCentsScope()) return formatMoney(n, 2);
     return formatMoney(Math.round(Number(n) || 0), 0);
   }
 
@@ -3658,8 +3665,9 @@
 
   /* v37.5.59.64: Left to budget, live, where income is planned. Planned paychecks − assigned to envelopes, whole dollars. */
   function leftToBudgetText(n) {
-    var r = Math.round(n);
-    return r < 0 ? { cls: "rust", label: "Over-assigned by", val: moneyWhole(-r) } : { cls: r > 0 ? "moss" : "ink", label: "Left to budget", val: moneyWhole(r) };
+    /* v37.5.59.70: exact cents on Budget. */
+    var r = Math.round((Number(n) || 0) * 100) / 100;
+    return r < 0 ? { cls: "rust", label: "Over-assigned by", val: formatMoney(-r, 2) } : { cls: r > 0 ? "moss" : "ink", label: "Left to budget", val: formatMoney(r, 2) };
   }
   function incomeLeftHtml(month, editingId) {
     var t = sums(month);
@@ -7478,6 +7486,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
 
   function openWrapped(month) {
+    moneyWholeModal = true;
     wrapMode = "year";
     captureModalReturnScreenTop();
     wrapSlideIndex = 0;
@@ -12945,6 +12954,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function openIncomeStatement(opts) {
+    moneyWholeModal = true;
     opts = opts || {};
     if (!opts.preserveScroll) captureModalReturnScreenTop();
     var ui = opts.preserveScroll ? captureSheetUi() : null;
@@ -13147,6 +13157,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function openProfile(opts) {
+    moneyWholeModal = true;
     opts = opts || {};
     if (!opts.preserveScroll) captureModalReturnScreenTop();
     var ui = opts.preserveScroll ? captureSheetUi() : null;
@@ -15141,7 +15152,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.69";
+  var APP_VERSION = "37.5.59.70";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -17026,6 +17037,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function closeModal() {
+    moneyWholeModal = false;
     ritual = { step: 0, destKey: ritual.destKey };
     var modal = document.getElementById("modal");
     modal.classList.remove("wrap-open");
