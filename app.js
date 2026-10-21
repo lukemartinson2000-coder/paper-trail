@@ -4364,6 +4364,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '</div><span class="caption">' + caption + "</span></div>" + amountHtml + "</div></button></div>";
   }
 
+  /* v37.5.59.91: Transactions list = newest date first; same date → newest entered first (enteredAt, else the
+   * later position in the stored list). Dates normalized (YYYY-MM-DD, M/D/YYYY, or with a time) before comparing. */
+  function txDateKey(d) {
+    var t = String(d || "").trim(), m;
+    if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[3]).slice(-2);
+    if ((m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/))) { var y = m[3].length === 2 ? "20" + m[3] : m[3]; return y + "-" + ("0" + m[1]).slice(-2) + "-" + ("0" + m[2]).slice(-2); }
+    var p = Date.parse(t);
+    if (isFinite(p)) { var dd = new Date(p); return dd.getFullYear() + "-" + ("0" + (dd.getMonth() + 1)).slice(-2) + "-" + ("0" + dd.getDate()).slice(-2); }
+    return "";
+  }
+  function sortTxNewestFirst(list, all) {
+    var pos = new Map();
+    (all || list).forEach(function (tx, i) { pos.set(tx, i); });
+    return list.slice().sort(function (a, b) {
+      var da = txDateKey(a.date), db = txDateKey(b.date);
+      if (da !== db) return da < db ? 1 : -1;
+      var ea = Number(a.enteredAt) || 0, eb = Number(b.enteredAt) || 0;
+      if (ea !== eb && ea && eb) return eb - ea;
+      return (pos.get(b) || 0) - (pos.get(a) || 0);
+    });
+  }
   function renderSpend(month, totals) {
     var html =
       '<div class="nav-row"><h2>Transactions</h2>' +
@@ -4375,7 +4396,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
       esc(spendSearch) + '">' +
       '<p class="section-label">Transactions</p>';
-    var txs = (month.transactions || []).filter(function (tx) { return txMatches(month, tx, spendSearch); });
+    var txs = sortTxNewestFirst((month.transactions || []).filter(function (tx) { return txMatches(month, tx, spendSearch); }), month.transactions || []);
     if (!month.transactions.length) {
       html += '<p class="empty">Spend from a category, or log a paycheck as Income. Expenses reduce that envelope’s remaining amount; income counts toward Received.</p>';
     } else if (!txs.length) {
@@ -15917,7 +15938,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.90";
+  var APP_VERSION = "37.5.59.91";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -20077,7 +20098,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         remapLegIds(payload);
         if (payload.legs) payload.legs.forEach(remapLegIds);
       }
-      if (spendDraft.id) {
+      /* v37.5.59.91: entry time for the same-day tie-break; an edit keeps the original. */
+      var prevTx = spendDraft.id ? (month.transactions || []).concat(destMonth.transactions || []).filter(function (item) { return item.id === spendDraft.id; })[0] : null;
+      if (prevTx ? prevTx.enteredAt : true) payload.enteredAt = (prevTx && prevTx.enteredAt) || Date.now();
+      var inPlace = spendDraft.id && destMonth === month ? (month.transactions || []).map(function (t) { return t.id; }).indexOf(spendDraft.id) : -1;
+      if (inPlace >= 0) {
+        month.transactions[inPlace] = payload; // edits keep their place (same-day order = entry order)
+      } else if (spendDraft.id) {
         month.transactions = (month.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
         if (destMonth !== month) {
           destMonth.transactions = (destMonth.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
