@@ -4909,3 +4909,4 @@ body.night .sg-goal-tap .sg-goal-input { color: var(--gold); border-color: var(-
 /* v37.5.59.81: goal = amount only, no label or rule; "+" when empty, flush with the amounts' right edge. */
 .sg-goal-tap, body.night .sg-goal-tap { border-top: 0 !important; margin-top: 1px; padding: 0; font-variant: normal; letter-spacing: 0; text-align: right; font-family: var(--mono); }
 .sg-goal-tap.empty { font-style: normal; font-size: 13px; }
+.sg-grid td .sg-goal-tap { margin-right: 0 !important; margin-left: auto; }
