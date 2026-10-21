@@ -4910,3 +4910,12 @@ body.night .sg-goal-tap .sg-goal-input { color: var(--gold); border-color: var(-
 .sg-goal-tap, body.night .sg-goal-tap { border-top: 0 !important; margin-top: 1px; padding: 0; font-variant: normal; letter-spacing: 0; text-align: right; font-family: var(--mono); }
 .sg-goal-tap.empty { font-style: normal; font-size: 13px; }
 .sg-grid td .sg-goal-tap { margin-right: 0 !important; margin-left: auto; }
+/* v37.5.59.82: goal column right of the newest year. */
+.sg-grid td.sg-goalcol, .sg-grid th.sg-goalcol { padding: 0 16px 0 10px !important; color: var(--plum); font-style: italic; border-left: 1px dashed color-mix(in srgb, var(--plum) 40%, transparent); background: color-mix(in srgb, var(--plum) 4%, transparent); }
+.sg-grid th.sg-goalh { font-weight: 600; text-align: right; white-space: nowrap; }
+body.night .sg-grid td.sg-goalcol, body.night .sg-grid th.sg-goalcol { color: var(--gold); border-left-color: color-mix(in srgb, var(--gold) 40%, transparent); background: color-mix(in srgb, var(--gold) 5%, transparent); }
+.sg-grid td.sg-goalcol.sg-goal-tap { cursor: pointer; text-align: right; font-family: var(--mono); font-size: 13px; min-width: 76px; }
+.sg-grid td.sg-goalcol.empty { opacity: 1; font-style: normal; }
+.sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--plum) 45%, transparent); }
+body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 45%, transparent); }
+.sg-grid td.sg-goalcol .sg-goal-input { width: 100%; min-width: 96px; }
