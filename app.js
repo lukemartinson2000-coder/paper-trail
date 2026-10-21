@@ -4614,7 +4614,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return names;
   }
-  /* v37.5.59.80: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
+  /* v37.5.59.81: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
    * its year-end (Dec 31); this year with no stamp starts from the day the goal was linked (p.linkedOn). */
   function nwStamp(line, year) {
     if (!line) return;
@@ -7385,7 +7385,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterAvailAll() {
     var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
-    for (var q = 1; q <= 4; q++) { // v37.5.59.80: Q4 shows while in progress
+    for (var q = 1; q <= 4; q++) { // v37.5.59.81: Q4 shows while in progress
       if (q < curQ) out.push({ year: Y, q: q, done: true });
       else if (q === curQ) out.push({ year: Y, q: q, done: false });
     }
@@ -7551,7 +7551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterPace() {
     var R = dashRetirement();
-    /* v37.5.59.80: a yearly retirement spend already set counts as the goal, even before an age is on file. */
+    /* v37.5.59.81: a yearly retirement spend already set counts as the goal, even before an age is on file. */
     if (!R.ready && R.I && R.I.spend != null) {
       return { id: "q-pace", tidy: true, kicker: "Pace check", title: "Goal: " + moneyWhole(Math.round(R.I.spend)) + " a year",
         sub: "Add your age on the Dashboard’s retirement card to see if you’re on pace.",
@@ -9781,11 +9781,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (l.group === "realEstate" && !VEHICLE_WORDS.test(String(l.name || "").toLowerCase())) return "home";
     return "";
   }
-  /* v37.5.59.80: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
+  /* v37.5.59.81: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
    * key = line id, "_assets", "_liabs" or "_net"), so they never reach totals, charts or projections. */
   var NW_GOAL_HELP = "Goal = what you want this account (or total) to finish the year with. It shows small in purple under this year’s actual (gold at night). " +
     "When a new year starts, the new year has no goal until you set one.\n\nGoals are never added into totals, net worth, charts, CAGR or projections.\n\n" +
-    "Tap the Goal line (or the faint + Goal) under this year’s amount to set or change it; Clear removes it.";
+    "Tap the Goal line (or the faint +) under this year’s amount to set or change it; Clear removes it.";
   function nwGoalMap(key) { var g = state.worth.goals; return g && g[key] ? g[key] : null; }
   function nwGoalGet(key, y) { var m = nwGoalMap(key); var v = m ? m[y] : null; return v == null || v === "" ? null : Number(v); }
   function nwGoalSet(key, y, v) {
@@ -9799,14 +9799,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ys = Object.keys(m).map(Number).filter(function (k) { return k < y && m[k] != null; }).sort(function (a, b) { return b - a; });
     return ys.length ? { year: ys[0], amount: Number(m[ys[0]]) } : null;
   }
-  /* v37.5.59.80: one "finish the year with" goal per line / total, only in the current year column. The Goal line
+  /* v37.5.59.81: one "finish the year with" goal per line / total, only in the current year column. The Goal line
    * itself is the tap target and edits inline like any grid cell (whole dollars). Empty shows a faint "+ Goal". */
   function nwGoalNote(key, y, label) {
     if (y !== new Date().getFullYear() || worthBlank(y)) return "";
     var g = nwGoalGet(key, y);
     return '<span class="nw-goal sg-goal-tap' + (g == null ? " empty" : "") + '" role="button" tabindex="0" data-sg-goal="' + esc(key) + '" data-year="' + y +
       '" data-v="' + (g == null ? "" : g) + '" data-label="' + esc((label || nwGoalLabel(key)) + " · Goal") + '" aria-label="' + (g == null ? "Add goal" : "Edit goal") + " for " + esc(label || nwGoalLabel(key)) + '">' +
-      (g == null ? "+ Goal" : '<span class="nw-goal-k">Goal</span> ' + moneyWhole(g)) + "</span>";
+      (g == null ? "+" : moneyWhole(g)) + "</span>";
   }
   function sgOpenGoal(sp) {
     sgEdit = { kind: "nw", key: "goal:" + sp.getAttribute("data-sg-goal"), year: Number(sp.getAttribute("data-year")), label: sp.getAttribute("data-label"), goal: true };
@@ -9842,7 +9842,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      /* v37.5.59.80: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
+      /* v37.5.59.81: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
        * (Improvements, Appreciation). Cash, vehicles and other assets get no dropdown. */
       var subKind = nwSubKind(l);
       var isAsset = l.kind !== "liability" && !!subKind;
@@ -15694,7 +15694,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.80";
+  var APP_VERSION = "37.5.59.81";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -17862,7 +17862,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     bindMoneyInputs(root);
   }
 
-  /* v37.5.59.80: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
+  /* v37.5.59.81: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
   function bindWholeInputs(root) {
     Array.prototype.forEach.call(root.querySelectorAll("input[data-whole]"), function (el) {
       if (el.dataset.moneyBound === "1") return;
