@@ -4902,3 +4902,7 @@ body.night .nw-goal-entry input { color: var(--gold); }
 .sg-goal-tap .sg-goal-input { width: 100%; min-width: 70px; text-align: right; font: italic 12px var(--mono); color: var(--plum); background: color-mix(in srgb, var(--plum) 8%, transparent);
   border: 1px dashed var(--plum); border-radius: 4px; padding: 2px 4px; box-sizing: border-box; }
 body.night .sg-goal-tap .sg-goal-input { color: var(--gold); border-color: var(--gold); background: color-mix(in srgb, var(--gold) 10%, transparent); }
+.sg-goal-tap { text-align: right; }
+.sg-goal-tap.empty, body.night .sg-goal-tap.empty { border-top-color: transparent; }
+.sg-goal-tap.editing { overflow: visible; }
+.sg-goal-tap .sg-goal-input { width: 112px; min-width: 112px; font-size: 12px; margin-left: auto; display: block; }
