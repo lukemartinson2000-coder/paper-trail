@@ -4887,8 +4887,8 @@ td.nw-goal-cell.blank { opacity: .6; }
 .row.nw-goal { display: flex; border-top: 0; font-size: 14px; white-space: normal; justify-content: space-between; }
 .nw-line-goals { margin: 12px 0; }
 .nw-goal-entry { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-.nw-goal-entry .field input { color: var(--plum); font-style: italic; border-style: dashed; }
-body.night .nw-goal-entry .field input { color: var(--gold); }
+.nw-goal-entry input { color: var(--plum); font-style: italic; border-style: dashed; }
+body.night .nw-goal-entry input { color: var(--gold); }
 .nw-goal-copy { align-self: flex-start; font-size: 13px; }
 .nw-goal-copy[hidden] { display: none; }
 .sg-total-name { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
