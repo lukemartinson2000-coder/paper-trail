@@ -9797,9 +9797,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* ---- Net worth grid ---- */
   function isHsaLine(l) { return /\bHSA\b|health savings/i.test(String(l && l.name || "")); }
+  /* v37.5.59.87: brokerage / taxable by name, for lines filed in Other (or an imported group) instead of Investments. */
+  var NW_INVEST_WORDS = /\b(brokerage|broker|schwab|fidelity|vanguard|robinhood|e\s?-?\*?trade|etrade|taxable|individual|joint|nq|non-?qualified|invest(ment|ments|ing)?|stocks?|index fund|mutual fund|etf|crypto|401\s?\(?k\)?|403\s?\(?b\)?|457|ira|roth|tsp|sep)\b/i;
+  function nwIsInvest(l) {
+    if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return false;
+    if (isHsaLine(l) || l.group === "taxable" || l.group === "retirement" || l.group === "investment") return true;
+    if (l.group === "cash" || l.group === "realEstate" || l.group === "debt") return false;
+    return NW_INVEST_WORDS.test(String(l.name || ""));
+  }
   function nwSubKind(l) {
     if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return "";
-    if (isHsaLine(l) || l.group === "taxable" || l.group === "retirement") return "invest";
+    if (nwIsInvest(l)) return "invest";
     if (l.group === "realEstate" && !VEHICLE_WORDS.test(String(l.name || "").toLowerCase())) return "home";
     return "";
   }
@@ -9870,7 +9878,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (g === "cash") return { sec: 0, r: /check/.test(n) ? 0 : 1 };
     if (g === "lifestyle" && !veh && /fund|saving|account|acct|hysa|cash|reserve/.test(n)) return { sec: 0, r: 2 };
     if (/\bhsa\b|health savings/.test(n)) return { sec: 1, r: 3 };
-    if (g === "taxable") return { sec: 1, r: 0 };
+    if (g === "taxable" || g === "investment") return { sec: 1, r: 0 };
+    if (g !== "retirement" && nwIsInvest(l)) return { sec: 1, r: /401|403|457|ira|roth|tsp|sep/.test(n) ? 1 : 0 };
     if (g === "retirement") return { sec: 1, r: /roth/.test(n) ? 2 : (/401|403|457|ira|tsp|pension|traditional|rollover|sep/.test(n) ? 1 : 3) };
     if (veh) return { sec: 2, r: 0 };
     if (g === "realEstate") return { sec: 2, r: 1 };
@@ -9908,8 +9917,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
        * Rename / delete: "Edit account" inside the open dropdown, or "Edit an account" under the grid. */
       var warn = dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "";
       var nameBtn = '<span class="sg-name-in">' + chev + (isAsset
-        ? '<button type="button" class="sg-line" data-act="nw-sub-toggle" data-id="' + esc(l.id) + '" aria-expanded="' + open + '">' + esc(l.name) + warn + "</button>"
-        : '<span class="sg-line sg-line-static">' + esc(l.name) + warn + "</span>") + "</span>";
+        ? '<button type="button" class="sg-line" data-act="nw-acct-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + warn + "</button>"
+        : '<button type="button" class="sg-line" data-act="nw-acct-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + warn + "</button>") + "</span>";
+      /* v37.5.59.87 (owner): name opens a simple account sheet (name, group, Delete); only › opens the dropdown. */
       var out = sgRow(l.name, yearsG, gcol(l.id, l.name, function (y) {
         var blank = worthBlank(y);
         return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "" });
@@ -9939,12 +9949,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }), "sg-subline sg-ratio", '<span class="sg-sub-name">' + retLabel + " " + helpQ(home
         ? "Appreciation = (value − prior filled year’s value − improvements) ÷ prior value. Money taken out (e.g. a sold part) can be a negative improvement with +/−. Calculated, not editable."
         : "Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. A withdrawal is a negative Added (use +/− while editing), so it is added back: e.g. −$2,000 adds $2,000 to the gain. Calculated, not editable.") + "</span>");
-      out += '<tr class="sg-subline sg-editacct"><th scope="row" class="sg-name"><button type="button" class="link-btn sg-editacct-btn" data-act="edit-line" data-id="' + esc(l.id) + '">Edit account</button></th><td class="sg-add"></td>' +
-        yearsG.map(function () { return "<td></td>"; }).join("") + "</tr>";
       return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
-      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Added, Employer match and Return rows; tap its name for a year-by-year summary.\n\n" + NW_GOAL_HELP) + "</div>";
+      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Added, Employer match and Return rows; tap its name to rename it, change its group or delete it. One dropdown opens at a time.\n\n" + NW_GOAL_HELP) + "</div>";
     if (!lines.length) {
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
@@ -9980,7 +9988,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += "</tbody></table></div>" + sgBar() +
       '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button>' +
-      (lines.length ? '<button class="text-btn" type="button" data-act="nw-edit-accounts">Edit an account</button>' : "") + "</div>" +
+"</div>" +
       '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on Dashboard → Projections.</p></div>';
     return html;
   }
@@ -15834,7 +15842,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.86";
+  var APP_VERSION = "37.5.59.87";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19371,7 +19379,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "nw-sub-toggle") {
       var gid = actEl.getAttribute("data-id");
       if (!state.worth.gridOpen) state.worth.gridOpen = {};
-      if (state.worth.gridOpen[gid]) delete state.worth.gridOpen[gid]; else state.worth.gridOpen[gid] = true;
+      /* v37.5.59.87: one dropdown at a time. */
+      var wasOpen = !!state.worth.gridOpen[gid];
+      state.worth.gridOpen = {};
+      if (!wasOpen) state.worth.gridOpen[gid] = true;
       saveState();
       render();
     } else if (act === "nw-edit-accounts") {
@@ -19383,6 +19394,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }).join("") + "</div>", "dash-noop");
       var ea = document.querySelector("#modal .sheet-actions");
       if (ea) ea.innerHTML = '<button type="button" data-act="close-modal">Close</button>';
+    } else if (act === "nw-acct-sheet") {
+      /* v37.5.59.87 (owner): name, group, Delete. No per-year amounts (those are edited in the grid). */
+      var al = (state.worth.lines || []).filter(function (l) { return l.id === actEl.getAttribute("data-id"); })[0];
+      if (!al) return;
+      var af = field("Name", "name", al.name);
+      if (al.kind !== "liability" && al.group !== "debt" && !al.vehicle) {
+        var ag = [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, Roth, HSA)"],
+          ["realEstate", "Property · home / real estate"], ["lifestyle", "Property · other"]];
+        var acur = al.group === "investment" ? "taxable" : al.group;
+        af += '<label class="field">Group<select name="group">' + ag.map(function (o) {
+          return '<option value="' + o[0] + '"' + (o[0] === acur ? " selected" : "") + ">" + o[1] + "</option>";
+        }).join("") + '</select></label><p class="caption">Investments get a › with Added (+/− for money taken out) and Return for every year.</p>';
+      }
+      af += deleteBtnHtml("delete-nw-line", "Delete " + esc(al.name), ' data-id="' + esc(al.id) + '"');
+      af += '<input type="hidden" name="id" value="' + esc(al.id) + '">';
+      openSheet("Account", af, "save-acct");
     } else if (act === "nw-line-sheet") {
       openNwLineSheet(actEl.getAttribute("data-id"));
     } else if (act === "add-prior-year") {
@@ -20115,6 +20142,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "save-vehicle") {
       addVehicleLine(data.docId, (data.name || "").replace(/^\s+|\s+$/g, "") || "Vehicle", Number(data.amount) || 0);
       saveState(); closeModal(); render();
+    } else if (act === "save-acct") {
+      var sl = (state.worth.lines || []).filter(function (l) { return l.id === data.id; })[0];
+      if (sl) {
+        sl.name = String(data.name || "").replace(/^\s+|\s+$/g, "") || sl.name;
+        if (data.group && !sl.vehicle && sl.kind !== "liability" && sl.group !== "debt" &&
+            ["cash", "retirement", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
+            !(sl.group === "investment" && data.group === "taxable")) sl.group = data.group;
+        if (sl.kind === "liability" && typeof syncNwLiabilityToVault === "function") syncNwLiabilityToVault(sl);
+        saveState();
+      }
+      closeModal();
+      render();
     } else if (act === "save-line") {
       var exBox = form.querySelector('input[name="excludeFromNw"]');
       state.worth.lines.forEach(function (line) {
