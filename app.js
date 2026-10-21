@@ -4481,7 +4481,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ageNow = bAge != null ? bAge : (Number(r.ageNow) > 0 ? Number(r.ageNow) : null);
     var retireAge = Number(state.profile && state.profile.retireAge) > 0 ? Number(state.profile.retireAge) : 65;
     var infl = r.infl != null && isFinite(Number(r.infl)) ? Number(r.infl) : 3;
-    var ret = r.ret != null && isFinite(Number(r.ret)) ? Number(r.ret) : 8;
+    var ret = r.ret != null && isFinite(Number(r.ret)) ? Number(r.ret) : 7; // v37.5.59.85: default 7% nominal
     return { ageNow: ageNow, ageFromBirthday: bAge != null, retireAge: retireAge, spend: Number(r.spend) > 0 ? Number(r.spend) : null,
       infl: infl, inflManual: r.infl != null, ret: ret, retManual: r.ret != null };
   }
@@ -4521,7 +4521,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var projToday = B / defl;
     var ratio = needToday > 0 ? projToday / needToday : null;
     var status = ratio == null ? "" : ratio >= 1.05 ? "ahead" : ratio >= 0.95 ? "on" : "short";
+    /* v37.5.59.85: "My number" = needNominal. "On track this year" = the invested balance needed at the end of
+     * this year so that, growing at the return with this year's contributions added each later year (rising with
+     * inflation), it reaches My number at retire age: (My number − FV of contributions) ÷ (1 + r)^m, m = years − 1. */
+    var m = Math.max(0, years - 1), fvC = 0;
+    for (var kk = 1; kk <= m; kk++) fvC += inv.contrib * Math.pow(1 + i, kk) * Math.pow(1 + r, m - kk);
+    var onTrackNeed = Math.max(0, (needNominal - fvC) / Math.pow(1 + r, m));
     return { I: I, inv: inv, ready: true, years: years, needToday: needToday, needNominal: needNominal, projNominal: B, projToday: projToday,
+      myNumber: needNominal, onTrackNeed: onTrackNeed, onTrackYear: new Date().getFullYear(), fvContrib: fvC, growYears: m,
       gap: projToday - needToday, status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
   }
 
@@ -4929,6 +4936,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         return '<div class="dash-rrow"><div class="dash-rrow-top"><span>' + label + '</span><span class="mono ' + (cls || "") + '">' + val + "</span></div>" +
           (sub ? '<p class="caption">' + sub + "</p>" : "") + "</div>";
       };
+      var otGap = R.inv.balance - R.onTrackNeed;
+      var myHelp = "My number = yearly spending in today’s dollars, grown by inflation to the year you retire, ÷ the 4% withdrawal rate.\n\n" +
+        moneyWhole(I.spend) + " × (1 + " + Math.round(I.infl * 10) / 10 + "%)^" + R.years + " = " + moneyWhole(I.spend * Math.pow(1 + I.infl / 100, R.years)) + " a year at " + I.retireAge + "; ÷ 4% = " + moneyWhole(R.myNumber) + ".\n\n" +
+        "Spending, ages, inflation and return are editable on this card; the 4% rate is fixed. Estimate, not advice.";
+      var otHelp = "On track this year = what your retirement and investment accounts (401k, IRA, Roth, HSA, brokerage) should hold at the end of " + R.onTrackYear +
+        " so that, growing " + Math.round(I.ret * 10) / 10 + "% a year with " + moneyWhole(R.inv.contrib) + " a year added (rising with inflation), they reach My number at " + I.retireAge + ".\n\n" +
+        "(" + moneyWhole(R.myNumber) + " − " + moneyWhole(R.fvContrib) + " from future contributions) ÷ (1 + " + Math.round(I.ret * 10) / 10 + "%)^" + R.growYears + " = " + moneyWhole(R.onTrackNeed) + ".\n\n" +
+        "You have " + moneyWhole(R.inv.balance) + " now. Estimate, not advice.";
+      html += '<div class="dash-mynum"><div class="dash-rrow"><div class="dash-rrow-top"><span><strong>My number</strong> ' + helpQ(myHelp) + '</span><span class="mono dash-mynum-v">' + moneyWhole(R.myNumber) + "</span></div>" +
+        '<p class="caption">At ' + I.retireAge + " · " + moneyWhole(R.needToday) + " in today’s dollars</p></div>" +
+        '<div class="dash-rrow"><div class="dash-rrow-top"><span>On track this year ' + helpQ(otHelp) + '</span><span class="mono">' + moneyWhole(R.onTrackNeed) + "</span></div>" +
+        '<p class="caption">Needed by Dec 31, ' + R.onTrackYear + " · you have " + moneyWhole(R.inv.balance) + ' · <span class="' + (otGap >= 0 ? "moss" : "rust") + '">' +
+        (otGap >= 0 ? "ahead by " + moneyWhole(otGap) : "behind by " + moneyWhole(-otGap)) + "</span></p></div></div>";
       html += '<p class="dash-status ' + st[1] + '" id="dash-ret-status"><strong>' + st[0] + "</strong> " + st[2] + ' <span class="caption">today’s dollars</span></p>' +
         rrow("Nest egg needed", moneyWhole(R.needToday), "Today’s dollars · " + moneyWhole(R.needNominal) + " at " + I.retireAge) +
         rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
@@ -5039,7 +5059,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   document.addEventListener("keydown", function (e) {
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-dashpct")) return;
-    /* Backspace on an emptied field returns the box to its default (3% inflation / 8% return). */
+    /* Backspace on an emptied field returns the box to its default (3% inflation / 7% return). */
     if (e.key === "Backspace" && t.value === "") {
       e.preventDefault();
       var d = dashState(); d.retire[t.getAttribute("data-dashpct")] = null; dashRerender();
@@ -15814,7 +15834,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.84";
+  var APP_VERSION = "37.5.59.85";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

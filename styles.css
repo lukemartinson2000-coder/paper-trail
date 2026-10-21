@@ -4934,3 +4934,10 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .sg-grid td.sg-amt.neg-entry::before { content: "−"; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); color: var(--rust); font-family: var(--mono); font-size: 14px; z-index: 1; }
 .sg-grid td.sg-amt.neg-entry input { color: var(--rust); }
 .sg-bar-btn.sg-sign.on { color: var(--rust); border-color: var(--rust); font-weight: 600; }
+/* v37.5.59.84: the edit bar label wraps so "Line · Row · Year" always fits at 390px. */
+.sg-bar-k { min-width: 0; white-space: normal; font-size: 12.5px; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.sg-bar { gap: 6px; }
+.sg-bar-btn { padding: 0 11px; flex: none; }
+/* v37.5.59.85: My number */
+.dash-mynum { margin: 8px 0 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--moss) 8%, transparent); }
+.dash-mynum-v { font-size: 20px; font-weight: 700; }
