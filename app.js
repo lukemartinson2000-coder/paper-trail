@@ -4614,7 +4614,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return names;
   }
-  /* v37.5.59.78: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
+  /* v37.5.59.79: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
    * its year-end (Dec 31); this year with no stamp starts from the day the goal was linked (p.linkedOn). */
   function nwStamp(line, year) {
     if (!line) return;
@@ -7385,7 +7385,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterAvailAll() {
     var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
-    for (var q = 1; q <= 4; q++) { // v37.5.59.78: Q4 shows while in progress
+    for (var q = 1; q <= 4; q++) { // v37.5.59.79: Q4 shows while in progress
       if (q < curQ) out.push({ year: Y, q: q, done: true });
       else if (q === curQ) out.push({ year: Y, q: q, done: false });
     }
@@ -7551,7 +7551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterPace() {
     var R = dashRetirement();
-    /* v37.5.59.78: a yearly retirement spend already set counts as the goal, even before an age is on file. */
+    /* v37.5.59.79: a yearly retirement spend already set counts as the goal, even before an age is on file. */
     if (!R.ready && R.I && R.I.spend != null) {
       return { id: "q-pace", tidy: true, kicker: "Pace check", title: "Goal: " + moneyWhole(Math.round(R.I.spend)) + " a year",
         sub: "Add your age on the Dashboard’s retirement card to see if you’re on pace.",
@@ -9769,7 +9769,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function sgBar() {
     return '<div class="sg-bar" id="sg-bar" hidden><span class="sg-bar-k" id="sg-bar-k"></span>' +
       '<button type="button" class="sg-bar-btn ghost" data-sgbar="clear" hidden>Clear</button>' +
-      '<button type="button" class="sg-bar-btn ghost" data-sgbar="copygoal" hidden>Last year’s goal</button>' +
       '<button type="button" class="sg-bar-btn ghost" data-sgbar="next">Next</button>' +
       '<button type="button" class="sg-bar-btn" data-sgbar="done">Done</button></div>';
   }
@@ -9782,11 +9781,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (l.group === "realEstate" && !VEHICLE_WORDS.test(String(l.name || "").toLowerCase())) return "home";
     return "";
   }
-  /* v37.5.59.78: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
+  /* v37.5.59.79: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
    * key = line id, "_assets", "_liabs" or "_net"), so they never reach totals, charts or projections. */
-  var NW_GOAL_HELP = "Goals are targets you set for a year-end balance. They show in purple under the actual (gold at night), marked Goal, " +
-    "with how close you are: “68% of goal” is actual ÷ goal. For a loan or total liabilities, lower is better: it shows “At goal” once the balance is at or under the goal, or how much is left to pay down.\n\n" +
-    "Goals are never added into totals, net worth, charts, CAGR or projections.\n\nSet them from an account’s › Goal row or by tapping its name; set total goals by tapping a total’s name. “Start from last year’s goal” copies the year before.";
+  var NW_GOAL_HELP = "Goal = what you want this account (or total) to finish the year with. It shows small in purple under this year’s actual (gold at night). " +
+    "When a new year starts, the new year has no goal until you set one.\n\nGoals are never added into totals, net worth, charts, CAGR or projections.\n\n" +
+    "Set one from an account’s › Goal row or by tapping its name; for a total, tap the total’s name.";
   function nwGoalMap(key) { var g = state.worth.goals; return g && g[key] ? g[key] : null; }
   function nwGoalGet(key, y) { var m = nwGoalMap(key); var v = m ? m[y] : null; return v == null || v === "" ? null : Number(v); }
   function nwGoalSet(key, y, v) {
@@ -9800,13 +9799,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ys = Object.keys(m).map(Number).filter(function (k) { return k < y && m[k] != null; }).sort(function (a, b) { return b - a; });
     return ys.length ? { year: ys[0], amount: Number(m[ys[0]]) } : null;
   }
-  function nwGoalNote(key, y, actual, owe) {
+  /* v37.5.59.79: one "finish the year with" goal per line, shown only in the current year column, amount only. */
+  function nwGoalNote(key, y) {
+    if (y !== new Date().getFullYear() || worthBlank(y)) return "";
     var g = nwGoalGet(key, y);
-    if (g == null || worthBlank(y)) return "";
-    var prog;
-    if (owe) prog = actual <= g ? "At goal" : moneyWhole(Math.round(actual - g)) + " to go";
-    else prog = g > 0 ? Math.round(Math.max(0, actual) / g * 100) + "% of goal" : "";
-    return '<span class="nw-goal"><span class="nw-goal-k">Goal</span> ' + moneyWhole(g) + '<span class="nw-goal-p">' + prog + "</span></span>";
+    if (g == null) return "";
+    return '<span class="nw-goal"><span class="nw-goal-k">Goal</span> ' + moneyWhole(g) + "</span>";
   }
   function renderWorthGrid(years) {
     var cy = new Date().getFullYear();
@@ -9819,7 +9817,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      /* v37.5.59.78: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
+      /* v37.5.59.79: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
        * (Improvements, Appreciation). Cash, vehicles and other assets get no dropdown. */
       var subKind = nwSubKind(l);
       var isAsset = l.kind !== "liability" && !!subKind;
@@ -9841,6 +9839,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       var home = subKind === "home";
       out += sgRow("Goal", years, function (y) {
+        if (y !== cy) return sgCell("nw", "", y, null, { calc: true, on: y === sel, text: "" });
         var g = nwGoalGet(l.id, y);
         return sgCell("nw", "goal:" + l.id, y, g, { label: l.name + " · Goal", on: y === sel, cls: "nw-goal-cell" });
       }, "sg-subline sg-goalrow", '<span class="sg-sub-name nw-goal-k">Goal ' + helpQ(NW_GOAL_HELP) + "</span>");
@@ -9896,10 +9895,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
   function nwLineGoalsHtml(line) {
-    var m = nwGoalMap(line.id) || {}, ys = Object.keys(m).map(Number).sort(function (a, b) { return b - a; });
-    return '<div class="nw-line-goals"><p class="section-label nw-goal-k">Goals ' + helpQ(NW_GOAL_HELP) + "</p>" +
-      (ys.length ? ys.map(function (y) { return '<div class="row nw-goal"><span>' + y + ' goal</span><span class="mono">' + moneyWhole(m[y]) + "</span></div>"; }).join("") : '<p class="caption">No goals yet.</p>') +
-      '<button type="button" class="text-btn" data-act="nw-goal-sheet" data-id="' + esc(line.id) + '">' + (ys.length ? "Edit goals" : "+ Set a goal") + "</button></div>";
+    var cy = new Date().getFullYear(), g = nwGoalGet(line.id, cy);
+    return '<div class="nw-line-goals"><div class="row nw-goal"><span>Goal · finish ' + cy + " with " + helpQ(NW_GOAL_HELP) + '</span><span class="mono">' + (g == null ? "—" : moneyWhole(g)) + "</span></div>" +
+      '<button type="button" class="text-btn" data-act="nw-goal-sheet" data-id="' + esc(line.id) + '">' + (g == null ? "+ Set a goal" : "Edit goal") + "</button></div>";
   }
   function nwTotalName(key, label) {
     return '<button type="button" class="sg-line sg-total-name" data-act="nw-goal-sheet" data-id="' + key + '">' + esc(label) + "</button>";
@@ -9910,32 +9908,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var l = (state.worth.lines || []).filter(function (x) { return x.id === key; })[0];
     return l ? l.name : "";
   }
-  /* Goal entry: one whole-dollar row per year column, plus next year. */
+  /* v37.5.59.79: one whole-dollar field: finish this year with. */
   function openNwGoalSheet(key) {
     var label = nwGoalLabel(key);
     if (!label) return;
-    var ys = (state.worth.years || []).slice().sort(function (a, b) { return a - b; });
-    var cy = new Date().getFullYear();
-    if (ys.indexOf(cy + 1) < 0) ys.push(cy + 1);
-    ys = ys.filter(function (y) { return y >= cy - 2; });
-    var rows = ys.map(function (y) {
-      var g = nwGoalGet(key, y);
-      return '<div class="nw-goal-entry"><label class="field">' + y + " goal" +
-        '<input name="g' + y + '" class="cents-input" data-dollars="1" data-whole="1" data-allow-blank="1" data-goal-year="' + y + '" inputmode="numeric" autocomplete="off" type="text" value="' + (g == null ? "" : esc(formatMoney(g, 0))) + '"></label>' +
-        '<button type="button" class="link-btn nw-goal-copy" data-goal-copy="' + y + '">Start from last year’s goal</button></div>';
-    }).join("");
-    openSheet(label + " · goals", '<p class="caption">Year-end targets. They show under the actual and never count in totals. ' + helpQ(NW_GOAL_HELP) + "</p>" + rows +
+    var cy = new Date().getFullYear(), g = nwGoalGet(key, cy);
+    openSheet(label + " · goal", '<label class="field nw-goal-entry">Finish ' + cy + " with " + helpQ(NW_GOAL_HELP) +
+      '<input name="goalAmt" class="cents-input" data-dollars="1" data-whole="1" data-allow-blank="1" data-goal-year="' + cy + '" inputmode="numeric" autocomplete="off" type="text" value="' + (g == null ? "" : esc(formatMoney(g, 0))) + '"></label>' +
+      '<p class="caption">Shows under ' + cy + "’s actual. Never counted in totals. Leave blank for no goal.</p>" +
       '<input type="hidden" name="goalKey" value="' + esc(key) + '">', "nw-save-goals");
-    nwGoalCopyVis();
-  }
-  function nwGoalCopyVis() {
-    Array.prototype.forEach.call(document.querySelectorAll("#modal [data-goal-copy]"), function (b) {
-      var y = Number(b.getAttribute("data-goal-copy")), prev = document.querySelector('#modal input[data-goal-year="' + (y - 1) + '"]');
-      var key = (document.querySelector('#modal input[name="goalKey"]') || {}).value;
-      var pv = prev ? readWholeDollars(prev) : null;
-      if (pv == null && !prev) { var p = nwGoalPrior(key, y); pv = p ? p.amount : null; }
-      b.hidden = !(pv > 0);
-    });
   }
   function readWholeDollars(el) {
     if (!el) return null;
@@ -9949,19 +9930,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     el.value = v == null ? "" : formatMoney(Math.round(v), 0);
     el.dataset.lastPainted = el.value;
   }
-  document.addEventListener("click", function (e) {
-    var b = e.target && e.target.closest ? e.target.closest("[data-goal-copy]") : null;
-    if (!b) return;
-    e.preventDefault(); e.stopPropagation();
-    var y = Number(b.getAttribute("data-goal-copy"));
-    var prev = document.querySelector('#modal input[data-goal-year="' + (y - 1) + '"]'), me = document.querySelector('#modal input[data-goal-year="' + y + '"]');
-    var key = (document.querySelector('#modal input[name="goalKey"]') || {}).value;
-    var v = prev ? readWholeDollars(prev) : null;
-    if (v == null) { var p = nwGoalPrior(key, y); v = p ? p.amount : null; }
-    if (me && v != null) setWholeDollars(me, v);
-    nwGoalCopyVis();
-  }, true);
-  document.addEventListener("money-edit", function (e) { if (e.target && e.target.hasAttribute && e.target.hasAttribute("data-goal-year")) nwGoalCopyVis(); });
   document.addEventListener("submit", function (e) {
     var form = e.target && e.target.closest ? e.target.closest('form[data-act="nw-save-goals"]') : null;
     if (!form) return;
@@ -10122,8 +10090,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bar.hidden = false;
       document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
       bar.querySelector('[data-sgbar="clear"]').hidden = !(sgEdit.kind === "is" || /^(add|match|base|goal):/.test(sgEdit.key));
-      var cp = bar.querySelector('[data-sgbar="copygoal"]');
-      if (cp) cp.hidden = !(isGoal && nwGoalPrior(sgEdit.key.slice(5), sgEdit.year));
     }
     var input = td.querySelector("input");
     input.focus();
@@ -10139,11 +10105,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!ed) return;
     var td = document.querySelector("#screen td.editing");
     var input = td && td.querySelector("input");
-    if (mode === "copygoal") {
-      var pg = /^goal:/.test(ed.key) ? nwGoalPrior(ed.key.slice(5), ed.year) : null;
-      if (pg && input) { setWholeDollars(input, pg.amount); input.dataset.replaceAll = ""; input.focus(); }
-      return;
-    }
     var value = mode === "clear" ? null : /^goal:/.test(ed.key) ? readWholeDollars(input) : readOptionalCents(input);
     sgEdit = null;
     document.body.classList.remove("sg-editing");
@@ -15723,7 +15684,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.78";
+  var APP_VERSION = "37.5.59.79";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -17891,7 +17852,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     bindMoneyInputs(root);
   }
 
-  /* v37.5.59.78: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
+  /* v37.5.59.79: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
   function bindWholeInputs(root) {
     Array.prototype.forEach.call(root.querySelectorAll("input[data-whole]"), function (el) {
       if (el.dataset.moneyBound === "1") return;
