@@ -12220,7 +12220,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<p class="caption">Income counts toward this line’s Received. Leave the line on auto and it goes to the next paycheck that isn’t fully received. It never counts as spending and doesn’t change envelopes.</p>';
     } else {
       var kind = spendDraft.refundKind || "";
-      var split = spendDraft.legs.length > 1 || !!spendDraft.splitMode;
+      var split = true; // v37.5.59.88 (owner): expenses always use the checklist (1 checked = normal, 2+ = split)
       var legSum = spendDraft.legs.reduce(function (n, leg) { return n + (Number(leg.amount) || 0); }, 0);
       var mismatch = split && cents(legSum) !== cents(spendDraft.amount);
       // v37.5.59.2 (owner): merchant first — Payee + suggested merchants, then the envelope (never preselected).
@@ -12294,8 +12294,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         count++;
         var leg = byLine[line.id], on = !!leg;
         var key = cat.id + ":" + line.id;
+        var rem = roundCents(remainingForLine(month, line.id, spendDraft.id || ""));
         rows += '<div class="split-row' + (on ? " on" : "") + '" data-split-row="' + esc(key) + '" data-search="' + esc((cat.name + " " + line.name).toLowerCase()) + '">' +
-          '<label class="split-check"><input type="checkbox" data-split-check value="' + esc(key) + '"' + (on ? " checked" : "") + '><span class="split-name">' + esc(line.name) + "</span></label>" +
+          '<label class="split-check"><input type="checkbox" data-split-check value="' + esc(key) + '"' + (on ? " checked" : "") + '><span class="split-name">' + esc(line.name) + '</span><span class="split-rem mono" data-rem="' + rem + '"></span></label>' +
           '<input class="cents-input split-amt mono" data-cents="1" data-split-amt="' + esc(key) + '" inputmode="numeric" autocomplete="off" type="text" aria-label="Amount for ' + esc(line.name) + '" value="' +
           esc(moneyEntry(on ? Number(leg.amount) || 0 : 0)) + '"' + (on ? "" : " hidden") + ">" +
           (kind === "partial" ? '<input class="cents-input split-ref mono" data-cents="1" data-split-ref="' + esc(key) + '" inputmode="numeric" autocomplete="off" type="text" aria-label="Refund piece for ' + esc(line.name) + '" value="' +
@@ -12305,7 +12306,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (rows) body += '<div class="split-grp" data-split-grp><p class="split-grp-name">' + esc(cat.name) + "</p>" + rows + "</div>";
     });
     return '<div class="split-box" id="split-box">' +
-      '<p class="sheet-label split-head">Split across envelopes ' + helpQ("Check every envelope this purchase came out of and type how much went to each. Tap an empty amount to fill in what’s left. Save turns on once the amounts add up to the Total exactly.") + "</p>" +
+      '<p class="sheet-label split-head">Envelope ' + helpQ("Check the envelope this came out of. One checked = a normal transaction for the whole Total. Check two or more to split it: type how much went to each (tap an empty amount to fill in what’s left); Save turns on once they add up to the Total exactly. Each line shows what’s left in it this month, counting this transaction.") + "</p>" +
       (count > 10 ? '<input type="search" class="split-search" data-split-search placeholder="Find an envelope" aria-label="Find an envelope" autocomplete="off">' : "") +
       '<div class="split-list">' + body + "</div>" +
       '<p class="split-status" id="split-status" aria-live="polite"></p></div>';
@@ -12333,7 +12334,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var st = splitBoxState();
     if (!st) return;
     var out = document.getElementById("split-status");
-    var ok = st.n >= 1 && st.total > 0 && cents(st.sum) === cents(st.total);
+    /* v37.5.59.88: one checked = normal transaction (its amount is the Total, no amount box, no Left to split). */
+    [].forEach.call(st.box.querySelectorAll(".split-row.on"), function (row) {
+      var a = row.querySelector("[data-split-amt]");
+      if (st.n === 1) { if (centsFromDigits(a.value) !== st.total) splitSetAmt(a, st.total); a.hidden = true; }
+      else a.hidden = false;
+    });
+    if (st.n === 1) st = splitBoxState();
+    var ok = st.n === 1 ? st.total > 0 : st.n >= 2 && st.total > 0 && cents(st.sum) === cents(st.total);
+    [].forEach.call(st.box.querySelectorAll(".split-row"), function (row) {
+      var r = row.querySelector(".split-rem");
+      if (!r) return;
+      var v = roundCents(Number(r.getAttribute("data-rem")) - (row.classList.contains("on") ? centsFromDigits(row.querySelector("[data-split-amt]").value) : 0));
+      r.textContent = (v < 0 ? "−" + formatMoney(-v, 2) : formatMoney(v, 2)) + " left";
+      r.classList.toggle("neg", v < 0);
+    });
+    if (out) out.hidden = st.n < 2;
     if (out) {
       out.className = "split-status " + (ok ? "ok" : st.left < 0 ? "over" : "left");
       out.innerHTML = !(st.total > 0) ? "Enter the Total first"
@@ -12354,12 +12370,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!cb) return;
       var row = cb.closest(".split-row");
       row.classList.toggle("on", cb.checked);
+      if (spendDraft) spendDraft.categoryTouched = true;
+      /* going from one to two: the first line no longer owns the whole Total; both start empty. */
+      var toTwo = cb.checked && box.querySelectorAll(".split-row.on").length === 2;
+      if (toTwo) [].forEach.call(box.querySelectorAll(".split-row.on [data-split-amt]"), function (a) { splitSetAmt(a, 0); });
       [].forEach.call(row.querySelectorAll(".split-amt, .split-ref"), function (inp) { inp.hidden = !cb.checked; });
       var amt = row.querySelector("[data-split-amt]");
-      if (cb.checked) {
+      if (cb.checked && !toTwo) {
         var s2 = splitBoxState();
         if (!(centsFromDigits(amt.value) > 0) && s2.left > 0) splitSetAmt(amt, s2.left);
-      } else splitSetAmt(amt, 0);
+      } else if (!cb.checked) splitSetAmt(amt, 0);
       splitRefresh();
     });
     function amtFill(e) {
@@ -12401,6 +12421,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       legs.push({ id: prev.id || nextId(), categoryId: parts[0], lineId: parts[1] || "", amount: centsFromDigits(row.querySelector("[data-split-amt]").value),
         refund: ref ? centsFromDigits(ref.value) : (prev.refund || 0), note: prev.note || "" });
     });
+    if (legs.length === 1) legs[0].amount = roundCents(form.amount ? centsFromDigits(form.amount.value) : legs[0].amount);
     spendDraft.legs = legs.length ? legs : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, note: "" }];
     return true;
   }
@@ -15842,7 +15863,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.87";
+  var APP_VERSION = "37.5.59.88";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

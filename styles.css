@@ -4941,3 +4941,9 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 /* v37.5.59.85: My number */
 .dash-mynum { margin: 8px 0 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--moss) 8%, transparent); }
 .dash-mynum-v { font-size: 20px; font-weight: 700; }
+/* v37.5.59.88: remaining per envelope line in the add-transaction checklist */
+.split-check{min-width:0;flex:1;display:flex;align-items:center;gap:8px}
+.split-check .split-name{flex:0 1 auto;min-width:0}
+.split-rem{margin-left:auto;padding-left:8px;font-size:12.5px;color:var(--muted,#6b6b6b);white-space:nowrap}
+.split-rem.neg{color:var(--rust,#8a3a4a)}
+.split-row.on .split-rem{font-weight:600}
