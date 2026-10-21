@@ -10162,7 +10162,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     td.innerHTML = isGoal
       ? '<input class="cents-input sg-input" data-dollars="1" data-whole="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : formatMoney(Number(v), 0)) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">'
       : '<input class="cents-input sg-input" data-cents="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : moneyEntry(Number(v))) + '" aria-label="' + esc(sgEdit.label + " " + sgEdit.year) + '">';
+    /* v37.5.59.90 (owner): a +/− button right beside the cell input (reachable with the iOS keyboard up; the
+     * numeric keypad has no minus key), and typing "-" / "+" flips / clears the sign. */
+    if (sgEdit.signed) {
+      td.insertAdjacentHTML("afterbegin", '<button type="button" class="sg-sign-in' + (sgEdit.neg ? " on" : "") + '" data-sgbar="sign" aria-pressed="' + (sgEdit.neg ? "true" : "false") + '" aria-label="Make this a withdrawal (negative) or an addition">' + (sgEdit.neg ? "−" : "+/−") + "</button>");
+      td.classList.add("sg-has-sign");
+    }
     bindMoneyInputs(td);
+    if (sgEdit.signed) {
+      var sIn = td.querySelector("input");
+      var signKey = function (ch) {
+        if (ch === "-" || ch === "−" || ch === "–") { sgFinish("sign"); return true; }
+        if (ch === "+") { if (sgEdit && sgEdit.neg) sgFinish("sign"); return true; }
+        return false;
+      };
+      sIn.addEventListener("keydown", function (e) { if (signKey(e.key === "Subtract" ? "-" : e.key)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      sIn.addEventListener("beforeinput", function (e) { if (e.data && /^[-−–+]$/.test(e.data) && signKey(e.data)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      var sBtn = td.querySelector(".sg-sign-in");
+      ["pointerdown", "mousedown"].forEach(function (ev) { sBtn.addEventListener(ev, function (e) { e.preventDefault(); }); });
+    }
     var bar = document.getElementById("sg-bar");
     if (bar) {
       bar.hidden = false;
@@ -10238,8 +10256,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!ed.signed) return;
       ed.neg = !ed.neg;
       if (td) td.classList.toggle("neg-entry", ed.neg);
-      var sb = document.querySelector('#sg-bar [data-sgbar="sign"]');
-      if (sb) { sb.classList.toggle("on", ed.neg); sb.setAttribute("aria-pressed", ed.neg ? "true" : "false"); }
+      [].forEach.call(document.querySelectorAll('[data-sgbar="sign"]'), function (sb) {
+        sb.classList.toggle("on", ed.neg); sb.setAttribute("aria-pressed", ed.neg ? "true" : "false");
+        if (sb.classList.contains("sg-sign-in")) sb.textContent = ed.neg ? "−" : "+/−";
+      });
       if (input) input.focus({ preventScroll: true });
       return;
     }
@@ -15897,7 +15917,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.89";
+  var APP_VERSION = "37.5.59.90";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

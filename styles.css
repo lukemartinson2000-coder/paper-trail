@@ -4954,3 +4954,12 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .sheet-sticky .sheet-foot .split-status[hidden]{display:none}
 .sheet-sticky .sheet-foot .sheet-actions{margin-top:0}
 .sheet-sticky .sheet-foot .sheet-actions button{min-height:44px;padding:8px 18px}
+/* v37.5.59.90: +/− beside the cell input for Added / Improvements */
+.sg-grid td.sg-amt.sg-has-sign{position:relative}
+.sg-grid td.sg-amt.sg-has-sign::before{content:none}
+.sg-grid td.sg-amt.sg-has-sign input{padding-left:46px}
+.sg-sign-in{position:absolute;left:4px;top:50%;transform:translateY(-50%);z-index:2;min-width:40px;height:32px;padding:0 6px;border-radius:8px;border:1.5px solid var(--rust,#8a3a4a);background:var(--card,#fff);color:var(--rust,#8a3a4a);font:700 15px var(--mono);line-height:1;touch-action:manipulation}
+.sg-sign-in.on{background:var(--rust,#8a3a4a);color:#fff;font-size:20px}
+.sg-grid td.sg-amt.sg-has-sign input{padding-left:36px;padding-right:6px;font-size:15px;letter-spacing:-.2px}
+.sg-sign-in{min-width:30px;height:30px;left:3px;padding:0 4px;font-size:13px}
+.sg-sign-in.on{font-size:18px}
