@@ -12276,7 +12276,41 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     }
     openSheet(spendDraft.id ? "Edit transaction" : "Add transaction", html, "save-spend-sheet");
+    spendStickyFoot();
     splitArm();
+  }
+
+  /* v37.5.59.89 (owner): Save / Cancel are a sticky footer at the bottom of the transaction sheet (safe-area padded);
+   * with 2+ envelopes checked the Left to split bar sits right above Save in the same footer. The footer is in-flow
+   * (sticky), so the list never hides behind it. With the keyboard up the sheet is capped to the visible viewport. */
+  var spendVvBound = false;
+  function spendSheetFit() {
+    var sh = document.querySelector('#modal form.sheet[data-act="save-spend-sheet"]');
+    if (!sh) return;
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    sh.style.maxHeight = Math.max(240, Math.min(h * 0.92, h - 8)) + "px";
+    if (vv && vv.offsetTop) sh.style.marginBottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + "px";
+    else if (vv) sh.style.marginBottom = Math.max(0, window.innerHeight - vv.height) + "px";
+  }
+  function spendStickyFoot() {
+    var form = document.querySelector('#modal form.sheet[data-act="save-spend-sheet"]');
+    if (!form) return;
+    form.classList.add("sheet-sticky");
+    var acts = form.querySelector(".sheet-actions");
+    if (!acts) return;
+    var foot = document.createElement("div");
+    foot.className = "sheet-foot";
+    acts.parentNode.insertBefore(foot, acts);
+    var stat = form.querySelector("#split-status");
+    if (stat) foot.appendChild(stat);
+    foot.appendChild(acts);
+    spendSheetFit();
+    if (!spendVvBound && window.visualViewport) {
+      spendVvBound = true;
+      window.visualViewport.addEventListener("resize", spendSheetFit);
+      window.visualViewport.addEventListener("scroll", spendSheetFit);
+    }
   }
 
   /* ---- v37.5.59.75: split checklist ---------------------------------------------------------------
@@ -15863,7 +15897,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.88";
+  var APP_VERSION = "37.5.59.89";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
