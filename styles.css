@@ -4873,3 +4873,23 @@ body.sg-editing .sg-bar, body.kb-up .sg-bar{bottom:0}
 
 /* v37.5.59.77: goal source extras */
 .goal-also[hidden], .goal-manual[hidden] { display: none !important; }
+
+/* v37.5.59.78: Net worth goals — a target, never an actual. Purple by day, gold at night; italic, dashed. */
+.nw-goal { display: block; margin-top: 3px; padding-top: 2px; border-top: 1px dashed color-mix(in srgb, var(--plum) 55%, transparent);
+  color: var(--plum); font-style: italic; font-size: 11px; line-height: 1.25; font-weight: 400; white-space: nowrap; font-family: inherit; }
+.nw-goal-k { color: var(--plum); font-style: italic; font-variant: small-caps; letter-spacing: .02em; }
+.nw-goal-p { display: block; opacity: .85; }
+body.night .nw-goal, body.night .nw-goal-k { color: var(--gold); border-top-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+.sg-goalrow td.sg-amt, td.nw-goal-cell { color: var(--plum); font-style: italic; }
+body.night .sg-goalrow td.sg-amt, body.night td.nw-goal-cell { color: var(--gold); }
+td.nw-goal-cell.blank { opacity: .6; }
+.sg-goalrow th .nw-goal-k { font-variant: normal; }
+.row.nw-goal { display: flex; border-top: 0; font-size: 14px; white-space: normal; justify-content: space-between; }
+.nw-line-goals { margin: 12px 0; }
+.nw-goal-entry { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.nw-goal-entry .field input { color: var(--plum); font-style: italic; border-style: dashed; }
+body.night .nw-goal-entry .field input { color: var(--gold); }
+.nw-goal-copy { align-self: flex-start; font-size: 13px; }
+.nw-goal-copy[hidden] { display: none; }
+.sg-total-name { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.wrap-q-prog { display: block; font-size: 10px; line-height: 1; opacity: .8; }
