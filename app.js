@@ -9838,13 +9838,33 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (a.right > w.right) wrap.scrollLeft += a.right - w.right + 8;
     }
   }
+  /* v37.5.59.83: default asset order by category. Cash (checking, then savings / other cash), Investments
+   * (taxable, then 401k / traditional IRA, then Roth, then HSA / other), Property (vehicles, then home, then other).
+   * Display-only sort, stable within a rank; stored lines are never moved or changed (no manual reorder exists). */
+  function nwAssetRank(l) {
+    var n = String(l.name || "").toLowerCase(), g = l.group;
+    var veh = l.vehicle || g === "vehicles" || VEHICLE_WORDS.test(n);
+    if (g === "cash") return { sec: 0, r: /check/.test(n) ? 0 : 1 };
+    if (g === "lifestyle" && !veh && /fund|saving|account|acct|hysa|cash|reserve/.test(n)) return { sec: 0, r: 2 };
+    if (/\bhsa\b|health savings/.test(n)) return { sec: 1, r: 3 };
+    if (g === "taxable") return { sec: 1, r: 0 };
+    if (g === "retirement") return { sec: 1, r: /roth/.test(n) ? 2 : (/401|403|457|ira|tsp|pension|traditional|rollover|sep/.test(n) ? 1 : 3) };
+    if (veh) return { sec: 2, r: 0 };
+    if (g === "realEstate") return { sec: 2, r: 1 };
+    return { sec: 2, r: 2 };
+  }
+  var NW_ASSET_SECTIONS = ["Cash", "Investments", "Property"];
+  function sortedWorthAssets(lines) {
+    return lines.map(function (l, i) { var k = nwAssetRank(l); return { l: l, s: k.sec, r: k.r, i: i }; })
+      .sort(function (a, b) { return a.s - b.s || a.r - b.r || a.i - b.i; }).map(function (x) { return x.l; });
+  }
   function renderWorthGrid(years) {
     var cy = new Date().getFullYear();
     var filled = worthFilledYears(years);
     var lastFilled = filled.length ? filled[filled.length - 1] : years[years.length - 1];
     var sel = years.indexOf(Number(state.worthYear)) >= 0 ? Number(state.worthYear) : lastFilled;
     var lines = state.worth.lines || [];
-    var assets = lines.filter(function (l) { return l.kind !== "liability"; });
+    var assets = sortedWorthAssets(lines.filter(function (l) { return l.kind !== "liability"; }));
     var liabs = lines.filter(function (l) { return l.kind === "liability"; });
     /* v37.5.59.82: goals live in their own column right of the newest year ("2026 goal"). */
     var yearsG = years.concat(["goal"]);
@@ -9901,7 +9921,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="sg-wrap" data-sgk="nw"><table class="sg-grid">' + sgHead("nw", yearsG, sel, "add-prior-year", canAdd, "Year-end") + "<tbody>";
     if (assets.length) {
       html += sgGroup("Assets", yearsG);
-      assets.forEach(function (l) { html += lineRow(l); });
+      var lastSec = -1;
+      assets.forEach(function (l) {
+        var sec = nwAssetRank(l).sec;
+        if (sec !== lastSec) { html += '<tr class="sg-subgrp"><th scope="row" class="sg-name">' + NW_ASSET_SECTIONS[sec] + '</th><td class="sg-add"></td>' + yearsG.map(function () { return "<td></td>"; }).join("") + "</tr>"; lastSec = sec; }
+        html += lineRow(l);
+      });
       html += sgRow("Total assets", yearsG, gcol("_assets", "Total assets", function (y) { var v = worthBlank(y) ? null : worthTotals(y).assets; return sgCell("nw", "", y, v, { calc: true, on: y === sel }); }), "sg-sub");
     }
     if (liabs.length) {
@@ -15707,7 +15732,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.82";
+  var APP_VERSION = "37.5.59.83";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
