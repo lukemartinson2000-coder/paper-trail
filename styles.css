@@ -4922,3 +4922,15 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 /* v37.5.59.83: subtle Cash / Investments / Property labels inside Assets. */
 .sg-grid tr.sg-subgrp th, .sg-grid tr.sg-subgrp td { height: 26px; border-bottom: 0; }
 .sg-grid tr.sg-subgrp th.sg-name { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding-top: 6px; vertical-align: bottom; }
+/* v37.5.59.84 */
+.sg-grid th.sg-y.sg-edit-year { color: var(--ink); box-shadow: inset 0 -3px 0 var(--moss); }
+.sg-line-static { cursor: default; }
+.sg-grid tr.sg-editacct th, .sg-grid tr.sg-editacct td { height: 34px; }
+.sg-editacct-btn { font-size: 13px; padding-left: 22px; color: var(--muted); text-decoration: underline; background: none; border: 0; cursor: pointer; }
+.nw-edit-list { display: flex; flex-direction: column; }
+.nw-edit-pick { display: flex; justify-content: space-between; align-items: center; padding: 12px 2px; background: none; border: 0; border-bottom: 1px solid rgba(127,127,127,.15); font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+/* v37.5.59.84: withdrawals (negative Added / Improvements) */
+.sg-grid td.sg-amt.neg-entry { position: relative; }
+.sg-grid td.sg-amt.neg-entry::before { content: "−"; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); color: var(--rust); font-family: var(--mono); font-size: 14px; z-index: 1; }
+.sg-grid td.sg-amt.neg-entry input { color: var(--rust); }
+.sg-bar-btn.sg-sign.on { color: var(--rust); border-color: var(--rust); font-weight: 600; }

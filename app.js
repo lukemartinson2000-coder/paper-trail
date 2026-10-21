@@ -9769,6 +9769,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function sgBar() {
     return '<div class="sg-bar" id="sg-bar" hidden><span class="sg-bar-k" id="sg-bar-k"></span>' +
+      '<button type="button" class="sg-bar-btn ghost sg-sign" data-sgbar="sign" hidden aria-label="Switch between money added and withdrawn">+/−</button>' +
       '<button type="button" class="sg-bar-btn ghost" data-sgbar="clear" hidden>Clear</button>' +
       '<button type="button" class="sg-bar-btn ghost" data-sgbar="next">Next</button>' +
       '<button type="button" class="sg-bar-btn" data-sgbar="done">Done</button></div>';
@@ -9828,10 +9829,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bar.hidden = false;
       document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
       bar.querySelector('[data-sgbar="clear"]').hidden = false;
+      bar.querySelector('[data-sgbar="sign"]').hidden = true;
     }
     var input = sp.querySelector("input");
-    input.focus();
+    input.focus({ preventScroll: true });
     try { input.select(); } catch (e) {}
+    sgKeepVisible(sp, sgEdit.year);
     var wrap = sp.closest(".sg-wrap");
     if (wrap && td) {
       var a = td.getBoundingClientRect(), w = wrap.getBoundingClientRect();
@@ -9881,7 +9884,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var isAsset = l.kind !== "liability" && !!subKind;
       var open = isAsset && !!(state.worth.gridOpen && state.worth.gridOpen[l.id]);
       var chev = isAsset ? '<button type="button" class="sg-chev' + (open ? " open" : "") + '" data-act="nw-sub-toggle" data-id="' + esc(l.id) + '" aria-expanded="' + open + '" aria-label="' + (open ? "Hide" : "Show") + " additions, match and return for " + esc(l.name) + '">›</button>' : "";
-      var nameBtn = '<span class="sg-name-in">' + chev + '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button></span>";
+      /* v37.5.59.84: the name toggles the › dropdown (same as ›); names without a dropdown do nothing.
+       * Rename / delete: "Edit account" inside the open dropdown, or "Edit an account" under the grid. */
+      var warn = dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "";
+      var nameBtn = '<span class="sg-name-in">' + chev + (isAsset
+        ? '<button type="button" class="sg-line" data-act="nw-sub-toggle" data-id="' + esc(l.id) + '" aria-expanded="' + open + '">' + esc(l.name) + warn + "</button>"
+        : '<span class="sg-line sg-line-static">' + esc(l.name) + warn + "</span>") + "</span>";
       var out = sgRow(l.name, yearsG, gcol(l.id, l.name, function (y) {
         var blank = worthBlank(y);
         return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "" });
@@ -9892,7 +9900,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       function sub(label, prefix, getter) {
         return sgRow(label, yearsG, nocol(function (y) {
           var v = worthBlank(y) ? null : getter(y);
-          return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel });
+          var negv = v != null && v < 0;
+          return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel, cls: negv ? "neg" : "", text: negv ? "−" + moneyWhole(Math.abs(v)) : null });
         }), "sg-subline", '<span class="sg-sub-name">' + esc(label) + "</span>");
       }
       var home = subKind === "home";
@@ -9908,8 +9917,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var r = prev == null ? null : annualReturn(lineAmount(l, y), lineAmount(l, prev), treatedAdditions(l, y, true));
         return sgCell("nw", "", y, r, { calc: true, on: y === sel, text: r == null ? "—" : (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)), cls: r != null && r < 0 ? "neg" : "" });
       }), "sg-subline sg-ratio", '<span class="sg-sub-name">' + retLabel + " " + helpQ(home
-        ? "Appreciation = (value − prior filled year’s value − improvements) ÷ prior value. Calculated, not editable."
-        : "Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. Calculated, not editable.") + "</span>");
+        ? "Appreciation = (value − prior filled year’s value − improvements) ÷ prior value. Money taken out (e.g. a sold part) can be a negative improvement with +/−. Calculated, not editable."
+        : "Return = (balance − prior filled year’s balance − amounts added) ÷ prior balance. Employer match counts as growth, not as money you added. A withdrawal is a negative Added (use +/− while editing), so it is added back: e.g. −$2,000 adds $2,000 to the gain. Calculated, not editable.") + "</span>");
+      out += '<tr class="sg-subline sg-editacct"><th scope="row" class="sg-name"><button type="button" class="link-btn sg-editacct-btn" data-act="edit-line" data-id="' + esc(l.id) + '">Edit account</button></th><td class="sg-add"></td>' +
+        yearsG.map(function () { return "<td></td>"; }).join("") + "</tr>";
       return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
@@ -9948,7 +9959,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }), "sg-ratio", 'Change ' + helpQ("Change = (this year − the prior filled year) ÷ the prior year. Shown in dollars when the prior year was $0 or less. Blank years are skipped."));
     html += "</tbody></table></div>" + sgBar() +
       '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
-      '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button></div>' +
+      '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button>' +
+      (lines.length ? '<button class="text-btn" type="button" data-act="nw-edit-accounts">Edit an account</button>' : "") + "</div>" +
       '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on Dashboard → Projections.</p></div>';
     return html;
   }
@@ -10086,7 +10098,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (kp) {
         var field = kp[1] === "add" ? "additions" : kp[1] === "match" ? "employerMatch" : "employerBase";
         if (!line[field]) line[field] = {};
-        if (value == null) delete line[field][ed.year]; else line[field][ed.year] = clampMoney(value);
+        if (value == null) delete line[field][ed.year];
+        else line[field][ed.year] = kp[1] === "add" && value < 0 ? -clampMoney(-value) : clampMoney(value);
       } else {
         if (!line.amounts) line.amounts = {};
         line.amounts[ed.year] = clampMoney(value == null ? 0 : value);
@@ -10109,6 +10122,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var wrap = td.closest(".sg-wrap");
     sgEdit = { kind: td.getAttribute("data-sg"), key: td.getAttribute("data-key"), year: Number(td.getAttribute("data-year")), label: td.getAttribute("data-label") };
     var v = td.getAttribute("data-v");
+    /* v37.5.59.84: Added / Improvements can be negative (a withdrawal). The value is typed as a positive amount;
+     * the +/− button in the edit bar flips the sign. */
+    sgEdit.signed = /^add:/.test(sgEdit.key);
+    sgEdit.neg = sgEdit.signed && v !== "" && Number(v) < 0;
+    if (sgEdit.neg) v = String(Math.abs(Number(v)));
+    td.classList.toggle("neg-entry", !!sgEdit.neg);
     td.classList.add("editing");
     document.body.classList.add("sg-editing");
     var isGoal = /^goal:/.test(sgEdit.key);
@@ -10121,22 +10140,83 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bar.hidden = false;
       document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
       bar.querySelector('[data-sgbar="clear"]').hidden = !(sgEdit.kind === "is" || /^(add|match|base|goal):/.test(sgEdit.key));
+      var sgn = bar.querySelector('[data-sgbar="sign"]');
+      sgn.hidden = !sgEdit.signed;
+      sgn.classList.toggle("on", !!sgEdit.neg);
+      sgn.setAttribute("aria-pressed", sgEdit.neg ? "true" : "false");
     }
     var input = td.querySelector("input");
-    input.focus();
+    input.focus({ preventScroll: true });
     try { input.select(); } catch (e) {}
+    sgKeepVisible(td, sgEdit.year);
     if (wrap) {
       var a = td.getBoundingClientRect(), w = wrap.getBoundingClientRect(), nameW = (wrap.querySelector(".sg-name") || {}).offsetWidth || 0;
       if (a.left < w.left + nameW) wrap.scrollLeft -= (w.left + nameW - a.left) + 8;
       else if (a.right > w.right) wrap.scrollLeft += a.right - w.right + 8;
     }
   }
+  /* v37.5.59.84: keep the edited cell clear of the frozen header (top) and the edit bar / keyboard (bottom),
+   * mark its year in both headers, and re-sync the frozen header (also on visualViewport moves). */
+  function sgKeepVisible(cell, year) {
+    var wrap = cell && cell.closest(".sg-wrap");
+    if (!wrap) return;
+    [].forEach.call(document.querySelectorAll("#screen .sg-y.sg-edit-year"), function (n) { n.classList.remove("sg-edit-year"); });
+    var fl = wrap.previousElementSibling;
+    [wrap, fl].forEach(function (root) {
+      if (!root) return;
+      var th = root.querySelector('thead th[data-year="' + year + '"]');
+      if (th) th.classList.add("sg-edit-year");
+    });
+    function fix() {
+      var screen = document.getElementById("screen");
+      var vv = window.visualViewport, vh = vv ? vv.height : window.innerHeight, vtop = vv ? vv.offsetTop : 0;
+      var head = wrap.querySelector("thead"), hh = head ? head.getBoundingClientRect().height : 44;
+      var flTop = fl ? Math.max(fl.getBoundingClientRect().top, vtop) : vtop;
+      var bar = document.getElementById("sg-bar"), bh = bar && !bar.hidden ? bar.getBoundingClientRect().height : 0;
+      var r = cell.getBoundingClientRect();
+      var barTop = bar && !bar.hidden ? bar.getBoundingClientRect().top : vtop + vh;
+      var topLimit = flTop + hh + 6, botLimit = Math.min(vtop + vh - bh, barTop) - 8;
+      var dy = 0;
+      if (r.bottom > botLimit) dy = r.bottom - botLimit;
+      if (r.top - dy < topLimit) dy = r.top - topLimit;
+      if (dy) {
+        var before = cell.getBoundingClientRect().top;
+        if (screen) screen.scrollTop += dy;
+        if (Math.abs(cell.getBoundingClientRect().top - before) < 1) window.scrollBy(0, dy);
+        if (Math.abs(cell.getBoundingClientRect().top - before) < 1 && document.scrollingElement) document.scrollingElement.scrollTop += dy;
+      }
+      sgFloatAll();
+    }
+    fix();
+    setTimeout(fix, 60);
+    setTimeout(fix, 350);
+  }
+  function sgRekeep() {
+    if (!sgEdit) return;
+    var c = document.querySelector("#screen td.editing, #screen .sg-goal-tap.editing");
+    if (c) sgKeepVisible(c, sgEdit.year);
+  }
+  window.addEventListener("resize", sgRekeep);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("scroll", function () { if (typeof sgFloatAll === "function") sgFloatAll(); });
+    window.visualViewport.addEventListener("resize", sgRekeep);
+  }
   function sgFinish(mode) {
     var ed = sgEdit;
     if (!ed) return;
     var td = document.querySelector(ed.goal ? "#screen .sg-goal-tap.editing" : "#screen td.editing");
     var input = td && td.querySelector("input");
+    if (mode === "sign") {
+      if (!ed.signed) return;
+      ed.neg = !ed.neg;
+      if (td) td.classList.toggle("neg-entry", ed.neg);
+      var sb = document.querySelector('#sg-bar [data-sgbar="sign"]');
+      if (sb) { sb.classList.toggle("on", ed.neg); sb.setAttribute("aria-pressed", ed.neg ? "true" : "false"); }
+      if (input) input.focus({ preventScroll: true });
+      return;
+    }
     var value = mode === "clear" ? null : /^goal:/.test(ed.key) ? readWholeDollars(input) : readOptionalCents(input);
+    if (ed.neg && value != null) value = -Math.abs(value);
     sgEdit = null;
     document.body.classList.remove("sg-editing");
     if (mode !== "cancel") sgCommitValue(ed, value);
@@ -10243,7 +10323,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     fl.firstChild.scrollLeft = wrap.scrollLeft;
     var screen = document.getElementById("screen"), head = wrap.querySelector("thead");
     if (!screen || !head) return;
-    var top = fl.getBoundingClientRect().top;
+    var vv = window.visualViewport, off = vv && document.body.classList.contains("kb-up") ? Math.max(0, vv.offsetTop) : 0;
+    fl.firstChild.style.transform = off ? "translateY(" + off + "px)" : "";
+    var top = fl.getBoundingClientRect().top + off;
     var hr = head.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
     var show = hr.top < top - 0.5 && wr.bottom > top + hr.height + 8;
     fl.classList.toggle("on", show);
@@ -15732,7 +15814,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.83";
+  var APP_VERSION = "37.5.59.84";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19260,6 +19342,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (state.worth.gridOpen[gid]) delete state.worth.gridOpen[gid]; else state.worth.gridOpen[gid] = true;
       saveState();
       render();
+    } else if (act === "nw-edit-accounts") {
+      /* v37.5.59.84: rename / delete any account or loan (names in the grid no longer open a sheet). */
+      var accts = sortedWorthAssets((state.worth.lines || []).filter(function (l) { return l.kind !== "liability"; }))
+        .concat((state.worth.lines || []).filter(function (l) { return l.kind === "liability"; }));
+      openSheet("Edit an account", '<p class="caption">Pick one to rename or delete it.</p><div class="nw-edit-list">' + accts.map(function (l) {
+        return '<button type="button" class="nw-edit-pick" data-act="edit-line" data-id="' + esc(l.id) + '"><span>' + esc(l.name) + '</span><span class="chev">›</span></button>';
+      }).join("") + "</div>", "dash-noop");
+      var ea = document.querySelector("#modal .sheet-actions");
+      if (ea) ea.innerHTML = '<button type="button" data-act="close-modal">Close</button>';
     } else if (act === "nw-line-sheet") {
       openNwLineSheet(actEl.getAttribute("data-id"));
     } else if (act === "add-prior-year") {
