@@ -4614,7 +4614,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return names;
   }
-  /* v37.5.59.79: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
+  /* v37.5.59.80: the date a Net worth balance was last typed (line.balDates[year]). A past year with no stamp is
    * its year-end (Dec 31); this year with no stamp starts from the day the goal was linked (p.linkedOn). */
   function nwStamp(line, year) {
     if (!line) return;
@@ -7385,7 +7385,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterAvailAll() {
     var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
-    for (var q = 1; q <= 4; q++) { // v37.5.59.79: Q4 shows while in progress
+    for (var q = 1; q <= 4; q++) { // v37.5.59.80: Q4 shows while in progress
       if (q < curQ) out.push({ year: Y, q: q, done: true });
       else if (q === curQ) out.push({ year: Y, q: q, done: false });
     }
@@ -7551,7 +7551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function quarterPace() {
     var R = dashRetirement();
-    /* v37.5.59.79: a yearly retirement spend already set counts as the goal, even before an age is on file. */
+    /* v37.5.59.80: a yearly retirement spend already set counts as the goal, even before an age is on file. */
     if (!R.ready && R.I && R.I.spend != null) {
       return { id: "q-pace", tidy: true, kicker: "Pace check", title: "Goal: " + moneyWhole(Math.round(R.I.spend)) + " a year",
         sub: "Add your age on the Dashboard’s retirement card to see if you’re on pace.",
@@ -9781,11 +9781,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (l.group === "realEstate" && !VEHICLE_WORDS.test(String(l.name || "").toLowerCase())) return "home";
     return "";
   }
-  /* v37.5.59.79: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
+  /* v37.5.59.80: Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
    * key = line id, "_assets", "_liabs" or "_net"), so they never reach totals, charts or projections. */
   var NW_GOAL_HELP = "Goal = what you want this account (or total) to finish the year with. It shows small in purple under this year’s actual (gold at night). " +
     "When a new year starts, the new year has no goal until you set one.\n\nGoals are never added into totals, net worth, charts, CAGR or projections.\n\n" +
-    "Set one from an account’s › Goal row or by tapping its name; for a total, tap the total’s name.";
+    "Tap the Goal line (or the faint + Goal) under this year’s amount to set or change it; Clear removes it.";
   function nwGoalMap(key) { var g = state.worth.goals; return g && g[key] ? g[key] : null; }
   function nwGoalGet(key, y) { var m = nwGoalMap(key); var v = m ? m[y] : null; return v == null || v === "" ? null : Number(v); }
   function nwGoalSet(key, y, v) {
@@ -9799,12 +9799,37 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ys = Object.keys(m).map(Number).filter(function (k) { return k < y && m[k] != null; }).sort(function (a, b) { return b - a; });
     return ys.length ? { year: ys[0], amount: Number(m[ys[0]]) } : null;
   }
-  /* v37.5.59.79: one "finish the year with" goal per line, shown only in the current year column, amount only. */
-  function nwGoalNote(key, y) {
+  /* v37.5.59.80: one "finish the year with" goal per line / total, only in the current year column. The Goal line
+   * itself is the tap target and edits inline like any grid cell (whole dollars). Empty shows a faint "+ Goal". */
+  function nwGoalNote(key, y, label) {
     if (y !== new Date().getFullYear() || worthBlank(y)) return "";
     var g = nwGoalGet(key, y);
-    if (g == null) return "";
-    return '<span class="nw-goal"><span class="nw-goal-k">Goal</span> ' + moneyWhole(g) + "</span>";
+    return '<span class="nw-goal sg-goal-tap' + (g == null ? " empty" : "") + '" role="button" tabindex="0" data-sg-goal="' + esc(key) + '" data-year="' + y +
+      '" data-v="' + (g == null ? "" : g) + '" data-label="' + esc((label || nwGoalLabel(key)) + " · Goal") + '" aria-label="' + (g == null ? "Add goal" : "Edit goal") + " for " + esc(label || nwGoalLabel(key)) + '">' +
+      (g == null ? "+ Goal" : '<span class="nw-goal-k">Goal</span> ' + moneyWhole(g)) + "</span>";
+  }
+  function sgOpenGoal(sp) {
+    sgEdit = { kind: "nw", key: "goal:" + sp.getAttribute("data-sg-goal"), year: Number(sp.getAttribute("data-year")), label: sp.getAttribute("data-label"), goal: true };
+    var v = sp.getAttribute("data-v");
+    sp.classList.add("editing");
+    var td = sp.closest("td"); if (td) td.classList.add("goal-editing");
+    document.body.classList.add("sg-editing");
+    sp.innerHTML = '<input class="cents-input sg-input sg-goal-input" data-dollars="1" data-whole="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(v === "" ? "" : formatMoney(Number(v), 0)) + '" aria-label="' + esc(sgEdit.label) + '">';
+    bindMoneyInputs(sp);
+    var bar = document.getElementById("sg-bar");
+    if (bar) {
+      bar.hidden = false;
+      document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
+      bar.querySelector('[data-sgbar="clear"]').hidden = false;
+    }
+    var input = sp.querySelector("input");
+    input.focus();
+    try { input.select(); } catch (e) {}
+    var wrap = sp.closest(".sg-wrap");
+    if (wrap && td) {
+      var a = td.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+      if (a.right > w.right) wrap.scrollLeft += a.right - w.right + 8;
+    }
   }
   function renderWorthGrid(years) {
     var cy = new Date().getFullYear();
@@ -9817,7 +9842,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     function lineRow(l) {
       var dup = l.vehicle && vehicleDupMatches(lastFilled, l.id).length;
-      /* v37.5.59.79: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
+      /* v37.5.59.80: › only on investment / retirement / HSA (Added, Employer match, Return) and home / real estate
        * (Improvements, Appreciation). Cash, vehicles and other assets get no dropdown. */
       var subKind = nwSubKind(l);
       var isAsset = l.kind !== "liability" && !!subKind;
@@ -9826,7 +9851,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var nameBtn = '<span class="sg-name-in">' + chev + '<button type="button" class="sg-line" data-act="nw-line-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + (dup ? ' <span class="sg-warn" aria-label="May be counted twice">!</span>' : "") + "</button></span>";
       var out = sgRow(l.name, years, function (y) {
         var blank = worthBlank(y);
-        return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "", goal: blank ? "" : nwGoalNote(l.id, y, lineAmount(l, y), l.kind === "liability") });
+        return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "", goal: blank ? "" : nwGoalNote(l.id, y, l.name) });
       }, nwLeftOut(l) ? "sg-left-out" : "", nameBtn);
       if (!open) return out;
       /* v37.5.59.73: per-line sub-rows (same fields as the name sheet). Added and Employer match are editable;
@@ -9838,11 +9863,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }, "sg-subline", '<span class="sg-sub-name">' + esc(label) + "</span>");
       }
       var home = subKind === "home";
-      out += sgRow("Goal", years, function (y) {
-        if (y !== cy) return sgCell("nw", "", y, null, { calc: true, on: y === sel, text: "" });
-        var g = nwGoalGet(l.id, y);
-        return sgCell("nw", "goal:" + l.id, y, g, { label: l.name + " · Goal", on: y === sel, cls: "nw-goal-cell" });
-      }, "sg-subline sg-goalrow", '<span class="sg-sub-name nw-goal-k">Goal ' + helpQ(NW_GOAL_HELP) + "</span>");
       out += sub(home ? "Improvements" : "Added", "add", function (y) { var a = l.additions ? l.additions[y] : null; return a == null ? null : Number(a); });
       if (!home && (is401k(l) || isHsaLine(l))) {
         out += sub("Employer match", "match", function (y) { var m = (l.employerMatch || {})[y]; return m == null ? null : Number(m); });
@@ -9860,7 +9880,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
-      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Goal, Added, Employer match and Return rows; tap its name for a year-by-year summary and goals.\n\n" + NW_GOAL_HELP) + "</div>";
+      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Added, Employer match and Return rows; tap its name for a year-by-year summary.\n\n" + NW_GOAL_HELP) + "</div>";
     if (!lines.length) {
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
@@ -9869,17 +9889,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (assets.length) {
       html += sgGroup("Assets", years);
       assets.forEach(function (l) { html += lineRow(l); });
-      html += sgRow("Total assets", years, function (y) { var v = worthBlank(y) ? null : worthTotals(y).assets; return sgCell("nw", "", y, v, { calc: true, on: y === sel, goal: v == null ? "" : nwGoalNote("_assets", y, v) }); }, "sg-sub", nwTotalName("_assets", "Total assets"));
+      html += sgRow("Total assets", years, function (y) { var v = worthBlank(y) ? null : worthTotals(y).assets; return sgCell("nw", "", y, v, { calc: true, on: y === sel, goal: v == null ? "" : nwGoalNote("_assets", y) }); }, "sg-sub");
     }
     if (liabs.length) {
       html += sgGroup("Liabilities", years);
       liabs.forEach(function (l) { html += lineRow(l); });
-      html += sgRow("Total liabilities", years, function (y) { var v = worthBlank(y) ? null : worthTotals(y).liabilities; return sgCell("nw", "", y, v, { calc: true, on: y === sel, goal: v == null ? "" : nwGoalNote("_liabs", y, v, true) }); }, "sg-sub", nwTotalName("_liabs", "Total liabilities"));
+      html += sgRow("Total liabilities", years, function (y) { var v = worthBlank(y) ? null : worthTotals(y).liabilities; return sgCell("nw", "", y, v, { calc: true, on: y === sel, goal: v == null ? "" : nwGoalNote("_liabs", y) }); }, "sg-sub");
     }
     html += sgRow("Net worth", years, function (y) {
       var v = worthBlank(y) ? null : worthTotals(y).equity;
-      return sgCell("nw", "", y, v, { calc: true, on: y === sel, cls: v != null && v < 0 ? "neg" : "", goal: v == null ? "" : nwGoalNote("_net", y, v) });
-    }, "sg-total", nwTotalName("_net", "Net worth"));
+      return sgCell("nw", "", y, v, { calc: true, on: y === sel, cls: v != null && v < 0 ? "neg" : "", goal: v == null ? "" : nwGoalNote("_net", y) });
+    }, "sg-total");
     html += sgRow("Change", years, function (y) {
       if (worthBlank(y)) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
       var prev = filled.filter(function (p) { return p < y; }).pop();
@@ -9894,29 +9914,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on Dashboard → Projections.</p></div>';
     return html;
   }
-  function nwLineGoalsHtml(line) {
-    var cy = new Date().getFullYear(), g = nwGoalGet(line.id, cy);
-    return '<div class="nw-line-goals"><div class="row nw-goal"><span>Goal · finish ' + cy + " with " + helpQ(NW_GOAL_HELP) + '</span><span class="mono">' + (g == null ? "—" : moneyWhole(g)) + "</span></div>" +
-      '<button type="button" class="text-btn" data-act="nw-goal-sheet" data-id="' + esc(line.id) + '">' + (g == null ? "+ Set a goal" : "Edit goal") + "</button></div>";
-  }
-  function nwTotalName(key, label) {
-    return '<button type="button" class="sg-line sg-total-name" data-act="nw-goal-sheet" data-id="' + key + '">' + esc(label) + "</button>";
-  }
   var NW_GOAL_LABELS = { _assets: "Total assets", _liabs: "Total liabilities", _net: "Net worth" };
   function nwGoalLabel(key) {
     if (NW_GOAL_LABELS[key]) return NW_GOAL_LABELS[key];
     var l = (state.worth.lines || []).filter(function (x) { return x.id === key; })[0];
     return l ? l.name : "";
-  }
-  /* v37.5.59.79: one whole-dollar field: finish this year with. */
-  function openNwGoalSheet(key) {
-    var label = nwGoalLabel(key);
-    if (!label) return;
-    var cy = new Date().getFullYear(), g = nwGoalGet(key, cy);
-    openSheet(label + " · goal", '<label class="field nw-goal-entry">Finish ' + cy + " with " + helpQ(NW_GOAL_HELP) +
-      '<input name="goalAmt" class="cents-input" data-dollars="1" data-whole="1" data-allow-blank="1" data-goal-year="' + cy + '" inputmode="numeric" autocomplete="off" type="text" value="' + (g == null ? "" : esc(formatMoney(g, 0))) + '"></label>' +
-      '<p class="caption">Shows under ' + cy + "’s actual. Never counted in totals. Leave blank for no goal.</p>" +
-      '<input type="hidden" name="goalKey" value="' + esc(key) + '">', "nw-save-goals");
   }
   function readWholeDollars(el) {
     if (!el) return null;
@@ -9930,14 +9932,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     el.value = v == null ? "" : formatMoney(Math.round(v), 0);
     el.dataset.lastPainted = el.value;
   }
-  document.addEventListener("submit", function (e) {
-    var form = e.target && e.target.closest ? e.target.closest('form[data-act="nw-save-goals"]') : null;
-    if (!form) return;
-    e.preventDefault(); e.stopImmediatePropagation();
-    var key = form.querySelector('input[name="goalKey"]').value;
-    Array.prototype.forEach.call(form.querySelectorAll("input[data-goal-year]"), function (el) { nwGoalSet(key, Number(el.getAttribute("data-goal-year")), readWholeDollars(el)); });
-    saveState(); closeModal(); render();
-  }, true);
   function openNwLineSheet(id) {
     var line = (state.worth.lines || []).filter(function (l) { return l.id === id; })[0];
     if (!line) return;
@@ -9964,7 +9958,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="nw-line-scroll"><table class="nw-line-table"><thead>' + head + "</thead><tbody>" + rows + "</tbody></table></div>" +
       '<p class="caption">' + (contrib ? "Return = (balance − prior balance − amounts added) ÷ prior balance; employer money counts as growth. " : "") +
       "Edit balances by tapping them on the Net worth grid.</p>" +
-      nwLineGoalsHtml(line) +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Close</button>' +
       '<button class="primary" type="button" data-act="edit-line" data-id="' + esc(line.id) + '">Edit line</button></div></div>';
     armSheetA11y(modal);
@@ -10103,7 +10096,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function sgFinish(mode) {
     var ed = sgEdit;
     if (!ed) return;
-    var td = document.querySelector("#screen td.editing");
+    var td = document.querySelector(ed.goal ? "#screen .sg-goal-tap.editing" : "#screen td.editing");
     var input = td && td.querySelector("input");
     var value = mode === "clear" ? null : /^goal:/.test(ed.key) ? readWholeDollars(input) : readOptionalCents(input);
     sgEdit = null;
@@ -10112,7 +10105,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var wrap = document.querySelector('#screen .sg-wrap[data-sgk="' + ed.kind + '"]');
     if (wrap) sgLeft[ed.kind] = wrap.scrollLeft;
     render();
-    if (mode === "next") {
+    if (mode === "next" && ed.goal) {
+      var gs = [].slice.call(document.querySelectorAll('#screen [data-sg-goal][data-year="' + ed.year + '"]'));
+      var gi = -1;
+      gs.forEach(function (c, j) { if ("goal:" + c.getAttribute("data-sg-goal") === ed.key) gi = j; });
+      if (gs[gi + 1]) sgOpenGoal(gs[gi + 1]);
+    } else if (mode === "next") {
       var cells = [].slice.call(document.querySelectorAll('#screen td[data-sg="' + ed.kind + '"][data-year="' + ed.year + '"]'));
       var i = -1;
       cells.forEach(function (c, j) { if (c.getAttribute("data-key") === ed.key) i = j; });
@@ -10232,6 +10230,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!t || !t.closest) return;
     var bb = t.closest("[data-sgbar]");
     if (bb) { e.preventDefault(); e.stopPropagation(); sgFinish(bb.getAttribute("data-sgbar")); return; }
+    var gt = t.closest("#screen [data-sg-goal]");
+    if (gt) {
+      e.preventDefault(); e.stopPropagation();
+      if (gt.classList.contains("editing")) return;
+      if (sgEdit) {
+        var gk = gt.getAttribute("data-sg-goal"), gy = gt.getAttribute("data-year");
+        sgFinish("done");
+        gt = document.querySelector('#screen [data-sg-goal="' + gk + '"][data-year="' + gy + '"]');
+      }
+      if (gt) sgOpenGoal(gt);
+      return;
+    }
     var td = t.closest("#screen td[data-sg]");
     if (td && td.classList.contains("editing")) return;
     if (sgEdit && !td && !t.closest("#sg-bar")) { sgFinish("done"); return; }
@@ -15684,7 +15694,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.79";
+  var APP_VERSION = "37.5.59.80";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -17852,7 +17862,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     bindMoneyInputs(root);
   }
 
-  /* v37.5.59.79: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
+  /* v37.5.59.80: whole-dollar cash register (goals): each digit shifts in as dollars (1 → $1, 10 → $10, 1000 → $1,000). */
   function bindWholeInputs(root) {
     Array.prototype.forEach.call(root.querySelectorAll("input[data-whole]"), function (el) {
       if (el.dataset.moneyBound === "1") return;
@@ -19212,8 +19222,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (state.worth.gridOpen[gid]) delete state.worth.gridOpen[gid]; else state.worth.gridOpen[gid] = true;
       saveState();
       render();
-    } else if (act === "nw-goal-sheet") {
-      openNwGoalSheet(actEl.getAttribute("data-id"));
     } else if (act === "nw-line-sheet") {
       openNwLineSheet(actEl.getAttribute("data-id"));
     } else if (act === "add-prior-year") {

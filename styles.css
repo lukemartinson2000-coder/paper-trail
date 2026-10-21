@@ -4893,3 +4893,12 @@ body.night .nw-goal-entry input { color: var(--gold); }
 .nw-goal-copy[hidden] { display: none; }
 .sg-total-name { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
 .wrap-q-prog { display: block; font-size: 10px; line-height: 1; opacity: .8; }
+
+/* v37.5.59.80: Goal line is its own inline tap target in the current-year column. */
+.sg-goal-tap { cursor: pointer; min-height: 18px; padding-bottom: 1px; -webkit-tap-highlight-color: transparent; }
+.sg-goal-tap.empty { opacity: .5; border-top-color: transparent; font-variant: normal; }
+.sg-goal-tap.empty:hover, .sg-goal-tap:focus-visible { opacity: 1; outline: none; }
+.sg-goal-tap.editing { opacity: 1; }
+.sg-goal-tap .sg-goal-input { width: 100%; min-width: 70px; text-align: right; font: italic 12px var(--mono); color: var(--plum); background: color-mix(in srgb, var(--plum) 8%, transparent);
+  border: 1px dashed var(--plum); border-radius: 4px; padding: 2px 4px; box-sizing: border-box; }
+body.night .sg-goal-tap .sg-goal-input { color: var(--gold); border-color: var(--gold); background: color-mix(in srgb, var(--gold) 10%, transparent); }
