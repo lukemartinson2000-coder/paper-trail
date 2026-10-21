@@ -15834,12 +15834,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.85";
+  var APP_VERSION = "37.5.59.86";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
     if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
-      window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js?v=" + APP_VERSION).catch(function () {}); });
+      /* v37.5.59.86: aggressive update. The new worker skips waiting and claims clients (sw.js); when it takes control
+       * the page reloads once so the new app.js runs. Updates are checked on load, app focus and when it becomes visible. */
+      var hadCtl = !!navigator.serviceWorker.controller, swReloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (!hadCtl) { hadCtl = true; return; }
+        if (swReloaded) return; swReloaded = true;
+        try { if (sessionStorage.getItem("pt-sw-reload") === APP_VERSION) return; sessionStorage.setItem("pt-sw-reload", APP_VERSION); } catch (e) {}
+        location.reload();
+      });
+      var swCheck = function () { navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update().catch(function () {}); }).catch(function () {}); };
+      window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js?v=" + APP_VERSION, { updateViaCache: "none" }).then(swCheck).catch(function () {}); });
+      window.addEventListener("focus", swCheck);
+      document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") swCheck(); });
     }
   } catch (swErr) {}
   var pendingRestore = null;
