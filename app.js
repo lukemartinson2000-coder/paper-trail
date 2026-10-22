@@ -8312,7 +8312,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  /* v37.5.59.94 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
+  /* v37.5.59.95 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
    * text answers, risk slider, goal chips and the optional deeper scales keep Next. Back arrow from step 2 on. */
   var mattersStepIdx = 0;
   function mattersSteps(m) {
@@ -13645,7 +13645,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!manual) {
         if (stub != null) html += '<p class="sd-stubval"><span class="mono">' + esc(statedFmt(ln.unit, stub)) + '</span> <span class="caption">from your pay stub</span></p>';
         else html += '<p class="sd-nostub">' + (hasStub ? "No stub data, " : "No pay stub yet, ") + '<button type="button" class="link-btn" data-sd="mode-manual" data-line="' + ln.id + '">switch to Manual</button></p>';
-        if (st.v != null) html += '<p class="caption quiet">Your saved Manual value: ' + esc(statedFmt(ln.unit, Number(st.v))) + "</p>";
+        if (st.v != null) html += '<p class="caption quiet">Your saved Manual value: ' + esc(ln.unit === "$" && Number(st.v) % 1 ? formatMoney(Number(st.v), 2) : statedFmt(ln.unit, Number(st.v))) + "</p>";
       } else {
         var shown = st.v == null ? "" : (ln.unit === "$" ? moneyEntry(Number(st.v)) : Number(st.v).toFixed(2) + "%");
         html += (ln.unit === "$"
@@ -13706,6 +13706,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var st = plan.stated[id] = plan.stated[id] || {};
       if (sd === "note") st.note = el.value;
       else if (sd === "value") {
+        /* v37.5.59.95: an untouched field (focus, blur, or a Stub/Manual toggle with no typing) must never rewrite the saved
+         * Manual value. The re-bound cash register drops cents, so 87,654.32 used to come back as 87,654.00. */
+        if (el.getAttribute("data-dollars") === "1" ? el.dataset.sdTyped !== "1" : el.value === el.defaultValue) {
+          if (el.value !== el.defaultValue) el.value = el.defaultValue;
+          return;
+        }
         st.v = statedParse(el);
         if (st.mode === "manual" && st.v != null) statedPlanWrite(plan, id, st.v);
         else if (st.mode === "manual" && st.v == null && st.prev !== undefined && st.prev !== null) statedPlanWrite(plan, id, st.prev);
@@ -13747,6 +13753,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       try { t.setSelectionRange(t.value.length, t.value.length); } catch (err) {}
     }
   }, true);
+  /* v37.5.59.95: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
+  ["keydown", "paste", "cut", "beforeinput"].forEach(function (evName) {
+    document.addEventListener(evName, function (e) {
+      var t = e.target;
+      if (!e.isTrusted || !t || !t.getAttribute || t.getAttribute("data-sd") !== "value") return;
+      if (evName === "keydown" && !(e.key && (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete"))) return;
+      t.dataset.sdTyped = "1";
+    }, true);
+  });
   document.addEventListener("focusin", function (e) {
     var t = e.target;
     if (t && t.getAttribute && t.getAttribute("data-pctc") === "1") { t.dataset.pd = String(t.value).replace(/\D/g, ""); t.dataset.edited = ""; }
@@ -14949,7 +14964,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           : '<button class="text-btn onboard-later" type="button" data-act="ob-skip-survey">I’ll finish later</button>');
       }
     }
-    /* v37.5.59.94: back arrow top-left on every question after the first; Next hidden where a tap advances. */
+    /* v37.5.59.95: back arrow top-left on every question after the first; Next hidden where a tap advances. */
     (function () {
       var scr = ob.screen, inner3 = host.querySelector(".onboard-inner");
       if (!inner3 || scr === "welcome" || scr === "welcome2") return;
@@ -15560,7 +15575,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ob.guide = step;
   }
 
-  /* v37.5.59.94 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
+  /* v37.5.59.95 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
    * Free text, dates, the target-return percent and the Go-deeper style inputs keep Next. */
   function surveyIsAutoScreen(screen, a) {
     if (screen === "target") return !!(a && a.targetReturn && a.targetReturn !== "yes");
@@ -15651,7 +15666,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ob.answers.stress = Number(value);
       } else if (ob.screen === "wants" || ob.screen === "fears") {
         var needKey = ob.screen === "wants" ? "primaryNeed" : "secondaryNeed";
-        ob.answers[needKey] = value; // v37.5.59.94: single choice; tapping advances
+        ob.answers[needKey] = value; // v37.5.59.95: single choice; tapping advances
         if (ob.answers.primaryNeed && ob.answers.secondaryNeed) {
           ob.answers.needs = { primary: ob.answers.primaryNeed, secondary: ob.answers.secondaryNeed };
         } else {
@@ -16055,7 +16070,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.94";
+  var APP_VERSION = "37.5.59.95";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -16632,7 +16647,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *  NEVER: merchant names, transaction notes, account numbers, file contents (plus name, phone,
    *    birthday, ZIP, free-text survey answers, account/line names).
    * TESTER_ENDPOINT empty = never touch the network; payloads queue in localStorage only. */
-  /* v37.5.59.94: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
+  /* v37.5.59.95: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
    * the web app also only accepts tester codes listed on its Testers tab. */
   var TESTER_ENDPOINT = "https://script.google.com/macros/s/AKfycbxvll-xd_RoqELdD9LpZhmUQ0j2W-oFTFLCHfV8TTzdGqOPv67QUwfq-BqZgZlWiCBH/exec";
   var TESTER_TOKEN = "39fe9a7fffa14f44a86c4d1a25d37b009afcf9461f2c4c0a8e1a1bb5fda967f8";
@@ -17020,7 +17035,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return "pt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
-  /* v37.5.59.94: every payload goes into the ordered queue, then the queue flushes oldest first. */
+  /* v37.5.59.95: every payload goes into the ordered queue, then the queue flushes oldest first. */
   function sendTesterPayload(payload) {
     if (!payload || typeof payload !== "object") return Promise.resolve({ status: "skipped" });
     if (!payload.id) payload.id = testerPayloadId();
@@ -17097,7 +17112,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function testerReady() {
     var ob = state.onboarding;
-    /* v37.5.59.94: demo books never share. */
+    /* v37.5.59.95: demo books never share. */
     return !(ob && (ob.status === "survey" || ob.demo));
   }
 
