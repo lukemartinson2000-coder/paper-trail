@@ -4719,20 +4719,60 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     out.budgeted = roundCents(out.budgeted); out.spent = roundCents(out.spent);
     return out;
   }
+  /* v37.5.59.93 (owner): money moved into / out of a fund's budget line after a date, from logged transactions only.
+   * Into the fund = what a transaction puts on the line (e.g. "saved $200" logged to House fund). Taken out = money
+   * back off the line (a refund / money-back entry on it). Same-day entries count if entered after the start was set. */
+  function goalFundFlow(name, after, setAt) {
+    var out = { added: 0, out: 0 };
+    if (!name) return out;
+    var today = dashIso(dashToday());
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m) return;
+      var ids = {};
+      (m.categories || []).forEach(function (cat) {
+        if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name === name) ids[l.id] = 1; });
+      });
+      if (!Object.keys(ids).length) return;
+      (m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        var d = txDateKey(tx.date);
+        if (!d || d > today || d < after) return;
+        if (d === after && setAt && tx.enteredAt && Number(tx.enteredAt) <= Number(setAt)) return;
+        Object.keys(ids).forEach(function (lid) {
+          var n = lineNetFromTx(tx, lid);
+          if (n > 0) out.added += n; else if (n < 0) out.out += -n;
+        });
+      });
+    });
+    out.added = roundCents(out.added); out.out = roundCents(out.out);
+    return out;
+  }
+  function goalShortDate(iso) {
+    var m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return "";
+    var mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1];
+    return mon + " " + Number(m[3]) + (m[1] !== String(dashToday().getFullYear()) ? ", " + m[1] : "");
+  }
   function goalProgress(p) {
     if (p.source === "manual") {
-      var mv = Number(p.manualSaved) || 0;
-      return { saved: mv, manual: true, label: "Manually tracked" };
+      /* v37.5.59.93: starting amount (as of a date) + added to the fund's line since − taken out since. */
+      var st = Number(p.startAmount != null ? p.startAmount : p.manualSaved) || 0;
+      var asOf = p.startDate || "";
+      if (!p.envelope) return { saved: st, manual: true, label: "Started " + moneyWhole(st) + (asOf ? " (" + goalShortDate(asOf) + ")" : "") };
+      var ff = goalFundFlow(p.envelope, asOf || "0000-00-00", p.startSetAt);
+      return { saved: roundCents(st + ff.added - ff.out), manual: true, base: st, added: ff.added, out: ff.out,
+        label: "Started " + moneyWhole(st) + (asOf ? " (" + goalShortDate(asOf) + ")" : "") + " + added " + moneyWhole(ff.added) + " − taken out " + moneyWhole(ff.out) + " · " + p.envelope };
     }
     if (p.source === "nw" || p.source === "both") {
       var line = goalNwLine(p.nwLineId), b = goalNwBalance(line);
       if (!line) return { saved: null, label: "Net worth account not found" };
       if (p.source === "both" && p.envelope) {
         /* v37.5.59.92 (owner): balance + budgeted into the line since the balance date − spent from the line since then. */
-        var since = goalBalanceDate(line, b, p), fl = goalLineFlowSince(p.envelope, b ? since : "0000-00-00");
-        var base = b ? b.amount : 0, net = roundCents(fl.budgeted - fl.spent);
-        return { saved: roundCents(base + net), base: base, added: fl.budgeted, spent: fl.spent, label: "From " + line.name + " " + moneyWhole(base) +
-          (b ? " (as of " + displayDate(since) + ")" : " (no balance yet)") + " + " + p.envelope + " budgeted " + moneyWhole(fl.budgeted) + " − spent " + moneyWhole(fl.spent) + (b ? " since" : "") };
+        var since = goalBalanceDate(line, b, p), fl = goalFundFlow(p.envelope, b ? since : "0000-00-00");
+        var base = b ? b.amount : 0;
+        return { saved: roundCents(base + fl.added - fl.out), base: base, added: fl.added, out: fl.out, label: line.name + " " + moneyWhole(base) +
+          (b ? " (" + goalShortDate(since) + ")" : " (no balance yet)") + " + added " + moneyWhole(fl.added) + " − taken out " + moneyWhole(fl.out) + " · " + p.envelope };
       }
       return { saved: b ? b.amount : 0, label: "From Net worth: " + line.name + (b ? " · " + b.year : " · no balance yet") };
     }
@@ -4742,10 +4782,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return { saved: null, label: "" };
   }
-  var GOAL_SOURCE_HELP = "Track progress from a Net worth account: progress is that account’s latest balance (the newest year you filled in on Net worth).\n\n" +
-    "Add a budget line too and progress is that balance + what you’ve budgeted to the line since the balance date − what you’ve spent from the line since then. Each month that starts after the balance date adds its planned amount; each expense on the line after that date subtracts. When you update the balance, the count starts again from that day.\n\n" +
-    "Or from a budget line alone: everything you’ve budgeted to that line, added up across all months so far (not just this month).\n\n" +
-    "Or Manually track: type what you’ve saved so far and update it yourself.";
+  var GOAL_SOURCE_HELP = "What’s in the fund now (the default): type how much is in the fund today and the date. Pick the fund’s budget line and progress = that starting amount + money you log into the line after that date − money taken back out of the line after that date. Only real logged entries count, not budgeted amounts.\n\n" +
+    "Or a Net worth account: starts from that account’s latest balance (as of its balance date), and with a budget line adds what you log into the line since then minus what’s taken out.\n\n" +
+    "Or a budget line alone: everything you’ve budgeted to that line, across all months so far.";
   function dashPurchaseRows() {
     var today = dashIso(dashToday());
     return dashState().purchases.map(function (p) {
@@ -4844,13 +4883,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (p && p.envelope && names.indexOf(p.envelope) < 0) names.push(p.envelope);
     var lines = goalAssetLines();
     var isNw = p && (p.source === "nw" || p.source === "both") && p.nwLineId;
-    var sel = p ? (p.source === "manual" ? "manual" : isNw ? "nw:" + p.nwLineId : (p.envelope ? "env:" + p.envelope : "")) : "";
+    var sel = p ? (p.source === "manual" ? "manual" : isNw ? "nw:" + p.nwLineId : (p.envelope ? "env:" + p.envelope : "")) : "manual";
+    var selMEnv = p && p.source === "manual" ? p.envelope || "" : "";
     var sel2 = p && p.source === "both" ? p.envelope || "" : "";
     var sug = p && !isNw && p.source !== "manual" ? goalNwLine(p.suggestNw) || goalMatchLine(p) : null;
     var html = field("Name", "pName", p ? p.name : "") + field("Target date", "pDate", p ? p.date : "", "date") +
       field("Cost", "pCost", String(p ? p.cost || 0 : 0), "number") +
-      '<label class="field goal-src-field"><span>Track progress from ' + helpQ(GOAL_SOURCE_HELP) + '</span><select name="pSrc" data-goal-src="1"' + (p ? "" : ' data-goal-auto="1"') + '><option value="">None</option>' +
-      '<option value="manual"' + (sel === "manual" ? " selected" : "") + ">Manually track</option>" +
+      '<label class="field goal-src-field"><span>Track progress from ' + helpQ(GOAL_SOURCE_HELP) + '</span><select name="pSrc" data-goal-src="1"><option value="">None</option>' +
+      '<option value="manual"' + (sel === "manual" ? " selected" : "") + ">What’s in the fund now (+ budget line)</option>" +
       (lines.length ? '<optgroup label="Net worth account (latest balance)">' + lines.map(function (l) {
         return '<option value="nw:' + esc(l.id) + '"' + (sel === "nw:" + l.id ? " selected" : "") + ">" + esc(l.name) + "</option>"; }).join("") + "</optgroup>" : "") +
       (names.length ? '<optgroup label="Budget line (all months)">' + names.map(function (n) {
@@ -4858,7 +4898,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "</select></label>" +
       '<label class="field goal-also"' + (sel.indexOf("nw:") === 0 ? "" : " hidden") + '><span>Plus money put into a budget line</span><select name="pEnv2"><option value="">None</option>' +
       names.map(function (n) { return '<option value="' + esc(n) + '"' + (sel2 === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select></label>" +
-      '<div class="goal-manual"' + (sel === "manual" ? "" : " hidden") + ">" + field("Saved so far", "pManual", String(p && p.source === "manual" ? p.manualSaved || 0 : 0), "number") + "</div>" +
+      '<div class="goal-manual"' + (sel === "manual" ? "" : " hidden") + ">" +
+        field("In the fund now", "pManual", String(p && p.source === "manual" ? (p.startAmount != null ? p.startAmount : p.manualSaved) || 0 : 0), "number") +
+        field("As of", "pStartDate", (p && p.source === "manual" && p.startDate) || dashIso(dashToday()), "date") +
+        '<label class="field"><span>Budget line for this fund (optional)</span><select name="pMEnv" data-goal-menv="1"' + (p ? "" : ' data-goal-auto="1"') + '><option value="">None</option>' +
+        names.map(function (n) { return '<option value="' + esc(n) + '"' + (selMEnv === n ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select></label>" +
+        '<p class="caption">Money you log into that line adds to the fund; money taken back out subtracts.</p></div>' +
       (sug ? '<p class="caption goal-suggest">Net worth has <strong>' + esc(sug.name) + '</strong>. <button type="button" class="link-btn" data-goal-use="nw:' + esc(sug.id) + '">Track from it</button></p>' : "") +
       '<input type="hidden" name="pId" value="' + esc(p ? p.id : "") + '">';
     if (p) html += deleteBtnHtml("", "Delete purchase", ' data-dash="p-del" data-id="' + esc(p.id) + '"');
@@ -4878,7 +4923,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target;
     if (!t || t.name !== "pName" || !t.closest || !t.closest("#modal")) return;
     var sel = document.querySelector('#modal select[data-goal-auto="1"]');
-    if (sel) { sel.value = goalAutoPick(t.value); goalSrcVis(); }
+    if (sel) { var want = goalWords(t.value), hit = ""; goalAllBudgetNames().some(function (n) { if (goalWords(n).some(function (w) { return want.indexOf(w) >= 0; })) { hit = n; return true; } return false; }); sel.value = hit; }
   });
   function goalSrcVis() {
     var sel = document.querySelector("#modal select[data-goal-src]");
@@ -4889,7 +4934,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   document.addEventListener("change", function (e) {
     var t = e.target;
-    if (t && t.matches && t.matches("select[data-goal-src]")) { t.removeAttribute("data-goal-auto"); goalSrcVis(); }
+    if (t && t.matches && t.matches("select[data-goal-src]")) { goalSrcVis(); }
+    if (t && t.matches && t.matches("select[data-goal-menv]")) t.removeAttribute("data-goal-auto");
   });
   document.addEventListener("click", function (e) {
     var b = e.target && e.target.closest ? e.target.closest("[data-goal-use]") : null;
@@ -5135,7 +5181,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!p) { if (!name && !(cost > 0)) { closeModal(); return; } p = { id: "buy-" + nextId() }; d.purchases.push(p); }
       p.name = name || "Purchase"; p.date = data.pDate || ""; p.cost = cost > 0 ? cost : 0;
       var src = String(data.pSrc || "");
-      if (src === "manual") { p.source = "manual"; p.manualSaved = Math.max(0, centsFromDigits(data.pManual) || 0); p.envelope = ""; delete p.nwLineId; delete p.suggestNw; }
+      if (src === "manual") {
+        var nStart = Math.max(0, centsFromDigits(data.pManual) || 0), nDate = data.pStartDate || dashIso(dashToday()), nEnv = String(data.pMEnv || "");
+        if (p.source !== "manual" || p.startAmount !== nStart || p.startDate !== nDate || (p.envelope || "") !== nEnv) p.startSetAt = Date.now();
+        p.source = "manual"; p.startAmount = nStart; p.manualSaved = nStart; p.startDate = nDate; p.envelope = nEnv; delete p.nwLineId; delete p.suggestNw;
+      }
       else if (src.indexOf("nw:") === 0) {
         var env2 = String(data.pEnv2 || "");
         if (p.nwLineId !== src.slice(3) || p.envelope !== env2 || p.source !== "both") p.linkedOn = dashIso(dashToday());
@@ -15968,7 +16018,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.92";
+  var APP_VERSION = "37.5.59.93";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
