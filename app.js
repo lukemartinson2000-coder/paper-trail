@@ -8312,65 +8312,61 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
+  /* v37.5.59.94 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
+   * text answers, risk slider, goal chips and the optional deeper scales keep Next. Back arrow from step 2 on. */
+  var mattersStepIdx = 0;
+  function mattersSteps(m) {
+    var st = ["financeStart", "usesBudget"];
+    if (m.usesBudget === "yes" || m.usesBudget === "sort-of") st.push("budgetMethod");
+    return st.concat(["aspireWealthy", "wealthPossible", "education", "millionaireGeneration", "frugal",
+      "riskTolerance", "okIlliquidity", "goals", "deeper"]);
+  }
+  function mattersStepHtml(id, m) {
+    var yn3 = [{ id: "yes", label: "Yes" }, { id: "not-sure", label: "Not sure" }, { id: "no", label: "No" }];
+    var so3 = [{ id: "yes", label: "Yes" }, { id: "sort-of", label: "Sort of" }, { id: "no", label: "No" }];
+    if (id === "financeStart") return mattersPick("When did you start taking finances seriously?", "financeStart", [
+        { id: "not-yet", label: "Not yet" }, { id: "this-year", label: "This year" }, { id: "1-3", label: "Last 1–3 years" },
+        { id: "4-10", label: "Last 4–10 years" }, { id: "10-plus", label: "More than 10 years" }, { id: "always", label: "Always / growing up" }
+      ], m.financeStart);
+    if (id === "usesBudget") return mattersPick("Do you use a budget?", "usesBudget", so3, m.usesBudget);
+    if (id === "budgetMethod") return mattersBudgetFollowUp(m);
+    if (id === "aspireWealthy") return mattersPick("Aspire to be wealthy?", "aspireWealthy", yn3, m.aspireWealthy);
+    if (id === "wealthPossible") return mattersPick("Do you think it’s possible?", "wealthPossible", yn3, m.wealthPossible);
+    if (id === "education") return mattersPick("Education level", "education", [
+        { id: "high-school", label: "High school" }, { id: "some-college", label: "Some college" }, { id: "bachelors", label: "Bachelor’s" },
+        { id: "masters", label: "Master’s" }, { id: "doctorate", label: "Doctorate / professional" }, { id: "other", label: "Other" }
+      ], m.education);
+    if (id === "millionaireGeneration") return mattersPick("If millionaire: generation in family", "millionaireGeneration", [
+        { id: "na", label: "N/A / not there" }, { id: "1st", label: "1st generation" }, { id: "2nd", label: "2nd generation" }, { id: "3rd", label: "3rd+" }
+      ], m.millionaireGeneration);
+    if (id === "frugal") return mattersPick("Frugal?", "frugal", so3, m.frugal);
+    if (id === "riskTolerance") return mattersScale("Risk tolerance", "riskTolerance", "Protect", "Grow", m.riskTolerance, 10);
+    if (id === "okIlliquidity") return mattersPick("OK with some illiquidity for higher returns on a portion of assets?", "okIlliquidity", yn3, m.okIlliquidity);
+    return "";
+  }
+  function mattersStepIsAuto(id, m) {
+    if (id === "riskTolerance" || id === "goals" || id === "deeper") return false;
+    if (id === "budgetMethod") return m.budgetMethod === "paper";
+    return true;
+  }
   function openMattersSurvey(opts) {
     opts = opts || {};
-    if (!opts.preserveScroll) captureModalReturnScreenTop();
+    if (!opts.preserveScroll && !opts.keepReturn) captureModalReturnScreenTop();
     var keepTop = opts.preserveScroll ? mattersSheetScrollTop() : 0;
     state.matters = migrateMatters(state.matters);
     var m = state.matters;
-    var html = '<div class="sheet matters-sheet">' +
-      "<h3>What matters to you</h3>" +
-      '<p class="caption">Required segmentation so Paper Trail can compare before and after. Optional needs are stored only — no coach tone. Estimates later, not advice.</p>' +
-      mattersPick("When did you start taking finances seriously?", "financeStart", [
-        { id: "not-yet", label: "Not yet" },
-        { id: "this-year", label: "This year" },
-        { id: "1-3", label: "Last 1–3 years" },
-        { id: "4-10", label: "Last 4–10 years" },
-        { id: "10-plus", label: "More than 10 years" },
-        { id: "always", label: "Always / growing up" }
-      ], m.financeStart) +
-      mattersPick("Do you use a budget?", "usesBudget", [
-        { id: "yes", label: "Yes" },
-        { id: "sort-of", label: "Sort of" },
-        { id: "no", label: "No" }
-      ], m.usesBudget) +
-      mattersBudgetFollowUp(m) +
-      mattersPick("Aspire to be wealthy?", "aspireWealthy", [
-        { id: "yes", label: "Yes" },
-        { id: "not-sure", label: "Not sure" },
-        { id: "no", label: "No" }
-      ], m.aspireWealthy) +
-      mattersPick("Do you think it’s possible?", "wealthPossible", [
-        { id: "yes", label: "Yes" },
-        { id: "not-sure", label: "Not sure" },
-        { id: "no", label: "No" }
-      ], m.wealthPossible) +
-      mattersPick("Education level", "education", [
-        { id: "high-school", label: "High school" },
-        { id: "some-college", label: "Some college" },
-        { id: "bachelors", label: "Bachelor’s" },
-        { id: "masters", label: "Master’s" },
-        { id: "doctorate", label: "Doctorate / professional" },
-        { id: "other", label: "Other" }
-      ], m.education) +
-      mattersPick("If millionaire: generation in family", "millionaireGeneration", [
-        { id: "na", label: "N/A / not there" },
-        { id: "1st", label: "1st generation" },
-        { id: "2nd", label: "2nd generation" },
-        { id: "3rd", label: "3rd+" }
-      ], m.millionaireGeneration) +
-      mattersPick("Frugal?", "frugal", [
-        { id: "yes", label: "Yes" },
-        { id: "sort-of", label: "Sort of" },
-        { id: "no", label: "No" }
-      ], m.frugal) +
-      mattersScale("Risk tolerance", "riskTolerance", "Protect", "Grow", m.riskTolerance, 10) +
-      mattersPick("OK with some illiquidity for higher returns on a portion of assets?", "okIlliquidity", [
-        { id: "yes", label: "Yes" },
-        { id: "not-sure", label: "Not sure" },
-        { id: "no", label: "No" }
-      ], m.okIlliquidity) +
-      '<p class="sheet-label">Goals</p>' +
+    if (opts.start) mattersStepIdx = 0;
+    var steps = mattersSteps(m);
+    if (mattersStepIdx >= steps.length) mattersStepIdx = steps.length - 1;
+    if (mattersStepIdx < 0) mattersStepIdx = 0;
+    var sid = steps[mattersStepIdx], last = mattersStepIdx === steps.length - 1;
+    var html = '<div class="sheet matters-sheet" data-step="' + sid + '">' +
+      '<div class="matters-head">' + (mattersStepIdx > 0 ? '<button class="ob-back-arrow" type="button" data-act="matters-back" aria-label="Back to the previous question"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : "") +
+      "<h3>What matters to you</h3>" + '<span class="caption matters-step">' + (mattersStepIdx + 1) + " of " + steps.length + "</span></div>" +
+      (mattersStepIdx === 0 ? '<p class="caption">Required segmentation so Paper Trail can compare before and after. Optional needs are stored only — no coach tone. Estimates later, not advice.</p>' : "") +
+      mattersStepHtml(sid, m);
+    if (sid === "goals") {
+    html += '<p class="sheet-label">Goals</p>' +
       '<p class="caption">Also live as chips on Stats. Tap a chip to set a target date and dollar amount.</p>' +
       '<div class="goal-chips">';
     goalCatalog().forEach(function (chip) {
@@ -8378,11 +8374,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '" type="button" data-act="edit-goal" data-id="' + esc(chip.id) + '" data-return="matters">' +
         esc(chip.label) + "</button>";
     });
-    html += "</div>" +
-      '<button class="planner-apply" type="button" data-act="matters-deeper">' +
-      (m.deeperOpen ? "Hide deeper questions" : "Go deeper") + "</button>" +
-      '<p class="caption">Optional. Stored for later analysis — no coach or narration. No IQ, no 16 Personalities.</p>';
-    if (m.deeperOpen) {
+    html += "</div>";
+    }
+    if (sid === "deeper") {
+      html += '<p class="sheet-label">Go deeper (optional)</p><p class="caption">Optional. Stored for later analysis — no coach or narration. No IQ, no 16 Personalities.</p>';
       html += mattersScale("I want my money choices to stand out.", "needSignificance", "Low", "High", m.needSignificance || 1) +
         mattersScale("I care that people close to me accept how I handle money.", "needAcceptance", "Low", "High", m.needAcceptance || 1) +
         mattersScale("I like mastering the details and being the one who figured it out.", "needIntelligence", "Low", "High", m.needIntelligence || 1) +
@@ -8401,7 +8396,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           ". Saved only — Paper Trail will not narrate from these needs.</p>";
       }
     }
-    html += '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
+    var auto = mattersStepIsAuto(sid, m) && sid !== "budgetMethod";
+    html += '<div class="sheet-actions">' + (last ? '<button class="primary" type="button" data-act="close-modal">Done</button>'
+      : '<button type="button" data-act="close-modal">Close</button>' + (auto ? "" : '<button class="primary" type="button" data-act="matters-next">Next</button>')) + "</div></div>";
+
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = html;
@@ -14951,6 +14949,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           : '<button class="text-btn onboard-later" type="button" data-act="ob-skip-survey">I’ll finish later</button>');
       }
     }
+    /* v37.5.59.94: back arrow top-left on every question after the first; Next hidden where a tap advances. */
+    (function () {
+      var scr = ob.screen, inner3 = host.querySelector(".onboard-inner");
+      if (!inner3 || scr === "welcome" || scr === "welcome2") return;
+      var flow = onboardFlow(ob), first = flow.filter(function (x) { return x !== "welcome" && x !== "welcome2"; })[0];
+      var hasPrev = scr !== first;
+      Array.prototype.forEach.call(inner3.querySelectorAll('.onboard-actions [data-act="ob-back"]'), function (b) { if (hasPrev) b.remove(); });
+      var head = document.createElement("div");
+      head.className = "ob-head";
+      if (hasPrev) head.innerHTML = '<button class="ob-back-arrow" type="button" data-act="ob-back" aria-label="Back to the previous question"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
+      var prog = inner3.querySelector(".onboard-progress");
+      if (prog) { prog.parentNode.insertBefore(head, prog); head.appendChild(prog); }
+      else inner3.insertBefore(head, inner3.firstChild);
+      if (surveyIsAutoScreen(scr, ob.answers)) {
+        var nx = inner3.querySelector('.onboard-actions [data-act="ob-next"]');
+        if (nx) nx.remove();
+      }
+    })();
     bindMoneyInputs(host);
     wireSurveyInputs(host);
     host.scrollTop = 0;
@@ -15544,6 +15560,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ob.guide = step;
   }
 
+  /* v37.5.59.94 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
+   * Free text, dates, the target-return percent and the Go-deeper style inputs keep Next. */
+  function surveyIsAutoScreen(screen, a) {
+    if (screen === "target") return !!(a && a.targetReturn && a.targetReturn !== "yes");
+    if (["pay", "serious", "confidence", "stress", "wants", "fears", "compare"].indexOf(screen) >= 0) return true;
+    return !!surveyChoiceSpecs()[screen];
+  }
+  var surveyAdvanceTimer = null;
+  function surveyAutoAdvance(screen) {
+    if (surveyAdvanceTimer) clearTimeout(surveyAdvanceTimer);
+    surveyAdvanceTimer = setTimeout(function () {
+      surveyAdvanceTimer = null;
+      var ob = onboarding();
+      if (!ob || ob.status !== "survey" || ob.screen !== screen) return;
+      handleOnboardAct("ob-next", null);
+    }, 220);
+  }
+
   function handleOnboardAct(act, actEl) {
     var ob = onboarding();
     var flow = onboardFlow(ob);
@@ -15608,6 +15642,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           restoreAgeWheelScroll(lock);
           requestAnimationFrame(function () { restoreAgeWheelScroll(lock); });
           setTimeout(function () { restoreAgeWheelScroll(lock); }, 80);
+          surveyAutoAdvance("serious");
           return;
         }
       } else if (ob.screen === "confidence") {
@@ -15616,7 +15651,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ob.answers.stress = Number(value);
       } else if (ob.screen === "wants" || ob.screen === "fears") {
         var needKey = ob.screen === "wants" ? "primaryNeed" : "secondaryNeed";
-        ob.answers[needKey] = ob.answers[needKey] === value ? "" : value;
+        ob.answers[needKey] = value; // v37.5.59.94: single choice; tapping advances
         if (ob.answers.primaryNeed && ob.answers.secondaryNeed) {
           ob.answers.needs = { primary: ob.answers.primaryNeed, secondary: ob.answers.secondaryNeed };
         } else {
@@ -15636,6 +15671,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       saveState();
       renderOnboarding();
+      var advScreen = ob.screen;
+      if (surveyIsAutoScreen(advScreen, ob.answers) || (advScreen === "decide" && (ob.answers.decide || []).length === 2 && (ob.answers.decide || []).indexOf(value) >= 0)) surveyAutoAdvance(advScreen);
     } else if (act === "ob-skip-survey") {
       skipSurveyToBudget();
     } else if (act === "ob-finish-survey") {
@@ -16018,7 +16055,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.93";
+  var APP_VERSION = "37.5.59.94";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -16595,7 +16632,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *  NEVER: merchant names, transaction notes, account numbers, file contents (plus name, phone,
    *    birthday, ZIP, free-text survey answers, account/line names).
    * TESTER_ENDPOINT empty = never touch the network; payloads queue in localStorage only. */
-  var TESTER_ENDPOINT = "";
+  /* v37.5.59.94: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
+   * the web app also only accepts tester codes listed on its Testers tab. */
+  var TESTER_ENDPOINT = "https://script.google.com/macros/s/AKfycbxvll-xd_RoqELdD9LpZhmUQ0j2W-oFTFLCHfV8TTzdGqOPv67QUwfq-BqZgZlWiCBH/exec";
+  var TESTER_TOKEN = "39fe9a7fffa14f44a86c4d1a25d37b009afcf9461f2c4c0a8e1a1bb5fda967f8";
+  var TESTER_BACKOFF_KEY = "PaperTrail.testerBackoff.v1";
   var TESTER_QUEUE_KEY = "PaperTrail.testerQueue.v1";
   var TESTER_QUEUE_MAX = 50;
   var TESTER_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -16626,7 +16667,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       lastWeeklyAt: typeof s.lastWeeklyAt === "string" ? s.lastWeeklyAt : "",
       lastMonthKey: typeof s.lastMonthKey === "string" ? s.lastMonthKey : "",
       lastClosedMonth: typeof s.lastClosedMonth === "string" ? s.lastClosedMonth : "",
-      lastSentAt: typeof s.lastSentAt === "string" ? s.lastSentAt : ""
+      lastSentAt: typeof s.lastSentAt === "string" ? s.lastSentAt : "",
+      lastMattersDay: typeof s.lastMattersDay === "string" ? s.lastMattersDay : ""
     };
   }
 
@@ -16916,6 +16958,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var month = ensureMonth(state.year, state.month);
     var payload = {
       schema: TESTER_SCHEMA,
+      id: testerPayloadId(),
       testerCode: ts.code,
       appVersion: APP_VERSION,
       date: testerTodayIso(),
@@ -16973,50 +17016,89 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     writeTesterQueue(list);
   }
 
-  /* POST JSON to TESTER_ENDPOINT. Empty endpoint → no network at all; queue locally. */
+  function testerPayloadId() {
+    return "pt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  /* v37.5.59.94: every payload goes into the ordered queue, then the queue flushes oldest first. */
   function sendTesterPayload(payload) {
     if (!payload || typeof payload !== "object") return Promise.resolve({ status: "skipped" });
-    if (!TESTER_ENDPOINT) {
-      var n = queueTesterPayload(payload);
-      return Promise.resolve({ status: "queued", reason: "not-connected", queued: n });
-    }
-    if (typeof fetch !== "function") {
-      return Promise.resolve({ status: "queued", reason: "no-fetch", queued: queueTesterPayload(payload) });
-    }
+    if (!payload.id) payload.id = testerPayloadId();
+    var n = queueTesterPayload(payload);
+    if (!TESTER_ENDPOINT) return Promise.resolve({ status: "queued", reason: "not-connected", queued: n });
+    return flushTesterQueue(true);
+  }
+
+  /* text/plain = no CORS preflight (Apps Script can't answer OPTIONS). A reply without ok:true is a failure. */
+  function postTesterPayload(p) {
+    var body = JSON.parse(JSON.stringify(p));
+    body.token = TESTER_TOKEN;
     return fetch(TESTER_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      keepalive: true
+      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body), redirect: "follow", keepalive: JSON.stringify(body).length < 60000
     }).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
-      testerShare().lastSentAt = new Date().toISOString();
-      saveState();
-      flushTesterQueue();
-      return { status: "sent" };
-    }).catch(function () {
-      return { status: "queued", reason: "error", queued: queueTesterPayload(payload) };
+      return res.json();
+    }).then(function (j) {
+      if (!j || j.ok !== true) throw new Error((j && j.error) || "not ok");
+      return j;
     });
   }
 
-  /* Only runs once an endpoint is configured; sends queued payloads oldest first. */
-  function flushTesterQueue() {
-    if (!TESTER_ENDPOINT || typeof fetch !== "function") return;
-    var list = readTesterQueue();
-    if (!list.length) return;
-    writeTesterQueue([]);
-    list.reduce(function (chain, p) {
-      return chain.then(function () {
-        return fetch(TESTER_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) })
-          .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); })
-          .catch(function () { queueTesterPayload(p); });
+  function testerBackoff() {
+    try { var b = JSON.parse(localStorage.getItem(TESTER_BACKOFF_KEY) || "null"); return b && typeof b === "object" ? b : { next: 0, delay: 0 }; }
+    catch (err) { return { next: 0, delay: 0 }; }
+  }
+
+  var testerFlushing = null;
+  /* Oldest first, one at a time. Stops at the first failure and keeps the rest in order; retries back off
+   * 1 min, doubling, up to 1 hour. Opt-outs are scrubbed from the queue right before every flush. */
+  function flushTesterQueue(force) {
+    if (!TESTER_ENDPOINT || typeof fetch !== "function") return Promise.resolve({ status: "queued", reason: "no-endpoint" });
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return Promise.resolve({ status: "queued", reason: "offline" });
+    if (testerFlushing) return testerFlushing;
+    var bo = testerBackoff();
+    if (!force && bo.next && Date.now() < bo.next) return Promise.resolve({ status: "queued", reason: "backoff" });
+    scrubTesterQueue();
+    var sent = 0;
+    function step() {
+      var list = readTesterQueue();
+      if (!list.length) return Promise.resolve();
+      var p = list[0];
+      if (!p || typeof p !== "object") { writeTesterQueue(list.slice(1)); return step(); }
+      if (!p.id) { p.id = testerPayloadId(); writeTesterQueue(list); }
+      return postTesterPayload(p).then(function () {
+        writeTesterQueue(readTesterQueue().filter(function (x) { return !x || x.id !== p.id; }));
+        sent++;
+        return step();
       });
-    }, Promise.resolve());
+    }
+    testerFlushing = step().then(function () {
+      try { localStorage.removeItem(TESTER_BACKOFF_KEY); } catch (err) {}
+      if (sent) { testerShare().lastSentAt = new Date().toISOString(); saveState(); }
+      return { status: "sent", sent: sent };
+    }).catch(function (err) {
+      var d = Math.min(60 * 60 * 1000, Math.max(60 * 1000, (bo.delay || 0) * 2));
+      try { localStorage.setItem(TESTER_BACKOFF_KEY, JSON.stringify({ next: Date.now() + d, delay: d })); } catch (e2) {}
+      return { status: "queued", reason: "error", error: String(err && err.message || err), sent: sent, queued: readTesterQueue().length };
+    }).then(function (res) { testerFlushing = null; return res; });
+    return testerFlushing;
+  }
+
+  /* What matters: one share when the sheet closes, at most once a day. */
+  function maybeSendMattersPayload() {
+    if (!testerReady()) return;
+    var ts = testerShare(), day = testerTodayIso();
+    if (ts.lastMattersDay === day) return;
+    ts.lastMattersDay = day;
+    saveState();
+    try { sendTesterPayload(buildTesterPayload("matters")); } catch (err) {}
   }
 
   function testerReady() {
     var ob = state.onboarding;
-    return !(ob && ob.status === "survey");
+    /* v37.5.59.94: demo books never share. */
+    return !(ob && (ob.status === "survey" || ob.demo));
   }
 
   /* Month close (calendar month changed since last check) or weekly while the app is open. */
@@ -17059,6 +17141,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function startTesterSchedule() {
     try { maybeQueueScheduledTester(); } catch (err) {}
+    try { flushTesterQueue(); } catch (err) {}
+    if (!startTesterSchedule.wired) {
+      startTesterSchedule.wired = true;
+      window.addEventListener("online", function () { try { flushTesterQueue(true); } catch (err) {} });
+      document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") { try { flushTesterQueue(); } catch (err) {} } });
+    }
     if (testerTimer) clearInterval(testerTimer);
     testerTimer = setInterval(function () {
       try { maybeQueueScheduledTester(); } catch (err) {}
@@ -19054,7 +19142,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       paintPayoffCard();
     } else if (act === "open-matters") {
       mattersReturnToProfile = !!actEl.closest(".profile-sheet");
-      openMattersSurvey();
+      openMattersSurvey({ start: true });
     } else if (act === "open-insights-foo") {
       state.tab = "insights";
       state.insightsDoor = "";
@@ -19243,11 +19331,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var ynValue = actEl.getAttribute("data-value") || "";
       state.matters[ynField] = ynValue;
       saveState();
-      if (ynField === "usesBudget" || ynField === "budgetMethod") {
-        openMattersSurvey({ preserveScroll: true });
-      } else {
-        paintMattersYesNo(actEl.closest(".scale-row"), ynField, ynValue);
+      paintMattersYesNo(actEl.closest(".scale-row"), ynField, ynValue);
+      if (ynField === "budgetMethod" && ynValue !== "paper") { openMattersSurvey({ preserveScroll: true }); }
+      else {
+        var ynStep = mattersStepIdx;
+        setTimeout(function () {
+          if (mattersStepIdx !== ynStep || !document.querySelector("#modal .matters-sheet")) return;
+          mattersStepIdx++;
+          openMattersSurvey({ preserveScroll: false, keepReturn: true });
+        }, 220);
       }
+    } else if (act === "matters-next" || act === "matters-back") {
+      state.matters = migrateMatters(state.matters);
+      if (act === "matters-next" && state.matters.budgetMethod === "other" && document.querySelector('#modal .matters-sheet[data-step="budgetMethod"]') && !String(state.matters.budgetMethodOther || "").trim()) {
+        var req = document.querySelector('#modal [data-field="budgetMethodOther"]'); if (req) req.focus();
+        return;
+      }
+      mattersStepIdx += act === "matters-next" ? 1 : -1;
+      openMattersSurvey({ keepReturn: true });
     } else if (act === "matters-deeper") {
       state.matters = migrateMatters(state.matters);
       state.matters.deeperOpen = !state.matters.deeperOpen;
@@ -19451,6 +19552,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "close-modal") {
+      var wasMatters = !!document.querySelector("#modal .matters-sheet");
+      if (wasMatters) setTimeout(maybeSendMattersPayload, 0);
       var returnProfile = mattersReturnToProfile;
       mattersReturnToProfile = false;
       pendingScreenUi = captureScreenUi();
