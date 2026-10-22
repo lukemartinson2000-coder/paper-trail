@@ -4501,7 +4501,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     })();
     var ageNow = bAge != null ? bAge : (Number(r.ageNow) > 0 ? Number(r.ageNow) : null);
     var retireAge = Number(state.profile && state.profile.retireAge) > 0 ? Number(state.profile.retireAge) : 65;
-    /* v37.5.59.97: rates are stored as percents (7 = 7%). A saved value under 1 is a fraction (0.07) or the old
+    /* v37.5.59.98: rates are stored as percents (7 = 7%). A saved value under 1 is a fraction (0.07) or the old
      * hundredths bug (12 typed → 0.12), so it reads as ×100: 0.07 → 7%, 0.12 → 12%. */
     function pctFix(v) { v = Number(v); return v > 0 && v < 1 ? Math.round(v * 10000) / 100 : v; }
     var infl = r.infl != null && isFinite(Number(r.infl)) ? pctFix(r.infl) : 3;
@@ -4551,7 +4551,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var m = Math.max(0, years - 1), fvC = 0;
     for (var kk = 1; kk <= m; kk++) fvC += inv.contrib * Math.pow(1 + i, kk) * Math.pow(1 + r, m - kk);
     var onTrackNeed = Math.max(0, (needNominal - fvC) / Math.pow(1 + r, m));
-    /* v37.5.59.97: Coast number = balance needed today with no more contributions: My number ÷ (1 + r)^years.
+    /* v37.5.59.98: Coast number = balance needed today with no more contributions: My number ÷ (1 + r)^years.
      * Needed yearly saving C (today's $, rising with inflation): B0(1+r)^n + C·F = My number,
      * F = Σ_{k=0..n−1} (1+i)^k (1+r)^(n−1−k). Monthly = C ÷ 12. */
     var coastNeed = needNominal / Math.pow(1 + r, years), F = 0;
@@ -5123,7 +5123,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function dashRerender() { saveState(); render(); }
-  /* v37.5.59.97: the cash-register field sets its value in code, so the browser never fires "change" and the
+  /* v37.5.59.98: the cash-register field sets its value in code, so the browser never fires "change" and the
    * spending was never saved. Save on every keystroke (no re-render, focus stays) and re-render on blur. */
   function dashSaveSpend(t) {
     var digits = String(t.dataset.digits || "").replace(/\D/g, "");
@@ -5194,7 +5194,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (t.getAttribute("data-dashmoney") === "spend") {
       dashSaveSpend(t);
     } else if (t.getAttribute("data-dashpct")) {
-      /* v37.5.59.97: whole percents. Typing 12 means 12% (it used to become 0.12%). Decimals allowed: 2.5 → 2.5%. */
+      /* v37.5.59.98: whole percents. Typing 12 means 12% (it used to become 0.12%). Decimals allowed: 2.5 → 2.5%. */
       d = dashState(); var dg = String(t.value).replace(/[^0-9.]/g, ""), pv = parseFloat(dg);
       if (dg === "" || !isFinite(pv)) { if (t.hasAttribute("data-disp")) { t.value = t.getAttribute("data-disp"); return; } }
       d.retire[t.getAttribute("data-dashpct")] = dg === "" || !isFinite(pv) ? null : Math.min(pv, 50);
@@ -8368,7 +8368,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  /* v37.5.59.97 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
+  /* v37.5.59.98 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
    * text answers, risk slider, goal chips and the optional deeper scales keep Next. Back arrow from step 2 on. */
   var mattersStepIdx = 0;
   function mattersSteps(m) {
@@ -11055,13 +11055,32 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function worthTrendSeries(years) {
     return [
       { name: "Net worth", color: CHART_INKS[0], points: years.map(function (y) { return { year: y, y: worthTotals(y).equity }; }) },
-      { name: "Income", color: CHART_INKS[1], points: years.map(function (y) { return { year: y, y: Number((state.worth.income || {})[y]) || 0 }; }) }
+      { name: "Income", color: CHART_INKS[1], points: years.map(function (y) { return { year: y, y: trendIncOf(y) }; }) }
     ];
   }
   /* v37.5.59.56: readout adds that year's net worth change vs the prior stored year (whole %; dollars when the
    * prior year was ≤ 0; nothing for the first year). Uses stored history, so a 5Y view's first year still compares. */
   function trendNwOf(y) { return worthTotals(y).equity; }
-  function trendIncOf(y) { return Number((state.worth.income || {})[y]) || 0; }
+  /* v37.5.59.98: the Income line uses the Income statement's Total income for the year (salary + bonus + side gig +
+   * other + employer 401k, pay stub or typed, exactly as the statement shows it). Net worth's per-year income is the
+   * fallback only for years the statement has nothing for. */
+  function trendIncInfo(y) {
+    var yrs = state.annualStatement && state.annualStatement.years, raw = yrs && yrs[String(Number(y))];
+    var hasRaw = raw && ANNUAL_INCOME_FIELDS.some(function (f) { return raw[f] != null && raw[f] !== ""; });
+    var basis = null; try { basis = payStubBasisFor(y); } catch (e) {}
+    var hasStub = !!(basis && basis.hasYtd && basis.grossPay && basis.grossPay.total > 0);
+    if (hasRaw || hasStub) {
+      try {
+        var tot = annualIncomeParts(annualRow(raw || {}), y).total;
+        if (tot != null && Number(tot) > 0) return { v: Number(tot), from: "statement" };
+      } catch (e) {}
+    }
+    var w = Number((state.worth.income || {})[y]) || 0;
+    return { v: w, from: w ? "worth" : "" };
+  }
+  function trendIncOf(y) { return trendIncInfo(y).v; }
+  var TREND_INCOME_HELP = "Income line = each year’s Total income from your Income statement: salary + bonus + side gig + other + employer 401k, " +
+    "from your pay stub or what you typed, the same number the statement shows.\n\nA year with nothing on the Income statement uses the yearly income saved on the Net worth page instead. A year with neither shows $0.";
   // v37.5.59.57: same rule for income (state.worth.income by year).
   function nwYoyText(year, valOf, withYear) {
     var ys = worthFilledYears((state.worth && state.worth.years) || []).filter(function (y) { return y < year; }).sort(function (a, b) { return b - a; });
@@ -11119,7 +11138,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<section class="card' + (compact ? " dash-card dash-trend" : "") + '"' + (compact ? ' id="dash-trend"' : "") + ">" +
       (compact ? '<p class="dash-k">Trend · net worth and income</p>' : "") +
       chips + cagrHtml + lineChart(trend || worthTrendSeries(years), { interactive: true, selectedYear: sel, crossYear: crossYear }) +
-      '<p class="caption">' + (compact ? "Drag the line to a year." : "Drag the vertical line to a year. That year’s net worth and income appear under the graph.") + "</p></section>";
+      '<p class="caption">' + (compact ? "Drag the line to a year." : "Drag the vertical line to a year. That year’s net worth and income appear under the graph.") + " Income is from your Income statement. " + helpQ(TREND_INCOME_HELP) + "</p></section>";
   }
   function dashTrendHtml() {
     var years = (state.worth && state.worth.years || []).slice().sort(function (a, b) { return a - b; });
@@ -11143,7 +11162,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       {
         name: "Income",
         color: CHART_INKS[1],
-        points: years.map(function (y) { return { year: y, y: Number((state.worth.income || {})[y]) || 0 }; })
+        points: years.map(function (y) { return { year: y, y: trendIncOf(y) }; })
       }
     ];
     var pieSlices = GROUPS.filter(function (g) { return g.id !== "debt"; }).map(function (g) {
@@ -13762,7 +13781,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var st = plan.stated[id] = plan.stated[id] || {};
       if (sd === "note") st.note = el.value;
       else if (sd === "value") {
-        /* v37.5.59.97: an untouched field (focus, blur, or a Stub/Manual toggle with no typing) must never rewrite the saved
+        /* v37.5.59.98: an untouched field (focus, blur, or a Stub/Manual toggle with no typing) must never rewrite the saved
          * Manual value. The re-bound cash register drops cents, so 87,654.32 used to come back as 87,654.00. */
         if (el.getAttribute("data-dollars") === "1" ? el.dataset.sdTyped !== "1" : el.value === el.defaultValue) {
           if (el.value !== el.defaultValue) el.value = el.defaultValue;
@@ -13809,7 +13828,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       try { t.setSelectionRange(t.value.length, t.value.length); } catch (err) {}
     }
   }, true);
-  /* v37.5.59.97: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
+  /* v37.5.59.98: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
   ["keydown", "paste", "cut", "beforeinput"].forEach(function (evName) {
     document.addEventListener(evName, function (e) {
       var t = e.target;
@@ -15020,7 +15039,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           : '<button class="text-btn onboard-later" type="button" data-act="ob-skip-survey">I’ll finish later</button>');
       }
     }
-    /* v37.5.59.97: back arrow top-left on every question after the first; Next hidden where a tap advances. */
+    /* v37.5.59.98: back arrow top-left on every question after the first; Next hidden where a tap advances. */
     (function () {
       var scr = ob.screen, inner3 = host.querySelector(".onboard-inner");
       if (!inner3 || scr === "welcome" || scr === "welcome2") return;
@@ -15631,7 +15650,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ob.guide = step;
   }
 
-  /* v37.5.59.97 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
+  /* v37.5.59.98 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
    * Free text, dates, the target-return percent and the Go-deeper style inputs keep Next. */
   function surveyIsAutoScreen(screen, a) {
     if (screen === "target") return !!(a && a.targetReturn && a.targetReturn !== "yes");
@@ -15722,7 +15741,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ob.answers.stress = Number(value);
       } else if (ob.screen === "wants" || ob.screen === "fears") {
         var needKey = ob.screen === "wants" ? "primaryNeed" : "secondaryNeed";
-        ob.answers[needKey] = value; // v37.5.59.97: single choice; tapping advances
+        ob.answers[needKey] = value; // v37.5.59.98: single choice; tapping advances
         if (ob.answers.primaryNeed && ob.answers.secondaryNeed) {
           ob.answers.needs = { primary: ob.answers.primaryNeed, secondary: ob.answers.secondaryNeed };
         } else {
@@ -16126,7 +16145,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.97";
+  var APP_VERSION = "37.5.59.98";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -16703,7 +16722,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *  NEVER: merchant names, transaction notes, account numbers, file contents (plus name, phone,
    *    birthday, ZIP, free-text survey answers, account/line names).
    * TESTER_ENDPOINT empty = never touch the network; payloads queue in localStorage only. */
-  /* v37.5.59.97: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
+  /* v37.5.59.98: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
    * the web app also only accepts tester codes listed on its Testers tab. */
   var TESTER_ENDPOINT = "https://script.google.com/macros/s/AKfycbxvll-xd_RoqELdD9LpZhmUQ0j2W-oFTFLCHfV8TTzdGqOPv67QUwfq-BqZgZlWiCBH/exec";
   var TESTER_TOKEN = "39fe9a7fffa14f44a86c4d1a25d37b009afcf9461f2c4c0a8e1a1bb5fda967f8";
@@ -17091,7 +17110,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return "pt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
-  /* v37.5.59.97: every payload goes into the ordered queue, then the queue flushes oldest first. */
+  /* v37.5.59.98: every payload goes into the ordered queue, then the queue flushes oldest first. */
   function sendTesterPayload(payload) {
     if (!payload || typeof payload !== "object") return Promise.resolve({ status: "skipped" });
     if (!payload.id) payload.id = testerPayloadId();
@@ -17168,7 +17187,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function testerReady() {
     var ob = state.onboarding;
-    /* v37.5.59.97: demo books never share. */
+    /* v37.5.59.98: demo books never share. */
     return !(ob && (ob.status === "survey" || ob.demo));
   }
 
