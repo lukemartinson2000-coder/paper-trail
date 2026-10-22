@@ -5023,8 +5023,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<div class="dash-ins">' +
       (I.ageFromBirthday ? "" : '<label class="dash-in">Your age<input data-dashnum="ageNow" inputmode="numeric" type="text" value="' + esc(I.ageNow == null ? "" : String(I.ageNow)) + '" placeholder="Age"></label>') +
       '<label class="dash-in">Retire at<input data-dashnum="retireAge" inputmode="numeric" type="text" value="' + I.retireAge + '"></label>' +
-      '<label class="dash-in dash-in-wide">Yearly spending in retirement (today’s $)<input class="cents-input mono" data-dashmoney="spend" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(I.spend == null ? "" : moneyEntry(I.spend)) + '" placeholder="Add yearly spending"></label>' +
+      '<label class="dash-in dash-in-wide">Yearly spending in retirement (today’s $)<input class="cents-input mono" data-dashmoney="spend" data-dollars="1" data-whole="1" data-allow-blank="1" inputmode="numeric" autocomplete="off" type="text" value="' +
+      esc(I.spend == null ? "" : formatMoney(Math.round(I.spend), 0)) + '" placeholder="Add yearly spending"></label>' +
       dashPctInput("infl", "Inflation", I.infl, I.inflManual) + dashPctInput("ret", "Return", I.ret, I.retManual) + "</div>";
     if (!R.ready) {
       html += '<p class="dash-ask">' + (I.ageNow == null ? "Add your age (or birthday on Profile)" : "") + (I.ageNow == null && I.spend == null ? " and " : "") +
@@ -5093,6 +5093,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function dashRerender() { saveState(); render(); }
+  /* v37.5.59.96: the cash-register field sets its value in code, so the browser never fires "change" and the
+   * spending was never saved. Save on every keystroke (no re-render, focus stays) and re-render on blur. */
+  function dashSaveSpend(t) {
+    var digits = String(t.dataset.digits || "").replace(/\D/g, "");
+    var v = digits ? Math.min(parseInt(digits, 10), 99999999) : null;
+    var d = dashState(), was = d.retire.spend == null ? null : Number(d.retire.spend);
+    d.retire.spend = v > 0 ? v : null;
+    saveState();
+    return was !== d.retire.spend;
+  }
+  document.addEventListener("money-edit", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-dashmoney") === "spend") dashSaveSpend(t);
+  }, true);
+  document.addEventListener("focusout", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || t.getAttribute("data-dashmoney") !== "spend" || t.dataset.dashSpendDirty !== "1") return;
+    t.dataset.dashSpendDirty = "";
+    setTimeout(function () { if (document.body.contains(t)) render(); }, 0);
+  }, true);
+  document.addEventListener("money-edit", function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-dashmoney") === "spend") t.dataset.dashSpendDirty = "1";
+  }, true);
   document.addEventListener("click", function (e) {
     var t = e.target && e.target.closest ? e.target.closest("[data-dash]") : null;
     if (!t || t.tagName === "INPUT") return;
@@ -5138,7 +5162,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       } else { d = dashState(); d.retire.ageNow = n > 0 && n < 120 ? n : null; }
       dashRerender();
     } else if (t.getAttribute("data-dashmoney") === "spend") {
-      d = dashState(); var v = statedParse(t); d.retire.spend = v > 0 ? v : null; dashRerender();
+      dashSaveSpend(t);
     } else if (t.getAttribute("data-dashpct")) {
       d = dashState(); var dg = String(t.value).replace(/\D/g, "");
       d.retire[t.getAttribute("data-dashpct")] = dg === "" ? null : Math.min(Number(dg), 5000) / 100;
@@ -8312,7 +8336,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  /* v37.5.59.95 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
+  /* v37.5.59.96 (owner): What matters is one question per step. Single-choice taps advance; the budget-method
    * text answers, risk slider, goal chips and the optional deeper scales keep Next. Back arrow from step 2 on. */
   var mattersStepIdx = 0;
   function mattersSteps(m) {
@@ -13706,7 +13730,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var st = plan.stated[id] = plan.stated[id] || {};
       if (sd === "note") st.note = el.value;
       else if (sd === "value") {
-        /* v37.5.59.95: an untouched field (focus, blur, or a Stub/Manual toggle with no typing) must never rewrite the saved
+        /* v37.5.59.96: an untouched field (focus, blur, or a Stub/Manual toggle with no typing) must never rewrite the saved
          * Manual value. The re-bound cash register drops cents, so 87,654.32 used to come back as 87,654.00. */
         if (el.getAttribute("data-dollars") === "1" ? el.dataset.sdTyped !== "1" : el.value === el.defaultValue) {
           if (el.value !== el.defaultValue) el.value = el.defaultValue;
@@ -13753,7 +13777,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       try { t.setSelectionRange(t.value.length, t.value.length); } catch (err) {}
     }
   }, true);
-  /* v37.5.59.95: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
+  /* v37.5.59.96: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
   ["keydown", "paste", "cut", "beforeinput"].forEach(function (evName) {
     document.addEventListener(evName, function (e) {
       var t = e.target;
@@ -14964,7 +14988,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           : '<button class="text-btn onboard-later" type="button" data-act="ob-skip-survey">I’ll finish later</button>');
       }
     }
-    /* v37.5.59.95: back arrow top-left on every question after the first; Next hidden where a tap advances. */
+    /* v37.5.59.96: back arrow top-left on every question after the first; Next hidden where a tap advances. */
     (function () {
       var scr = ob.screen, inner3 = host.querySelector(".onboard-inner");
       if (!inner3 || scr === "welcome" || scr === "welcome2") return;
@@ -15575,7 +15599,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ob.guide = step;
   }
 
-  /* v37.5.59.95 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
+  /* v37.5.59.96 (owner): single-choice questions advance on tap (no Next). Pick-two advances on the second pick.
    * Free text, dates, the target-return percent and the Go-deeper style inputs keep Next. */
   function surveyIsAutoScreen(screen, a) {
     if (screen === "target") return !!(a && a.targetReturn && a.targetReturn !== "yes");
@@ -15666,7 +15690,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ob.answers.stress = Number(value);
       } else if (ob.screen === "wants" || ob.screen === "fears") {
         var needKey = ob.screen === "wants" ? "primaryNeed" : "secondaryNeed";
-        ob.answers[needKey] = value; // v37.5.59.95: single choice; tapping advances
+        ob.answers[needKey] = value; // v37.5.59.96: single choice; tapping advances
         if (ob.answers.primaryNeed && ob.answers.secondaryNeed) {
           ob.answers.needs = { primary: ob.answers.primaryNeed, secondary: ob.answers.secondaryNeed };
         } else {
@@ -16070,7 +16094,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.95";
+  var APP_VERSION = "37.5.59.96";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -16647,7 +16671,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *  NEVER: merchant names, transaction notes, account numbers, file contents (plus name, phone,
    *    birthday, ZIP, free-text survey answers, account/line names).
    * TESTER_ENDPOINT empty = never touch the network; payloads queue in localStorage only. */
-  /* v37.5.59.95: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
+  /* v37.5.59.96: live — the owner's Google Sheet web app. The token is public in the app by design (filters junk);
    * the web app also only accepts tester codes listed on its Testers tab. */
   var TESTER_ENDPOINT = "https://script.google.com/macros/s/AKfycbxvll-xd_RoqELdD9LpZhmUQ0j2W-oFTFLCHfV8TTzdGqOPv67QUwfq-BqZgZlWiCBH/exec";
   var TESTER_TOKEN = "39fe9a7fffa14f44a86c4d1a25d37b009afcf9461f2c4c0a8e1a1bb5fda967f8";
@@ -17035,7 +17059,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return "pt" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
-  /* v37.5.59.95: every payload goes into the ordered queue, then the queue flushes oldest first. */
+  /* v37.5.59.96: every payload goes into the ordered queue, then the queue flushes oldest first. */
   function sendTesterPayload(payload) {
     if (!payload || typeof payload !== "object") return Promise.resolve({ status: "skipped" });
     if (!payload.id) payload.id = testerPayloadId();
@@ -17112,7 +17136,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function testerReady() {
     var ob = state.onboarding;
-    /* v37.5.59.95: demo books never share. */
+    /* v37.5.59.96: demo books never share. */
     return !(ob && (ob.status === "survey" || ob.demo));
   }
 
