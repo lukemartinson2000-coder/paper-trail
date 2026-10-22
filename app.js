@@ -4688,6 +4688,37 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return Math.max(0, roundCents(tot));
   }
+  /* v37.5.59.92: what went into and out of a budget line after a date, through today. Budgeted = the line's planned
+   * amount for each month that starts after the date (through this month). Spent = expense legs on the line dated
+   * after the date (refunds netted). */
+  function goalLineFlowSince(name, after) {
+    var out = { budgeted: 0, spent: 0 };
+    if (!name) return out;
+    var today = dashIso(dashToday()), t = dashToday(), lim = t.getFullYear() * 12 + t.getMonth() + 1;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m || (Number(m.year) * 12 + Number(m.month)) > lim) return;
+      var mStart = isoDate(m.year, m.month, 1);
+      var catIds = {}, lineIds = {}, assigned = 0, hit = false;
+      (m.categories || []).forEach(function (cat) {
+        if ((cat.lines || []).length) (cat.lines || []).forEach(function (l) { if (l.name === name) { hit = true; lineIds[l.id] = 1; assigned += Number(l.assigned) || 0; } });
+        else if (cat.name === name) { hit = true; catIds[cat.id] = 1; assigned += catAssigned(cat); }
+      });
+      if (!hit) return;
+      if (mStart > after) out.budgeted += assigned;
+      (m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        var d = tx.date || mStart;
+        if (!(d > after && d <= today)) return;
+        txLegs(tx).forEach(function (leg) {
+          if (!(leg.lineId && lineIds[leg.lineId]) && !(!leg.lineId && catIds[leg.categoryId])) return;
+          out.spent += (Number(leg.amount) || 0) - (Number(leg.refund) || 0);
+        });
+      });
+    });
+    out.budgeted = roundCents(out.budgeted); out.spent = roundCents(out.spent);
+    return out;
+  }
   function goalProgress(p) {
     if (p.source === "manual") {
       var mv = Number(p.manualSaved) || 0;
@@ -4697,10 +4728,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var line = goalNwLine(p.nwLineId), b = goalNwBalance(line);
       if (!line) return { saved: null, label: "Net worth account not found" };
       if (p.source === "both" && p.envelope) {
-        var since = goalBalanceDate(line, b, p), add = b ? goalBudgetSince(p.envelope, since) : goalBudgetTotal(p.envelope) || 0;
-        var base = b ? b.amount : 0;
-        return { saved: roundCents(base + add), base: base, added: add, label: "From " + line.name + " " + moneyWhole(base) +
-          (b ? " (as of " + displayDate(since) + ")" : " (no balance yet)") + " + " + p.envelope + " " + moneyWhole(add) + (b ? " since" : "") };
+        /* v37.5.59.92 (owner): balance + budgeted into the line since the balance date − spent from the line since then. */
+        var since = goalBalanceDate(line, b, p), fl = goalLineFlowSince(p.envelope, b ? since : "0000-00-00");
+        var base = b ? b.amount : 0, net = roundCents(fl.budgeted - fl.spent);
+        return { saved: roundCents(base + net), base: base, added: fl.budgeted, spent: fl.spent, label: "From " + line.name + " " + moneyWhole(base) +
+          (b ? " (as of " + displayDate(since) + ")" : " (no balance yet)") + " + " + p.envelope + " budgeted " + moneyWhole(fl.budgeted) + " − spent " + moneyWhole(fl.spent) + (b ? " since" : "") };
       }
       return { saved: b ? b.amount : 0, label: "From Net worth: " + line.name + (b ? " · " + b.year : " · no balance yet") };
     }
@@ -4711,7 +4743,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { saved: null, label: "" };
   }
   var GOAL_SOURCE_HELP = "Track progress from a Net worth account: progress is that account’s latest balance (the newest year you filled in on Net worth).\n\n" +
-    "Add a budget line too and progress is that balance plus what you’ve put into the line since the balance was entered. Transactions on the line count day by day; a month with none counts its budgeted amount. When you update the balance, the count starts again from that day.\n\n" +
+    "Add a budget line too and progress is that balance + what you’ve budgeted to the line since the balance date − what you’ve spent from the line since then. Each month that starts after the balance date adds its planned amount; each expense on the line after that date subtracts. When you update the balance, the count starts again from that day.\n\n" +
     "Or from a budget line alone: everything you’ve budgeted to that line, added up across all months so far (not just this month).\n\n" +
     "Or Manually track: type what you’ve saved so far and update it yourself.";
   function dashPurchaseRows() {
@@ -9818,13 +9850,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* ---- Net worth grid ---- */
   function isHsaLine(l) { return /\bHSA\b|health savings/i.test(String(l && l.name || "")); }
-  /* v37.5.59.87: brokerage / taxable by name, for lines filed in Other (or an imported group) instead of Investments. */
-  var NW_INVEST_WORDS = /\b(brokerage|broker|schwab|fidelity|vanguard|robinhood|e\s?-?\*?trade|etrade|taxable|individual|joint|nq|non-?qualified|invest(ment|ments|ing)?|stocks?|index fund|mutual fund|etf|crypto|401\s?\(?k\)?|403\s?\(?b\)?|457|ira|roth|tsp|sep)\b/i;
+  /* v37.5.59.92: investment = group (taxable / retirement / investment) or HSA; name words never count. */
   function nwIsInvest(l) {
     if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return false;
     if (isHsaLine(l) || l.group === "taxable" || l.group === "retirement" || l.group === "investment") return true;
-    if (l.group === "cash" || l.group === "realEstate" || l.group === "debt") return false;
-    return NW_INVEST_WORDS.test(String(l.name || ""));
+    /* v37.5.59.92 (owner): group only, never name words. Move an account to Investments with the Group picker. */
+    return false;
   }
   function nwSubKind(l) {
     if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return "";
@@ -9900,7 +9931,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (g === "lifestyle" && !veh && /fund|saving|account|acct|hysa|cash|reserve/.test(n)) return { sec: 0, r: 2 };
     if (/\bhsa\b|health savings/.test(n)) return { sec: 1, r: 3 };
     if (g === "taxable" || g === "investment") return { sec: 1, r: 0 };
-    if (g !== "retirement" && nwIsInvest(l)) return { sec: 1, r: /401|403|457|ira|roth|tsp|sep/.test(n) ? 1 : 0 };
     if (g === "retirement") return { sec: 1, r: /roth/.test(n) ? 2 : (/401|403|457|ira|tsp|pension|traditional|rollover|sep/.test(n) ? 1 : 3) };
     if (veh) return { sec: 2, r: 0 };
     if (g === "realEstate") return { sec: 2, r: 1 };
@@ -15938,7 +15968,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.91";
+  var APP_VERSION = "37.5.59.92";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -20787,6 +20817,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   };
 
   state = loadState();
+  /* v37.5.59.92 (owner): every launch (cold start, PWA reopen, service-worker reload) opens on Budget. */
+  state.tab = "budget";
+  (function () {
+    var hiddenAt = 0;
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
+      /* Back from the app switcher after a real absence (not a quick file/photo picker): Budget, unless a sheet is open. */
+      if (hiddenAt && Date.now() - hiddenAt > 60000 && state && state.tab !== "budget") {
+        var md = document.getElementById("modal");
+        if (!md || md.hidden) { state.tab = "budget"; try { saveState(); render(); } catch (e) {} }
+      }
+      hiddenAt = 0;
+    });
+  })();
   try {
     if (migrateFrozenStubTaxes()) saveState();
   } catch (e) { /* never block startup on a repair */ }
