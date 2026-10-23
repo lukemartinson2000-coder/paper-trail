@@ -5047,9 +5047,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
     var avg = inc ? inc.avgTax : null;
     html += '<div class="dash-pair"><section class="dash-card dash-sr" id="dash-sr"><p class="dash-k">Savings rate</p>' +
-      '<p class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</p><p class="caption">Basic</p>' +
-      '<p class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</p><p class="caption">True' +
-      (sr && sr.trueRate && sr.trueRate.state === "locked" ? " · Premium" : "") + "</p></section>" +
+      /* v37.5.59.112 (owner): tap Basic or True to pick the mode the retirement "Needed to stay on track" row follows. */
+      '<button type="button" class="dash-sr-pick' + (dashRateMode() === "basic" ? " on" : "") + '" data-dash="sr-mode" data-mode="basic" aria-pressed="' + (dashRateMode() === "basic") + '">' +
+      '<span class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</span><span class="caption">Basic</span></button>' +
+      '<button type="button" class="dash-sr-pick' + (dashRateMode() === "true" ? " on" : "") + '" data-dash="sr-mode" data-mode="true" aria-pressed="' + (dashRateMode() === "true") + '">' +
+      '<span class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</span><span class="caption">True' +
+      (sr && sr.trueRate && sr.trueRate.state === "locked" ? " · Premium" : "") + "</span></button></section>" +
       '<section class="dash-card dash-tax" id="dash-avgtax"><p class="dash-k">Average tax</p><p class="dash-mid mono">' + pctWhole(avg) + "</p>" +
       '<p class="caption">Taxes ÷ gross pay, ' + (inc ? inc.year : "") + "</p></section></div>";
     // 5
@@ -5095,12 +5098,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (R.dms.items.length ? R.dms.items.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing counted yet") +
         (R.dms.skipped.length ? "\n\nNot counted:\n" + R.dms.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") +
         "\n\nBudget lines count when they feed a Retirement account (Feeds account) or, not linked yet, by name (Roth / IRA / HSA / retire); 401k and HSA come from your pay stubs. Estimate, not advice.";
-      var rHelp = "Savings rate needed = monthly savings needed × 12 ÷ " + R.thBasis + " (" + (R.takeHome ? moneyWhole(R.takeHome) : "not available yet") +
-        "). Now = this year’s retirement money so far ÷ take-home for the same months" + (R.dms.ytdTakeHome ? " (" + moneyWhole(R.dms.year) + " ÷ " + moneyWhole(R.dms.ytdTakeHome) + ")" : "") + " — the same number as the Income statement’s year-to-date savings rate. Estimate, not advice.";
       html += '<div class="dash-mynum dash-coast"><div class="dash-rrow"><div class="dash-rrow-top"><span><strong>Coast number</strong> ' + helpQ(coastHelp) + '</span><span class="mono">' + moneyWhole(R.coastNeed) + "</span></div>" +
         '<p class="caption">Needed today with no more contributions · you have ' + moneyWhole(R.inv.balance) + (coastGap >= 0 ? ' · <span class="moss">coasting</span>' : "") + "</p></div></div>" +
         rrow("Monthly savings needed " + helpQ(mHelp), moneyWhole(R.needMonth) + "/mo", "To be on track by " + I.retireAge + " · now " + moneyWhole(R.curMonth) + "/mo", R.needMonth <= R.curMonth ? "moss" : "") +
-        rrow("Savings rate needed " + helpQ(rHelp), R.needRate == null ? "—" : Math.round(R.needRate) + "%", R.curRate == null ? "Add a paycheck to compare" : "Of take-home · now " + Math.round(R.curRate) + "%", R.needRate != null && R.needRate <= R.curRate ? "moss" : "") +
+        dashOnTrackRowHtml(R, rrow) +
         rrow("Nest egg needed", moneyWhole(R.needToday), "Today’s dollars · " + moneyWhole(R.needNominal) + " at " + I.retireAge) +
         rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
         rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
@@ -5142,6 +5143,32 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // 9
     html += backupNudgeHtml();
     return html + "</div>";
+  }
+  /* v37.5.59.112 (owner): "Needed to stay on track" = the target (needed yearly saving ÷ yearly take-home, or ÷ yearly
+   * gross in True mode) vs "now" = measured this year so far (Jan..current month) in the Savings rate tile's mode. */
+  function dashOnTrackRow(R) {
+    var cym = currentYearMonth(), want = dashRateMode(), mode = "basic", fell = false;
+    var needYear = R.needMonth * 12, tr = null;
+    if (want === "true") { try { tr = ytdTrueRate(cym.year, cym.month); } catch (e) {} if (tr && tr.rate != null && tr.grossYear > 0) mode = "true"; else fell = true; }
+    var out = { mode: mode, fell: fell, needYear: needYear, tr: tr };
+    if (mode === "true") { out.base = tr.grossYear; out.need = needYear / tr.grossYear; out.now = tr.rate; out.of = "gross"; }
+    else { out.base = R.takeHome; out.need = R.takeHome ? needYear / R.takeHome : null; out.now = R.curRate != null ? R.curRate / 100 : null; out.of = "take-home"; }
+    return out;
+  }
+  function dashOnTrackRowHtml(R, rrow) {
+    var o = dashOnTrackRow(R), D = R.dms, M = o.mode === "true" ? "True" : "Basic";
+    var help = "Needed to stay on track is a target: the yearly saving that reaches My number at " + R.I.retireAge + " (monthly savings needed " + moneyWhole(R.needMonth) + " × 12 = " + moneyWhole(o.needYear) + ") ÷ " +
+      (o.mode === "true" ? "your yearly gross pay (" + moneyWhole(o.base) + ", this year’s True gross so far × 12 ÷ " + o.tr.months + " month" + (o.tr.months === 1 ? "" : "s") + " with a True rate)" : R.thBasis + " (" + (o.base ? moneyWhole(o.base) : "not available yet") + ")") + ".\n\n" +
+      "You’re saving … now is measured: this year so far (Jan–" + MONTH_NAMES[currentYearMonth().month - 1] + "), in the Savings rate tile’s mode (tap Basic or True there). " +
+      (o.mode === "true"
+        ? "True = retirement budget lines + 401k (you + employer) + HSA ÷ gross pay (" + moneyWhole(o.tr.savings) + " ÷ " + moneyWhole(o.tr.gross) + "), each month by the same rule as the monthly True rate."
+        : "Basic = the shared retirement money set ÷ take-home for the same months" + (D.ytdTakeHome ? " (" + moneyWhole(D.year) + " ÷ " + moneyWhole(D.ytdTakeHome) + ")" : "") + " — the same number as the Income statement’s year-to-date savings rate.") +
+      (o.fell ? "\n\nTrue isn’t available yet (it needs a confirmed pay stub on Premium), so this row uses Basic." : "") +
+      "\n\nThe tile’s monthly rates can swing: a 3-paycheck month has more take-home and stub 401k in one month, so it can run well above or below your year. The target and \u201cnow\u201d are both yearly, so compare these two." +
+      "\n\n" + ESTIMATE_DISCLAIMER;
+    var val = o.need == null ? "—" : Math.round(o.need * 100) + '% <span class="dash-of">of ' + o.of + "</span>";
+    var cap = o.now == null ? "Add a paycheck to compare" : "You’re saving " + Math.round(o.now * 100) + "% now (this year so far, " + M + (o.fell ? " — True needs a pay stub" : "") + ")";
+    return rrow("Needed to stay on track " + helpQ(help), val, cap, o.need != null && o.now != null && o.need <= o.now ? "moss" : "");
   }
   function dashTaxesHtml() {
     var filing = annualFilingStatus(ensureAnnualStatement());
@@ -5193,6 +5220,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var k = t.getAttribute("data-dash"), d = dashState();
     e.preventDefault(); e.stopPropagation();
     if (k === "est-toggle") { dashEstOpen = !dashEstOpen; render(); }
+    else if (k === "sr-mode") { d.rateMode = t.getAttribute("data-mode") === "true" ? "true" : "basic"; saveState(); render(); }
     else if (k === "p-add") { closeModal(); openDashPurchase("", "pName"); }
     else if (k === "p-all") openDashPurchaseList();
     else if (k === "p-edit") { closeModal(); openDashPurchase(t.getAttribute("data-id"), t.getAttribute("data-focus") || "pName"); }
@@ -8697,6 +8725,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var thY = th > 0 ? roundCents(th * set.months / 12) : null;
     return { set: set, takeHomeYear: th, takeHome: thY, rate: thY > 0 ? set.total / thY : null };
   }
+  /* v37.5.59.112 (owner): True year to date = each month's True numerator ÷ True denominator (stub gross + Budget
+   * take-home a stub doesn't cover), summed Jan..month over months that have a True rate. Same rule as the monthly True. */
+  function ytdTrueRate(year, month) {
+    var num = 0, den = 0, n = 0;
+    for (var mm = 1; mm <= month; mm++) {
+      var rec = state.months && state.months[ymKey(year, mm)];
+      if (!rec) continue;
+      var t = null; try { t = monthSavingsRates(rec).trueRate; } catch (e) {}
+      if (!t || t.state !== "ok" || t.rate == null) continue;
+      var d = Number(t.denominator != null ? t.denominator : t.gross) || 0;
+      if (!(d > 0)) continue;
+      num += Number(t.numerator != null ? t.numerator : t.rate * d) || 0; den += d; n++;
+    }
+    return { rate: den > 0 ? num / den : null, savings: roundCents(num), gross: roundCents(den), months: n, grossYear: n ? den * 12 / n : null };
+  }
+  function dashRateMode() { var d = dashState(); return d && d.rateMode === "true" ? "true" : "basic"; }
   function monthSavingsRates(month) {
     month = month || ensureMonth(state.year, state.month);
     var envelopes = retireEnvTotal(month.categories || []);
@@ -16883,7 +16927,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.111";
+  var APP_VERSION = "37.5.59.112";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
