@@ -10210,6 +10210,55 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return any ? roundCents(sum) : null;
   }
+  /* v37.5.59.100 (owner): read-only Investments row on the Income statement. Per year:
+   * (1) the Added amounts on Net worth investment accounts (nwIsInvest: group retirement / taxable / investment, or HSA),
+   *     signed so withdrawals subtract, EXCLUDING 401k accounts (is401k) because 401k already has its own lines;
+   * (2) plus budget goal funds (Dashboard goals with a budget line): money logged into the line that year minus money
+   *     taken out. A goal tied to a counted Net worth account is skipped so the same money isn't counted twice. */
+  var isInvOpen = false;
+  function goalFundYearNet(name, year) {
+    var net = 0, any = false, today = dashIso(dashToday());
+    if (!name) return null;
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m) return;
+      var ids = {};
+      (m.categories || []).forEach(function (cat) { (cat.lines || []).forEach(function (l) { if (l.name === name) ids[l.id] = 1; }); });
+      if (!Object.keys(ids).length) return;
+      (m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        var d = txDateKey(tx.date);
+        if (!d || d > today || d.slice(0, 4) !== String(year)) return;
+        Object.keys(ids).forEach(function (lid) { var n = lineNetFromTx(tx, lid); if (n) { net += n; any = true; } });
+      });
+    });
+    return any ? roundCents(net) : null;
+  }
+  function incomeInvestParts(year) {
+    var parts = [], counted = {};
+    ((state.worth && state.worth.lines) || []).forEach(function (l) {
+      if (!nwIsInvest(l) || nwLeftOut(l) || is401k(l)) return;
+      counted[l.id] = 1;
+      var a = l.additions ? l.additions[year] : null;
+      if (a != null && a !== "" && Number(a)) parts.push({ name: l.name, src: "nw", amount: Number(a) });
+    });
+    var seen = {};
+    (dashState().purchases || []).forEach(function (p) {
+      if (!p || !p.envelope || seen[p.envelope]) return;
+      if ((p.source === "nw" || p.source === "both") && counted[p.nwLineId]) return;
+      seen[p.envelope] = 1;
+      var v = goalFundYearNet(p.envelope, year);
+      if (v) parts.push({ name: p.envelope, src: "budget", amount: v });
+    });
+    var total = null;
+    parts.forEach(function (x) { total = (total || 0) + x.amount; });
+    return { total: total == null ? null : Math.round(total), parts: parts };
+  }
+  var INCOME_INVEST_HELP = "Investments = money you put into investment accounts that year, minus money you took out. It's read-only here.\n\n" +
+    "It adds up two things:\n• The Added amounts on your Net worth investment accounts (Roth, brokerage, HSA and other accounts in the retirement, taxable or investment groups). A withdrawal entered as a negative Added subtracts.\n" +
+    "• Your budget goal funds (like a house fund): what you logged into the fund's budget line that year minus what you took out.\n\n" +
+    "401k accounts are left out because the 401k (pre-tax) and Employer 401k lines already count them. A goal linked to an investment account already counted here isn't added again.\n\n" +
+    "To change it, edit Added on the Net worth page (tap › on the account) or log money in your Budget. Tap Investments to see each account.";
   function renderIncomeGrid(book, years) {
     var cy = new Date().getFullYear();
     var sel = years.indexOf(Number(state.incomeYear)) >= 0 ? Number(state.incomeYear) : (years.indexOf(cy) >= 0 ? cy : years[years.length - 1]);
@@ -10255,6 +10304,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += sgRow("Other", years, edit("dedOther", "Other deductions", function (d) { return d.row.dedOther; }));
     html += sgRow("Total deductions", years, calc(function (d) { return d.ded; }), "sg-sub");
     html += sgRow("Take-home", years, calc(function (d) { return d.takeHome; }), "sg-total", "Take-home " + helpQ("Take-home = (salary + bonus + side gig + other) − total taxes − total deductions. Employer 401k isn’t pay you take home, so it’s left out."));
+    var invP = {};
+    years.forEach(function (y) { invP[y] = incomeInvestParts(y); });
+    function invCell(v, y) {
+      var negv = v != null && v < 0;
+      return sgCell("is", "", y, v == null ? null : Math.round(v), { calc: true, on: y === sel, cls: negv ? "neg" : "", text: negv ? "−" + moneyWhole(Math.abs(v)) : (v == null ? null : moneyWhole(v)) });
+    }
+    html += sgRow("Investments", years, function (y) { return invCell(invP[y].total, y); }, "is-inv-row",
+      '<span class="sg-name-in"><button type="button" class="sg-chev' + (isInvOpen ? " open" : "") + '" data-act="is-inv-toggle" aria-expanded="' + isInvOpen + '" aria-label="' + (isInvOpen ? "Hide" : "Show") + ' each investment account">›</button>' +
+      '<button type="button" class="sg-line" data-act="is-inv-toggle">Investments</button></span> ' + helpQ(INCOME_INVEST_HELP));
+    if (isInvOpen) {
+      var names = [];
+      years.forEach(function (y) { invP[y].parts.forEach(function (x) { var k = x.src + "|" + x.name; if (names.indexOf(k) < 0) names.push(k); }); });
+      if (!names.length) html += sgRow("", years, function (y) { return sgCell("is", "", y, null, { calc: true, on: y === sel }); }, "sg-subline", '<span class="sg-sub-name">Nothing added yet</span>');
+      names.forEach(function (k) {
+        var src = k.split("|")[0], nm = k.slice(src.length + 1);
+        html += sgRow(nm, years, function (y) {
+          var hit = invP[y].parts.filter(function (x) { return x.src === src && x.name === nm; })[0];
+          return invCell(hit ? hit.amount : null, y);
+        }, "sg-subline", '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : "") + "</span>");
+      });
+    }
     html += sgRow("Saved", years, calc(function (d) { return d.saved; }), "", "Saved " + helpQ("Saved = what you put in savings envelopes on Budget that year (months after today are left out). Years with no budget use your statement: total income − taxes − operating expenses."));
     html += sgRow("Savings rate", years, calc(function (d) { return d.saved != null && d.takeHome > 0 ? d.saved / d.takeHome : (d.savedFrom === "statement" ? d.legacyRate : null); }, pct), "sg-ratio",
       "Savings rate " + helpQ("Savings rate = Saved ÷ Take-home. For years without a budget it’s operating cash flow ÷ total income, as before."));
@@ -16142,7 +16212,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.99";
+  var APP_VERSION = "37.5.59.100";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19726,6 +19796,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       closeModal();
       render();
       openAnnualYear(clrYear);
+    } else if (act === "is-inv-toggle") {
+      isInvOpen = !isInvOpen;
+      render();
     } else if (act === "nw-sub-toggle") {
       var gid = actEl.getAttribute("data-id");
       if (!state.worth.gridOpen) state.worth.gridOpen = {};
