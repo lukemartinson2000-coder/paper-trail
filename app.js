@@ -6044,7 +6044,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     migrateWorthIncome(state.worth);
     var years = ((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var completed = years.filter(function (year) {
-      return (Number((state.worth.income || {})[year]) || 0) !== 0 && worthTotals(year).equity !== 0;
+      return yearIncomeFigure(year).amount > 0 && worthTotals(year).equity !== 0; // v37.5.59.99: statement income
     });
     if (!completed.length) return { years: [], consecutive: 0, hasGap: false };
     var latest = completed[completed.length - 1];
@@ -10810,7 +10810,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="stmt-hero-amount">' + money(takeHome) + "</p></header>" +
       renderYearTiles("income", sdYears, sdYear) +
       renderCompensation() +
-      renderYearlyIncome() +
       '<section class="card"><p class="kicker">Plan</p><p class="caption">Share of income</p>' +
       pieSvg(planSlices(month, totals.income), "Add income, then assign envelopes to see the plan.", "label") +
       "</section>" +
@@ -11007,7 +11006,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var sm = st.salary;
       salaryPct = (sm && sm.mode === "manual" && Number(sm.v) > 0) ? Number(sm.v) : (statedStubValue("salary") || null);
     }
-    var base = gross > 0 ? gross : (Number((state.worth.income || {})[year]) || salaryPct || 0);
+    var base = gross > 0 ? gross : (salaryPct || 0);
     var addYou = lineAddition(line, year);
     var addEr = lineEmployerMatch(line, year) + lineEmployerBase(line, year);
     var youP = linePct("k401");
@@ -11075,12 +11074,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (tot != null && Number(tot) > 0) return { v: Number(tot), from: "statement" };
       } catch (e) {}
     }
-    var w = Number((state.worth.income || {})[y]) || 0;
-    return { v: w, from: w ? "worth" : "" };
+    /* v37.5.59.99: no Net worth fallback; Income lives only on the Income statement. */
+    return { v: 0, from: "" };
   }
   function trendIncOf(y) { return trendIncInfo(y).v; }
   var TREND_INCOME_HELP = "Income line = each year’s Total income from your Income statement: salary + bonus + side gig + other + employer 401k, " +
-    "from your pay stub or what you typed, the same number the statement shows.\n\nA year with nothing on the Income statement uses the yearly income saved on the Net worth page instead. A year with neither shows $0.";
+    "from your pay stub or what you typed, the same number the statement shows.\n\nA year with nothing on the Income statement shows $0. Add or edit income on the Income statement.";
   // v37.5.59.57: same rule for income (state.worth.income by year).
   function nwYoyText(year, valOf, withYear) {
     var ys = worthFilledYears((state.worth && state.worth.years) || []).filter(function (y) { return y < year; }).sort(function (a, b) { return b - a; });
@@ -11388,20 +11387,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         worthYearsRow(
           '<span class="name">Annual income</span>' +
           (incomeNote ? '<span class="caption">' + esc(state.worth.notes[year]) + "</span>"
-            : '<span class="caption">Tap to add notes</span>'),
-          moneyWhole(priInc), moneyWhole(curInc), incDelta, priInc ? incDelta / priInc : null,
-          'data-act="open-year-income" data-year="' + year + '"') +
+            : ""),
+          moneyWhole(priInc), moneyWhole(curInc), incDelta, priInc ? incDelta / priInc : null, "") +
         '<p class="empty">Prior year and ' + year + ' are columns on each row. Totals are computed. The percent is versus the prior year. Retirement lines still store Net Additions and computed returns.</p>';
     } else {
       html +=
         '<div class="row"><span>Assets</span><span class="mono">' + money(totals.assets) + "</span></div>" +
         '<div class="row"><span>Liabilities</span><span class="mono">' + money(totals.liabilities) + "</span></div>" +
-        '<button class="row-btn year-income-row" type="button" data-act="open-year-income" data-year="' + year + '">' +
         '<div class="row"><div><div class="name">Annual income</div>' +
         (incomeNote
           ? '<span class="caption">' + esc(state.worth.notes[year]) + "</span>"
-          : '<span class="caption">Tap to add notes</span>') +
-        "</div><span class='mono'>" + money(yearIncomeFigure(year).amount) + "</span></div></button>" +
+          : "") +
+        "</div><span class='mono'>" + money(yearIncomeFigure(year).amount) + "</span></div>" +
         '<p class="empty">This is one year column. Totals are computed. Each line shows YoY versus the prior year. Retirement lines store Net Additions and computed returns.</p>';
     }
     html += "</div>";
@@ -16145,7 +16142,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.98";
+  var APP_VERSION = "37.5.59.99";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18293,22 +18290,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     syncTaxTotal();
   }
 
-  function openYearIncome(year) {
-    migrateWorthIncome(state.worth);
-    year = Number(year);
-    if (!state.worth.notes) state.worth.notes = {};
-    if (state.worth.income[year] == null) state.worth.income[year] = 0;
-    openSheet(year + " income",
-      '<label class="field">Income' +
-      '<input name="yearIncome" class="cents-input" data-dollars="1" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(moneyEntry(state.worth.income[year] || 0)) + '"></label>' +
-      '<label class="field">Notes' +
-      '<textarea name="notes" rows="5" placeholder="June prior year pay bump to $75k; May this year $87,885 with 20% target bonus.">' +
-      esc(state.worth.notes[year] || "") + "</textarea></label>" +
-      '<input type="hidden" name="year" value="' + year + '">',
-      "save-year-income");
-  }
-
   function moneyDigitsFromValue(value, asDollars) {
     if (asDollars) {
       var dollars = dollarsFromDigits(value);
@@ -19703,7 +19684,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
       var tipBtnX = tipKeyX && document.querySelector('[data-act="annual-info"][data-key="' + tipKeyX + '"]');
       if (tipBtnX) { try { tipBtnX.focus(); } catch (err) {} }
-    } else if (act === "open-year-income") openYearIncome(actEl.getAttribute("data-year"));
+    } else if (act === "open-year-income") { /* v37.5.59.99: removed; income is edited on the Income statement */ }
     else if (act === "toggle-income-years") {
       state.incomeYearsExpanded = !state.incomeYearsExpanded;
       saveState();
@@ -20259,12 +20240,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           date: data.date || isoDate(state.year, state.month, 1)
         });
       }
-    } else if (act === "save-year-income") {
-      var yearKey = Number(data.year);
-      if (!state.worth.income) state.worth.income = {};
-      if (!state.worth.notes) state.worth.notes = {};
-      state.worth.income[yearKey] = dollarsFromDigits(data.yearIncome);
-      state.worth.notes[yearKey] = (data.notes || "").replace(/^\s+|\s+$/g, "");
     } else if (act === "save-spend-sheet") {
       readSpendDraft(form);
       if (!spendDraft) return;
@@ -20726,13 +20701,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       updatePayStubField(el);
     } else if (el.getAttribute("data-act") === "comp-deduct") {
       updateDeductionFromElement(el);
-    } else if (el.getAttribute("data-act") === "worth-income" || el.getAttribute("data-act") === "year-income") {
-      if (!state.worth.income) state.worth.income = {};
-      var year = Number(el.getAttribute("data-year") || state.worthYear);
-      state.worth.income[year] = el.getAttribute("data-dollars")
-        ? dollarsFromDigits(el.value)
-        : centsFromDigits(el.value);
-      saveState();
     } else if (el.getAttribute("data-act") === "ritual-paycheck") {
       var dest = state.months[ritual.destKey];
       if (dest) {
