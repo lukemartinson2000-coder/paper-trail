@@ -3436,13 +3436,46 @@
     setTimeout(finish, T + 600);
   }
 
-  function loadState() {
+  /* v37.5.59.121 (data-safety): if saved books exist but can't be opened, the app must never show the new-user
+   * survey over them or write empty defaults on top of them. loadFailure holds why; saveState refuses to write while
+   * it is set. The raw saved text is also copied to BACKUP_KEY before any migration/repair touches it. */
+  var BACKUP_KEY = STORAGE_KEY + ".backup";
+  var RESCUE_KEY = STORAGE_KEY + ".rescue";
+  var loadFailure = null;
+  function rawLooksLikeBooks(raw) {
+    if (!raw || raw.length < 200) return false;
+    return /"transactions":\[\{/.test(raw) || /"lines":\[\{/.test(raw) || /"documents":\[\{/.test(raw) || /"years":\{"\d{4}"/.test(raw);
+  }
+  function keepRawBackup(raw, key) {
     try {
-      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!rawLooksLikeBooks(raw)) return;
+      var have = localStorage.getItem(key);
+      if (have === raw) return;
+      /* Never replace a copy that holds books with a much smaller one (e.g. after a bad write). */
+      if (have && rawLooksLikeBooks(have) && raw.length < have.length * 0.5) return;
+      localStorage.setItem(key, raw);
+    } catch (err) { /* storage full: the original key is still untouched */ }
+  }
+  function noteLoadFailure(raw, why) {
+    loadFailure = { why: String(why || "unknown"), bytes: raw ? raw.length : 0, at: new Date().toISOString() };
+    try { console.error("Paper Trail: saved data could not be opened; nothing will be overwritten.", why); } catch (e) {}
+    keepRawBackup(raw, RESCUE_KEY);
+    try { localStorage.setItem("PaperTrail.loadError", JSON.stringify(loadFailure)); } catch (e) {}
+    var b = blankState();
+    if (b.onboarding) { b.onboarding.status = "done"; b.onboarding.recover = true; }
+    return b;
+  }
+
+  function loadState() {
+    var raw = null;
+    loadFailure = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
       // v37.5.15: no saved data → welcome survey on empty books (sample data is opt-in only).
       if (!raw) return blankState();
+      keepRawBackup(raw, BACKUP_KEY);
       var parsed = JSON.parse(raw);
-      if (!parsed || !parsed.months || !parsed.worth) return blankState();
+      if (!parsed || !parsed.months || !parsed.worth) return rawLooksLikeBooks(raw) ? noteLoadFailure(raw, "missing months/worth") : blankState();
       uid = 1000;
       // v37.5.59.12 (QA H3): skip null/broken rows instead of blanking the whole app.
       var repaired = false;
@@ -3581,7 +3614,8 @@
       if (parsed.matters && typeof parsed.matters === "object") parsed.matters.deeperOpen = false;
       return parsed;
     } catch (err) {
-      return blankState();
+      /* v37.5.59.121: was a silent blankState() — the survey then showed and its first tap saved empty books over the real ones. */
+      return raw ? noteLoadFailure(raw, (err && (err.message || err.name)) || err) : blankState();
     }
   }
 
@@ -3630,8 +3664,20 @@
   function saveState() {
     addedAutoCache = {};
     try {
+      if (loadFailure) {
+        saveBlocked = true;
+        saveBlockedDetail = "Your saved data couldn't be opened, so nothing is being saved over it.";
+        paintSaveWarning();
+        return false;
+      }
       var payload = storagePayload();
       var text = JSON.stringify(payload);
+      /* v37.5.59.121: never write empty books over stored books. Erase / leave-demo remove the key first, so they pass. */
+      var prevText = localStorage.getItem(STORAGE_KEY);
+      if (prevText && rawLooksLikeBooks(prevText) && !rawLooksLikeBooks(text) && !(payload.onboarding && payload.onboarding.demo)) {
+        keepRawBackup(prevText, RESCUE_KEY);
+        throw new Error("refused-empty-overwrite");
+      }
       localStorage.setItem(STORAGE_KEY, text);
       var read = localStorage.getItem(STORAGE_KEY);
       if (read !== text) throw new Error("verify-mismatch");
@@ -16128,11 +16174,43 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html + "</div>";
   }
 
+  function renderRecoveryScreen(phone, host) {
+    if (!host) {
+      host = document.createElement("section");
+      host.id = "onboard";
+      host.className = "onboard";
+      host.setAttribute("role", "dialog");
+      host.setAttribute("aria-modal", "true");
+      phone.appendChild(host);
+    }
+    host.setAttribute("aria-label", "Your data is safe");
+    host.innerHTML = '<div class="onboard-inner recover-inner"><h2>Your data is still here</h2>' +
+      '<p>Paper Trail found your saved books (' + Math.round((loadFailure.bytes || 0) / 1024) + ' KB) but couldn’t open them in this version. Nothing has been changed or erased.</p>' +
+      '<p class="welcome-note">Reason: ' + esc(loadFailure.why) + '</p>' +
+      '<button class="primary onboard-primary" type="button" data-act="recover-retry">Try again</button>' +
+      '<button class="text-btn" type="button" data-act="recover-save">Save a copy of my data file</button></div>';
+  }
+  function downloadRawBooks() {
+    var raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(RESCUE_KEY) || localStorage.getItem(BACKUP_KEY); } catch (e) {}
+    if (!raw) { showToast("No saved data found", 4000); return; }
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
+    a.download = "paper-trail-raw-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
   function renderOnboarding() {
     var phone = document.getElementById("phone");
     if (!phone) return;
     var host = document.getElementById("onboard");
     var ob = state && state.onboarding;
+    if (loadFailure) { renderRecoveryScreen(phone, host); return; }
+    /* v37.5.59.121: the new-user survey never opens over saved books. */
+    if (ob && ob.status === "survey" && !ob.retake) {
+      var stored = null; try { stored = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+      if (stored && rawLooksLikeBooks(stored)) { loadFailure = { why: "survey over saved books", bytes: stored.length, at: new Date().toISOString() }; keepRawBackup(stored, RESCUE_KEY); renderRecoveryScreen(phone, host); return; }
+    }
     if (!ob || ob.status !== "survey") {
       if (host) host.remove();
       return;
@@ -16975,6 +17053,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ob.answers.payFrequency = actEl.getAttribute("data-freq") || "";
       ob.error = "";
       renderOnboarding();
+    } else if (act === "recover-retry") {
+      location.reload();
+    } else if (act === "recover-save") {
+      downloadRawBooks();
     } else if (act === "ob-demo") {
       if (hasRealData()) return; // never overwrite real data
       state = buildDemoState();
@@ -17338,7 +17420,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.120";
+  var APP_VERSION = "37.5.59.121";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
