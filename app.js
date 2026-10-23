@@ -1655,6 +1655,10 @@
   function cloneVaultDoc(doc) {
     if (!doc || typeof doc !== "object") return null;
     var blanks = emptyVaultFields();
+    /* v37.5.59.123: a Vault item's details always survive. Any field this version doesn't know yet (older data, or a
+     * future feature like custom quotes) is carried along instead of being dropped by the field list below. */
+    var extra = {};
+    Object.keys(doc).forEach(function (k) { if (k !== "dataUrl" && k !== "blob" && typeof doc[k] !== "function") extra[k] = doc[k]; });
     var row = {
       id: doc.id || nextId(),
       slot: normalizeDocSlot(doc.slot),
@@ -1690,6 +1694,7 @@
     });
     /* v37.5.57: keep cancelable-add flag through migrate/render clones. */
     if (doc._vaultDraft) row._vaultDraft = true;
+    Object.keys(extra).forEach(function (k) { if (!(k in row)) row[k] = extra[k]; });
     return row;
   }
 
@@ -1751,6 +1756,8 @@
         payStubPending: doc.payStubPending && typeof doc.payStubPending === "object" ? doc.payStubPending : null
       };
       if (!row.hasBlob && doc.dataUrl) row.dataUrl = doc.dataUrl;
+      /* v37.5.59.123: keep every other detail field too (saved books, snapshots and Full backups all use this). */
+      Object.keys(doc).forEach(function (k) { if (!(k in row) && k !== "dataUrl" && k !== "blob" && k !== "_vaultDraft" && typeof doc[k] !== "function") row[k] = doc[k]; });
       return row;
     });
   }
@@ -17543,7 +17550,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.122";
+  var APP_VERSION = "37.5.59.123";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
