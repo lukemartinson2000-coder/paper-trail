@@ -3428,6 +3428,16 @@
           if (String(line.name || "") === "Car" && line.group === "lifestyle") line.group = "realEstate";
         });
       }
+      /* v37.5.59.116 (owner): every launch starts collapsed. Expanders are session-only: they persist while the
+       * app is open and reset here on load. Real prefs (rate mode, growth source, envelope mode, ...) are untouched. */
+      parsed.budgetIncomeOpen = false;
+      parsed.stmtFull = {};
+      if (parsed.worth) parsed.worth.gridOpen = {};
+      parsed.incomeYearsExpanded = false;
+      parsed.worthYearsExpanded = false;
+      parsed.worthDetails = false;
+      parsed.statementDetails = false;
+      if (parsed.matters && typeof parsed.matters === "object") parsed.matters.deeperOpen = false;
       return parsed;
     } catch (err) {
       return blankState();
@@ -16978,7 +16988,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.115";
+  var APP_VERSION = "37.5.59.116";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
