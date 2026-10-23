@@ -354,7 +354,10 @@
     });
     /* v37.5.59.43: manual per-check deductions (Income › Details). amount = $ per paycheck. */
     plan.perCheck = (Array.isArray(plan.perCheck) ? plan.perCheck : []).filter(function (r) { return r && typeof r === "object"; }).map(function (r) {
-      return { id: r.id || nextId(), name: String(r.name || ""), amount: Math.max(0, Number(r.amount) || 0), preTax: r.preTax !== false, maxHsa: !!r.maxHsa };
+      var o = { id: r.id || nextId(), name: String(r.name || ""), amount: Math.max(0, Number(r.amount) || 0), preTax: r.preTax !== false, maxHsa: !!r.maxHsa };
+      /* v37.5.59.108: a stub line edited in place keeps its link (stubOf) and its Stub/Manual switch (useStub keeps the typed cents). */
+      if (r.stubOf) { o.stubOf = String(r.stubOf); o.useStub = !!r.useStub; }
+      return o;
     });
     if (plan.payStubSnapshot && typeof plan.payStubSnapshot === "object") {
       plan.payStubSnapshot = plan.payStubSnapshot;
@@ -13471,6 +13474,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         field: active.getAttribute("data-field") || "",
         flag: active.getAttribute("data-flag") || "",
         kind: active.getAttribute("data-kind") || "",
+        /* v37.5.59.108: Income-line, plan-term and per-check fields carry only these. Without them a re-render matched the
+         * sheet's FIRST input and wrote the typed text there (root cause of "my 401k data is not saving"). */
+        elId: active.id || "",
+        sd: active.getAttribute("data-sd") || "",
+        pc: active.getAttribute("data-pc") || "",
+        line: active.getAttribute("data-line") || "",
+        key: active.getAttribute("data-key") || "",
         start: active.selectionStart,
         end: active.selectionEnd,
         digits: active.dataset ? active.dataset.digits : "",
@@ -13483,6 +13493,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function findSheetFocusEl(sheet, focus) {
     if (!sheet || !focus) return null;
+    if (!(focus.act || focus.name || focus.id || focus.field || focus.flag || focus.kind || focus.elId || focus.sd || focus.pc || focus.line || focus.key)) return null;
+    if (focus.elId) return document.getElementById(focus.elId) && sheet.contains(document.getElementById(focus.elId)) ? document.getElementById(focus.elId) : null;
     var nodes = sheet.querySelectorAll("input, select, textarea");
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
@@ -13492,6 +13504,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (focus.field && el.getAttribute("data-field") !== focus.field) continue;
       if (focus.flag && el.getAttribute("data-flag") !== focus.flag) continue;
       if (focus.kind && el.getAttribute("data-kind") !== focus.kind) continue;
+      if ((el.getAttribute("data-sd") || "") !== (focus.sd || "")) continue;
+      if ((el.getAttribute("data-pc") || "") !== (focus.pc || "")) continue;
+      if (focus.line && el.getAttribute("data-line") !== focus.line) continue;
+      if (focus.key && el.getAttribute("data-key") !== focus.key) continue;
       return el;
     }
     return null;
@@ -14058,12 +14074,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function perCheckManualResolved(plan) {
     var mx = null;
-    return (plan.perCheck || []).map(function (r) {
+    return (plan.perCheck || []).filter(function (r) { return !r.useStub; }).map(function (r) {
       var kind = perCheckKind(r.name);
       var amt = Number(r.amount) || 0, yearAmt = null;
       if (kind === "hsa" && r.maxHsa) { mx = mx || hsaMaxInfo(plan); if (mx) { amt = mx.perCheck; yearAmt = mx.yearEmployee; } }
       return { id: r.id, name: r.name, amount: amt, yearAmt: yearAmt, preTax: r.preTax !== false, kind: kind, ficaExempt: r.preTax !== false && kind !== "retirement", maxHsa: !!r.maxHsa, source: "manual" };
     }).filter(function (r) { return r.name || r.amount > 0; });
+  }
+  /* v37.5.59.108: the per-check row that edits stub line s in place (stubOf link; older same-name lines migrate on Change). */
+  function perCheckStubLink(plan, s) {
+    var key = pcNorm(s.name);
+    return (plan.perCheck || []).filter(function (r) { return r.stubOf && r.stubOf === key; })[0] || null;
   }
   function perCheckMerged(plan) {
     var manual = perCheckManualResolved(plan);
@@ -14164,15 +14185,28 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (m.stub.length) {
       html += '<p class="caption pc-sub">From your pay stub</p>';
       m.stub.forEach(function (s) {
-        html += '<div class="pc-row pc-stub' + (s.overriddenBy ? " is-over" : "") + '"><span class="pc-name">' + esc(s.name) +
-          ' <span class="pc-tag">' + (s.preTax ? "Pre-tax" : s.unmarked ? "Not marked" : "Post-tax") + "</span></span>" +
-          '<span class="mono pc-amt">' + money(s.amount) + "</span>" +
-          (s.overriddenBy ? '<span class="caption pc-note">Replaced by your line below</span>'
-            : '<button type="button" class="link-btn" data-pc="override" data-name="' + esc(s.name) + '" data-amt="' + s.amount + '" data-pre="' + (s.preTax ? 1 : 0) + '">Change</button>') + "</div>";
+        var link = perCheckStubLink(plan, s);
+        var tag = ' <span class="pc-tag">' + (s.preTax ? "Pre-tax" : s.unmarked ? "Not marked" : "Post-tax") + "</span>";
+        if (link && !link.useStub) {
+          /* v37.5.59.108 (owner): Change edits the stub line right here (prefilled, cash-register cents); Use stub reverts. */
+          html += '<div class="pc-row pc-stub is-edit" data-pc-id="' + esc(link.id) + '"><span class="pc-name">' + esc(s.name) + tag +
+            ' <span class="sd-tag is-manual">Manual</span></span>' +
+            '<input class="pc-amt-in cents-input mono" data-pc="amount" data-dollars="1" data-id="' + esc(link.id) + '" inputmode="numeric" autocomplete="off" type="text" value="' +
+            esc(moneyEntry(Number(link.amount) || 0)) + '" aria-label="' + esc(s.name) + ' per check">' +
+            '<span class="caption pc-note">Stub ' + esc(formatMoney(Number(s.amount) || 0, 2)) + ' · <button type="button" class="link-btn" data-pc="use-stub" data-id="' + esc(link.id) + '">Use stub</button></span></div>';
+        } else {
+          html += '<div class="pc-row pc-stub' + (s.overriddenBy ? " is-over" : "") + '"><span class="pc-name">' + esc(s.name) + tag + "</span>" +
+            '<span class="mono pc-amt">' + esc(formatMoney(Number(s.amount) || 0, 2)) + "</span>" +
+            (s.overriddenBy ? '<span class="caption pc-note">Replaced by your line below</span>'
+              : '<button type="button" class="link-btn" data-pc="override" data-name="' + esc(s.name) + '" data-amt="' + s.amount + '" data-pre="' + (s.preTax ? 1 : 0) + '"' +
+                (link ? ' data-id="' + esc(link.id) + '"' : "") + ">Change</button>" +
+                (link && Number(link.amount) !== Number(s.amount) ? '<span class="caption pc-note">Your saved ' + esc(formatMoney(Number(link.amount) || 0, 2)) + "</span>" : "")) + "</div>";
+        }
       });
     }
     html += '<p class="caption pc-sub">Your lines · $ per check</p>';
     (plan.perCheck || []).forEach(function (r) {
+      if (r.stubOf) return; // edited in place on its stub row
       var kind = perCheckKind(r.name);
       var res = perCheckManualResolved({ perCheck: [r], paychecksPerYear: plan.paychecksPerYear, payFrequency: plan.payFrequency })[0];
       var amt = res ? res.amount : r.amount;
@@ -14236,14 +14270,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var pc = el.getAttribute("data-pc");
     var id = el.getAttribute("data-id");
     var row = (plan.perCheck || []).filter(function (r) { return r.id === id; })[0];
-    var rerender = true, focusNew = null;
+    var rerender = true, focusNew = null, focusAmt = null;
     if (pc === "add") {
       var nr = { id: nextId(), name: "", amount: 0, preTax: true, maxHsa: false };
       plan.perCheck.push(nr); focusNew = nr.id;
     } else if (pc === "override") {
+      /* v37.5.59.108: edit the stub line in place. A saved Manual value comes back with its cents (.95 rule). */
       var nm = el.getAttribute("data-name") || "";
-      plan.perCheck.push({ id: nextId(), name: nm, amount: Number(el.getAttribute("data-amt")) || 0, preTax: el.getAttribute("data-pre") === "1", maxHsa: false });
+      var key = pcNorm(nm);
+      var linked = row && row.stubOf === key ? row : (plan.perCheck || []).filter(function (r) { return r.stubOf === key; })[0];
+      if (linked) linked.useStub = false;
+      else {
+        linked = { id: nextId(), name: nm, amount: Number(el.getAttribute("data-amt")) || 0, preTax: el.getAttribute("data-pre") === "1", maxHsa: false, stubOf: key, useStub: false };
+        plan.perCheck.push(linked);
+      }
+      focusAmt = linked.id;
     } else if (!row) return;
+    else if (pc === "use-stub") row.useStub = true;
     else if (pc === "name") {
       var wasBlank = !row.name;
       row.name = el.value.replace(/^\s+/, "");
@@ -14273,9 +14316,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     state.compensation = plan;
     payStubBasisCache = {};
     saveState();
+    if (rerender && kind === "change" && !focusNew && !focusAmt) { incomeSheetRerenderSafe(); return; }
     if (rerender) {
       render(); openIncomeStatement({ preserveScroll: true });
       if (focusNew) { var f = document.querySelector('#modal input[data-pc="name"][data-id="' + focusNew + '"]'); if (f) f.focus(); }
+      if (focusAmt) {
+        var fa = document.querySelector('#modal input[data-pc="amount"][data-id="' + focusAmt + '"]');
+        if (fa) { try { fa.scrollIntoView({ block: "center" }); } catch (e) {} fa.focus(); try { fa.select(); } catch (e) {} }
+      }
     }
   }
   document.addEventListener("change", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-pc")) perCheckHandle(t, "change"); });
@@ -14285,6 +14333,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   });
   document.addEventListener("focusout", function (e) {
     var t = e.target;
+    /* v37.5.59.108: only a field you typed in saves on blur; the whole-dollar blur repaint must not round away cents (.95 rule). */
+    if (t && t.getAttribute && (t.getAttribute("data-pc") === "amount" || t.getAttribute("data-pc") === "er-amt") && t.dataset.pcTyped !== "1") return;
     if (t && t.getAttribute && t.getAttribute("data-pc") === "amount" && !t.readOnly) {
       var r0 = ((state.compensation && state.compensation.perCheck) || []).filter(function (r) { return r.id === t.getAttribute("data-id"); })[0];
       var v0 = statedParse(t);
@@ -14405,8 +14455,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     state.compensation = plan;
     saveState();
-    if (rerender) { render(); openIncomeStatement({ preserveScroll: true }); }
+    if (rerender) { if (kind === "change") incomeSheetRerenderSafe(); else { render(); openIncomeStatement({ preserveScroll: true }); } }
   }
+  /* v37.5.59.108 (owner: "my data is not saving"): a field's change event fires as the next field takes focus. Re-rendering
+   * the sheet right then replaced the field being typed into, so its digits went nowhere (401k match, plan terms, per-check
+   * amounts). Re-render only once focus is no longer in a sheet field (or never, if the sheet closed). */
+  var incomeSheetPending = false;
+  function incomeSheetFieldFocused() {
+    var a = document.activeElement, modal = document.getElementById("modal");
+    return !!(a && modal && !modal.hidden && modal.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) &&
+      a.type !== "checkbox" && a.type !== "radio");
+  }
+  function incomeSheetRerenderSafe() {
+    incomeSheetPending = true;
+    setTimeout(function () {
+      if (!incomeSheetPending) return;
+      var modal = document.getElementById("modal");
+      if (!modal || modal.hidden || !modal.querySelector("#comp-estimates")) { incomeSheetPending = false; return; }
+      if (incomeSheetFieldFocused()) return; // try again when this field loses focus
+      incomeSheetPending = false;
+      render(); openIncomeStatement({ preserveScroll: true });
+    }, 0);
+  }
+  document.addEventListener("focusout", function () { if (incomeSheetPending) setTimeout(function () { if (incomeSheetPending) incomeSheetRerenderSafe(); }, 0); }, true);
   document.addEventListener("change", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-sd")) statedHandle(t, "change"); });
   document.addEventListener("input", function (e) {
     var t = e.target;
@@ -14419,8 +14490,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       t.dataset.edited = "1";
       t.value = d === "" ? "" : (Math.min(Number(d), 10000) / 100).toFixed(2) + "%";
       try { t.setSelectionRange(t.value.length, t.value.length); } catch (err) {}
+      /* v37.5.59.108: save every keystroke. iOS Safari never fires change once script rewrote the value, so % fields were lost. */
+      if (t.getAttribute("data-sd") === "term" || t.getAttribute("data-sd") === "value") statedHandle(t, "input");
     }
   }, true);
+  ["keydown", "paste", "cut", "beforeinput"].forEach(function (evName) {
+    document.addEventListener(evName, function (e) {
+      var t = e.target, pc = t && t.getAttribute ? t.getAttribute("data-pc") : "";
+      if (!e.isTrusted || (pc !== "amount" && pc !== "er-amt")) return;
+      if (evName === "keydown" && !(e.key && (/^\d$/.test(e.key) || e.key === "Backspace" || e.key === "Delete"))) return;
+      t.dataset.pcTyped = "1";
+    }, true);
+  });
   /* v37.5.59.98: only a real keystroke marks a Manual $ field as typed; the money binder's blur repaint does not. */
   ["keydown", "paste", "cut", "beforeinput"].forEach(function (evName) {
     document.addEventListener(evName, function (e) {
@@ -15986,8 +16067,34 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return window.confirm("Delete " + thing + "?\n\n" + (detail || "This can’t be undone."));
   }
 
+  /* v37.5.59.108 (owner): projection / salary % fields take whole numbers: 7 = 7%. Decimals only after a typed "." (7.5 = 7.5%). */
+  function pctWholeShow(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return "";
+    var r = Math.round(n * 100) / 100;
+    return String(r) + "%";
+  }
+  function pctWholeParse(str) {
+    var t = String(str || "").replace(/[^0-9.]/g, "");
+    var dot = t.indexOf(".");
+    if (dot >= 0) t = t.slice(0, dot + 1) + t.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+    if (t === "" || t === ".") return null;
+    var n = parseFloat(t);
+    return isFinite(n) ? Math.min(n, 100) : null;
+  }
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || t.getAttribute("data-pctw") !== "1") return;
+    var raw = String(t.value).replace(/[^0-9.]/g, "");
+    var dot = raw.indexOf(".");
+    if (dot >= 0) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+    raw = raw.replace(/^0+(?=\d)/, "");
+    if (raw.length && Number(raw) > 100) raw = "100";
+    t.dataset.edited = "1";
+    if (t.value !== raw) t.value = raw;
+  }, true);
   function projInputHtml(kind, label, value) {
-    return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctc="1" inputmode="numeric" autocomplete="off" type="text" value="' + esc(Math.round(Number(value)) + "%") + '" data-full="' + esc(Number(value).toFixed(2) + "%") + '" aria-label="' + esc(label) + '"></label>';
+    return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctw="1" inputmode="decimal" autocomplete="off" type="text" value="' + esc(pctWholeShow(value)) + '" data-full="' + esc(pctWholeShow(value)) + '" aria-label="' + esc(label) + '"></label>';
   }
 
   function estimatedSectionHtml(kind) {
@@ -16047,6 +16154,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   document.addEventListener("focusout", function (e) {
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
+    if (t.value !== "" && t.dataset.edited === "1" && t.getAttribute("data-pctw") === "1") {
+      /* v37.5.59.108: save on blur too (iOS can skip change after the field was rewritten while typing). */
+      var pv = pctWholeParse(t.value);
+      var pk = t.getAttribute("data-proj") === "raise" ? "raisePct" : "growthPct";
+      state.projection = state.projection || {};
+      if (pv != null && state.projection[pk] !== pv) { state.projection[pk] = pv; t.dataset.edited = ""; saveState(); setTimeout(render, 0); }
+      return;
+    }
     if (t.value === "" && t.hasAttribute("data-disp")) {
       if (t.dataset.edited === "1") resetProjAssumption(t);   /* emptied on purpose: back to the default */
       else t.value = t.getAttribute("data-disp");
@@ -16066,8 +16181,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target;
     if (!t || !t.getAttribute || !t.getAttribute("data-proj")) return;
     if (projResetting) return;
-    var d = String(t.value).replace(/\D/g, "");
-    var v = d === "" ? null : Math.min(Number(d), 10000) / 100;
+    var v = pctWholeParse(t.value); // v37.5.59.108: whole-number %
     state.projection = state.projection || {};
     state.projection[t.getAttribute("data-proj") === "raise" ? "raisePct" : "growthPct"] = v;
     saveState();
@@ -16738,7 +16852,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.107";
+  var APP_VERSION = "37.5.59.108";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19051,6 +19165,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           updateCompensationFromElement(el);
         } else if (el.getAttribute("data-act") === "comp-deduct") {
           updateDeductionFromElement(el);
+        } else if ((el.getAttribute("data-pc") === "amount" || el.getAttribute("data-pc") === "er-amt") && !el.readOnly && el.dataset.pcTyped === "1") {
+          /* v37.5.59.108: per-check $ (incl. a stub line edited in place) saves on every keystroke, not only on blur. */
+          perCheckHandle(el, "input");
         } else if (el.getAttribute("data-act") === "insight-extra") {
           state.insightExtra = moneyFromDigits(el.dataset.digits, true) || 100;
           saveState();
