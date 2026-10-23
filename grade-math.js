@@ -4634,7 +4634,7 @@
       }
     } else if (bonusYtdOnly > 0) {
       bonusInfo.status = "in-ytd";
-      bonusInfo.note = "Bonus pay in the YTD: " + foundTxt + " — counted as paid. Set the bonus month to project a future bonus.";
+      bonusInfo.note = "Bonus pay in the YTD: " + foundTxt + " — counted as paid. A future bonus isn’t projected — add it in Budget the month it pays.";
     } else {
       bonusInfo.status = "none";
       bonusInfo.note = "No bonus month set and no bonus in the YTD, so no bonus is projected.";

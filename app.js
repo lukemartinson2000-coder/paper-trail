@@ -9298,10 +9298,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* v37.5.59.4: month the annual bonus pays (1–12), or null when not set. */
-  function bonusMonthOf() {
-    var m = Number(state.compensation && state.compensation.bonusMonth);
-    return m >= 1 && m <= 12 ? m : null;
-  }
+  /* v37.5.59.110 (owner): the "Bonus pays in" setting is gone — a bonus is budgeted as an envelope / paycheck in the
+   * month it lands. Always null, so the pay-stub basis takes its existing no-bonus-month path: bonus pay already in the
+   * YTD counts as paid and no future bonus is projected; a typed Income-statement Bonus still counts as typed. */
+  function bonusMonthOf() { return null; }
 
   function hsaCoverageOf() {
     var c = state.compensation && state.compensation.hsaCoverage;
@@ -10165,13 +10165,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cov = hsaCoverageOf();
     var html = "";
     /* v37.5.59.103: HSA coverage moved to Dashboard › Taxes. */
-    var bm = bonusMonthOf();
-    html += '<label class="field annual-bonus-month">Bonus pays in' +
-      '<select data-act="annual-bonus-month"><option value=""' + (bm ? "" : " selected") + ">Not set</option>";
-    MONTH_NAMES.forEach(function (name, i) {
-      html += '<option value="' + (i + 1) + '"' + (bm === i + 1 ? " selected" : "") + ">" + esc(name) + "</option>";
-    });
-    html += "</select></label>";
+    /* v37.5.59.110: "Bonus pays in" removed (owner). */
     html += '<p class="caption quiet annual-stub-basis">' + esc(year + (basis.hasYtd ? " income, taxes, average tax and brackets: " : " taxes and brackets: ") + basis.short +
       (basis.hasYtd ? " — gross pay " + money(basis.grossPay.total) : "") +
       ", pre-tax " + moneyWhole(basis.pretax.total) + " (capped at 2026 IRS limits)." +
@@ -21564,12 +21558,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       payStubBasisCache = {}; addedAutoCache = {};
       saveState();
       render();
-    } else if (el.getAttribute("data-act") === "annual-bonus-month") {
-      state.compensation = migrateCompensation(state.compensation || defaultCompensation());
-      var bmv = Number(el.value);
-      state.compensation.bonusMonth = bmv >= 1 && bmv <= 12 ? bmv : null;
-      saveState();
-      render();
     } else if (el.getAttribute("data-act") === "annual-hsa-coverage") {
       state.compensation = migrateCompensation(state.compensation || defaultCompensation());
       state.compensation.hsaCoverage = el.value === "family" ? "family" : "self";
@@ -21753,7 +21741,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         act === "payoff-extra" ||
         act === "foo-birthday" || act === "profile-name" || act === "profile-phone" || act === "profile-birthday" ||
         act === "profile-zip" || act === "profile-filing" || act === "profile-pay-frequency" ||
-        act === "annual-filing" || act === "annual-hsa-coverage" || act === "annual-bonus-month" || act === "annual-bracket" || act === "annual-state-other" ||
+        act === "annual-filing" || act === "annual-hsa-coverage" || act === "annual-bracket" || act === "annual-state-other" ||
         act === "profile-dependents" || act === "vault-field" || act === "paystub-field" ||
         act === "matters-text" || act === "matters-scale" || act === "tester-code") handleChange(event);
   });
