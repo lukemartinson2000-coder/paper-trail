@@ -3299,6 +3299,42 @@
    * sheet closes or visibility resume). The app has already rendered under the overlay, so data load is not delayed.
    * Plane appears, flies one loop-de-loop, zooms up and away while the screen fades/slides in. Tap skips.
    * Reduced motion: a short fade. ?nosplash=1 skips (QA). */
+  /* v37.5.59.119: samples the splash flight (every ~16ms) into keyframes. move = translate + rotate (heading from the
+   * path tangent, unwrapped so it never jumps); look = scale + opacity. Exposed on window for QA sampling. */
+  function launchSplashPath(T, vh) {
+    var R = 110, t0 = 340, t1 = 1880, t2 = 2620;
+    var P = [[0, 0], [120, 0], [190, -vh * 0.22], [175, -vh * 0.72]]; /* P0→P1 is the loop's exit heading (rightward). */
+    function sineIO(u) { return 0.5 - 0.5 * Math.cos(Math.PI * u); }
+    function bez(u, i) { var a = 1 - u; return a * a * a * P[0][i] + 3 * a * a * u * P[1][i] + 3 * a * u * u * P[2][i] + u * u * u * P[3][i]; }
+    function dbez(u, i) { var a = 1 - u; return 3 * a * a * (P[1][i] - P[0][i]) + 6 * a * u * (P[2][i] - P[1][i]) + 3 * u * u * (P[3][i] - P[2][i]); }
+    var move = [], look = [], pts = [], prev = 0, n = Math.round(T / 16);
+    for (var k = 0; k <= n; k++) {
+      var t = T * k / n, x = 0, y = 0, hd = 0, sc = 1, op = 1;
+      if (t <= t0) {
+        var ua = t / t0; sc = 0.5 + 0.5 * (1 - Math.pow(1 - ua, 3)); op = Math.min(1, ua * 1.6);
+      } else if (t <= t1) {
+        var th = 2 * Math.PI * sineIO((t - t0) / (t1 - t0));
+        x = R * Math.sin(th); y = -R + R * Math.cos(th); hd = -th * 180 / Math.PI;
+      } else {
+        var ue = Math.min(1, (t - t2 > 0 ? 1 : (t - t1) / (t2 - t1)));
+        var u = ue * ue * (3 - 2 * ue); /* smoothstep: eases out of the loop and into the climb */
+        u = 0.15 * ue + 0.85 * u; /* keep a little speed at the hand-off so it never stalls */
+        x = bez(u, 0); y = bez(u, 1);
+        var dx = dbez(Math.max(u, 0.001), 0), dy = dbez(Math.max(u, 0.001), 1);
+        hd = Math.atan2(dy, dx) * 180 / Math.PI - 360;
+        sc = 1 + 1.2 * u * u; op = ue < 0.8 ? 1 : Math.max(0, 1 - (ue - 0.8) / 0.2);
+      }
+      while (hd - prev > 180) hd -= 360;
+      while (hd - prev < -180) hd += 360;
+      prev = hd;
+      if (t > t0 && t <= t2) pts.push({ t: t, x: x, y: y, hd: hd, sc: sc });
+      move.push({ offset: k / n, transform: "translate(" + x.toFixed(2) + "px," + y.toFixed(2) + "px) rotate(" + (45 + hd).toFixed(2) + "deg)" });
+      look.push({ offset: k / n, opacity: +op.toFixed(3), transform: "scale(" + sc.toFixed(3) + ")" });
+    }
+    return { move: move, look: look, pts: pts };
+  }
+  window.__ptSplashPath = launchSplashPath;
+
   function playLaunchSplash() {
     if (playLaunchSplash.done) return;
     playLaunchSplash.done = true;
@@ -3331,35 +3367,37 @@
       plane.style.opacity = "1";
       anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
     } else {
-      /* v37.5.59.118: slower, fuller. 0–0.34s appear · 0.34–1.88s one full 360° loop (ease-in-out, radius 110px,
-       * nose follows the path, faint dashed trail) · 1.88–2.6s gentle climb up and away · Budget crossfades in from
-       * 1.5s to 2.8s (fade + scale 0.98→1), overlapping the exit so there is no hard cut. */
-      var trail = document.createElement("div");
-      trail.className = "ls-trail";
-      ov.insertBefore(trail, orbit);
-      var ez = "cubic-bezier(.45,0,.55,1)";
-      anims.push(plane.animate([
-        { opacity: 0, transform: "rotate(45deg) scale(0.5)", easing: "cubic-bezier(.2,.7,.3,1)" },
-        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.12 },
-        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.6, easing: "ease-in-out" },
-        { opacity: 1, transform: "rotate(-15deg) translate(0, 0) scale(1.05)", offset: 0.69, easing: "cubic-bezier(.5,0,.75,.4)" },
-        { opacity: 0.85, transform: "rotate(-15deg) translate(0, -40vh) scale(1.9)", offset: 0.86, easing: "ease-out" },
-        { opacity: 0, transform: "rotate(-15deg) translate(0, -62vh) scale(2.3)", offset: 0.94 },
-        { opacity: 0, transform: "rotate(-15deg) translate(0, -62vh) scale(2.3)" }
-      ], { duration: T, fill: "forwards" }));
-      anims.push(orbit.animate([
-        { transform: "rotate(0deg)" },
-        { transform: "rotate(0deg)", offset: 0.12, easing: ez },
-        { transform: "rotate(-360deg)", offset: 0.67 },
-        { transform: "rotate(-360deg)" }
-      ], { duration: T, fill: "forwards" }));
-      anims.push(trail.animate([
-        { opacity: 0, transform: "translate(-50%, -100%) rotate(0deg)" },
-        { opacity: 0, offset: 0.12, transform: "translate(-50%, -100%) rotate(0deg)", easing: ez },
-        { opacity: 0.55, offset: 0.4, transform: "translate(-50%, -100%) rotate(-180deg)", easing: ez },
-        { opacity: 0, offset: 0.72, transform: "translate(-50%, -100%) rotate(-360deg)" },
-        { opacity: 0, transform: "translate(-50%, -100%) rotate(-360deg)" }
-      ], { duration: T, fill: "forwards" }));
+      /* v37.5.59.119: one sampled flight path, nose = path tangent everywhere (no nested rotations, no snaps).
+       * 0–0.34s appear · 0.34–1.88s full 360° loop (radius 110, sine ease-in-out) · 1.88–2.62s a cubic Bézier that
+       * leaves the loop on its own heading (rightward) and curves gently upward and away · Budget crossfades 1.5–2.8s. */
+      var keys = launchSplashPath(T, window.innerHeight || 700);
+      anims.push(orbit.animate(keys.move, { duration: T, fill: "forwards" }));
+      anims.push(plane.animate(keys.look, { duration: T, fill: "forwards" }));
+      /* v37.5.59.119: a dashed trail in its wake — short rounded dashes dropped behind the tail along the same
+       * path; each appears as the plane passes and fades over ~0.55s, so only a short tail is ever visible. */
+      var vw = window.innerWidth || 390, vh2 = window.innerHeight || 700, NS = "http://www.w3.org/2000/svg";
+      var svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "ls-trail");
+      svg.setAttribute("width", vw); svg.setAttribute("height", vh2);
+      var g = document.createElementNS(NS, "g");
+      g.setAttribute("transform", "translate(" + (vw / 2) + "," + (vh2 / 2) + ")");
+      svg.appendChild(g);
+      ov.insertBefore(svg, orbit);
+      keys.pts.forEach(function (pt, i) {
+        if (i % 4 !== 0 || pt.t < 420) return;
+        var r = pt.hd * Math.PI / 180, dx = Math.cos(r), dy = Math.sin(r);
+        var tail = 36 * pt.sc, len = 5 * pt.sc;
+        var cx = pt.x - dx * tail, cy = pt.y - dy * tail;
+        var ln = document.createElementNS(NS, "line");
+        ln.setAttribute("x1", (cx - dx * len).toFixed(1)); ln.setAttribute("y1", (cy - dy * len).toFixed(1));
+        ln.setAttribute("x2", (cx + dx * len).toFixed(1)); ln.setAttribute("y2", (cy + dy * len).toFixed(1));
+        ln.setAttribute("stroke-width", (3 * Math.min(pt.sc, 1.6)).toFixed(1));
+        g.appendChild(ln);
+        var a0 = pt.t / T, a1 = Math.min(0.999, (pt.t + 40) / T), a2 = Math.min(1, (pt.t + 560) / T);
+        anims.push(ln.animate([
+          { opacity: 0 }, { opacity: 0, offset: a0 }, { opacity: 0.75, offset: Math.max(a1, a0 + 0.0001), easing: "ease-in" }, { opacity: 0, offset: Math.max(a2, a1 + 0.0002) }, { opacity: 0 }
+        ], { duration: T, fill: "forwards" }));
+      });
       anims.push(ov.animate([
         { backgroundColor: "var(--paper)" },
         { backgroundColor: "var(--paper)", offset: 0.54, easing: "cubic-bezier(.4,0,.2,1)" },
@@ -4158,10 +4196,18 @@
       return;
     }
     var leading = '<button class="icon-btn" type="button" data-act="prev-month" aria-label="Previous month">‹</button>';
+    /* v37.5.59.119 (owner): the month title opens a month/year jump picker (‹ › stay). Budget adds ⇅ Reorder and +. */
+    var budgetTools = state.tab === "budget"
+      ? '<button class="icon-btn bar-tool" type="button" data-act="open-reorder" aria-label="Reorder budget">⇅</button>' +
+        '<button class="icon-btn bar-tool" type="button" data-act="add-category" aria-label="Add envelope">+</button>'
+      : "";
     el.innerHTML =
       leading +
-      "<h1>" + esc(MONTH_NAMES[state.month - 1] + " " + state.year) + "</h1>" +
+      '<h1><button class="month-jump" type="button" data-act="month-picker" aria-haspopup="dialog" aria-label="Jump to a month, now ' +
+      esc(MONTH_NAMES[state.month - 1] + " " + state.year) + '">' + esc(MONTH_NAMES[state.month - 1] + " " + state.year) +
+      '<span class="month-jump-caret" aria-hidden="true">▾</span></button></h1>' +
       '<button class="icon-btn" type="button" data-act="next-month" aria-label="Next month">›</button>' +
+      budgetTools +
       '<button class="icon-btn" type="button" data-act="open-profile" aria-label="Profile">⚙</button>';
   }
 
@@ -4277,20 +4323,32 @@
     noteStamp(month, totals);
     var headline = totals.leftover > 0 ? "Left to assign" :
       totals.leftover < 0 ? "Assigned more than take-home" : "Every dollar has a job";
+    /* v37.5.59.119 (owner, EveryDollar-style): no Edit row (⇅ Reorder and + live in the month bar). Planned/Spent/
+     * Remaining and a one-line "$X left to budget" sit above Income. */
     var html =
-      '<div class="nav-row">' +
-      '<button class="text-btn" type="button" data-act="toggle-edit-envelopes" aria-label="' +
-      (envelopeEditMode ? "Done editing envelopes" : "Edit envelopes") + '">' +
-      (envelopeEditMode ? "Done" : "Edit") + "</button>" +
-      "<h2>Budget</h2>" +
-      '<button class="text-btn" type="button" data-act="add-category">Add</button></div>' +
+      '<h2 class="sr-only">Budget</h2>' +
       demoBannerHtml() +
       (function () { var n = uncategorizedTxs(month).length; return n ? '<button type="button" class="uncat-banner" data-act="tab" data-tab="spend"><span class="door-badge door-badge-alert">' + n + "</span> " + (n === 1 ? "1 transaction needs" : n + " transactions need") + " a category · Pick envelopes ›</button>" : ""; })() +
       onboardChecklistHtml() +
       backupNudgeHtml() +
       fooBudgetStripHtml(month) +
       "";
-    /* v37.5.59.103: income folds to one line (open state saved); no Received X of Y; hero shows the selected view's total. */
+    /* v37.5.59.103: income folds to one line (open state saved). */
+    var ltb = totals.leftover;
+    var hMode = envelopeMode(), hKicker = "Planned", hAmt = totals.assigned, hTone = "ink";
+    if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
+    else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
+    html += modeToggleHtml() +
+      '<p class="left-to-budget' + (ltb < 0 ? " over" : ltb === 0 ? " zero" : "") + '" id="left-to-budget">' +
+      (ltb > 0 ? '<span class="mono moss">' + money(ltb) + "</span> left to budget"
+        : ltb < 0 ? '<span class="mono rust">' + money(-ltb) + "</span> over budget"
+        : "Every dollar has a job") + "</p>";
+    html +=
+      '<section class="hero budget-hero" data-mode="' + hMode + '">' +
+      "<div><p class='kicker'>" + hKicker + "</p>" +
+      '<p class="hero-amount ' + hTone + '" id="budget-hero-amount">' + money(hAmt) + "</p></div>" +
+      (totals.stamped && hMode === "planned" ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
+      "</section>";
     var incOpen = !!state.budgetIncomeOpen;
     html += '<div class="income-fold' + (incOpen ? " open" : "") + '">' +
       '<button class="income-fold-head" type="button" data-act="toggle-budget-income" aria-expanded="' + incOpen + '">' +
@@ -4307,37 +4365,20 @@
       html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
     }
     html += "</div>";
-    var hMode = envelopeMode(), hKicker = headline, hAmt = totals.leftover, hTone = tone(totals.leftover);
-    if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
-    else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
     html +=
-      '<section class="hero budget-hero" data-mode="' + hMode + '">' +
-      "<div><p class='kicker'>" + hKicker + "</p>" +
-      '<p class="hero-amount ' + hTone + '" id="budget-hero-amount">' + money(hAmt) + "</p></div>" +
-      (totals.stamped && hMode === "planned" ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
-      "</section>" +
-      modeToggleHtml() +
-      '<p class="section-label">Envelopes ' + helpQ("Tap a line’s name or assigned amount to change it. Stamp rule: income > 0 and leftover exactly $0. On an empty month, copy last month’s assigned dollars and paychecks. Start next month is the guided ritual. Spending never copies.") + '</p>';
+      '<p class="section-label">Envelopes ' + helpQ("Tap a line’s name or assigned amount to change it. Hold an envelope’s name to edit it; ⇅ at the top reorders envelopes and moves lines between them. Stamp rule: income > 0 and leftover exactly $0. On an empty month, copy last month’s assigned dollars and paychecks. Spending never copies.") + '</p>';
     var ordered = sortedCategories(month);
     ordered.forEach(function (cat, index) {
       var assigned = catAssigned(cat);
       var spent = spentFor(month, cat.id);
       var shown = envelopeAmount(assigned, spent);
       var amountClass = envelopeMode() === "remaining" && shown >= 0 ? tone(shown) : "ink";
-      html += '<div class="envelope' + (envelopeEditMode ? " is-editing" : "") + '">' +
+      html += '<div class="envelope">' +
         '<div class="envelope-head">' +
-        '<button class="envelope-main" type="button" data-act="open-envelope" data-id="' + cat.id + '">' +
+        '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + cat.id + '">' +
         '<div class="name">' + esc(cat.name) + "</div>" +
         "</button>" +
         '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>";
-      if (envelopeEditMode) {
-        html += '<div class="envelope-tools">' +
-          '<button type="button" data-act="move-up" data-id="' + cat.id + '" aria-label="Move ' + esc(cat.name) + ' up"' +
-          (index === 0 ? " disabled" : "") + ">Move up</button>" +
-          '<button type="button" data-act="move-down" data-id="' + cat.id + '" aria-label="Move ' + esc(cat.name) + ' down"' +
-          (index === ordered.length - 1 ? " disabled" : "") + ">Move down</button>" +
-          '' + deleteBtnHtml("delete-category", "Delete", ' data-id="' + cat.id + '"', true) + '</div>';
-      }
       sortedLines(cat).forEach(function (line, lineIndex) {
         var lineSpent = spentOnLine(month, line.id);
         var lineShown = envelopeAmount(Number(line.assigned) || 0, lineSpent);
@@ -4354,14 +4395,6 @@
           line.id + '" aria-label="' + esc(envelopeMode() + " " + money(lineShown) + " for " + line.name) + '">' +
           money(lineShown) + "</button>";
         html += "</div>";
-        if (envelopeEditMode) {
-          html += '<div class="envelope-tools">' +
-            '<button type="button" data-act="move-line-up" data-id="' + line.id + '"' +
-            (lineIndex === 0 ? " disabled" : "") + ">Move up</button>" +
-            '<button type="button" data-act="move-line-down" data-id="' + line.id + '"' +
-            (lineIndex + 1 >= lines.length ? " disabled" : "") + ">Move down</button>" +
-            '' + deleteBtnHtml("delete-line", "Delete", ' data-id="' + line.id + '"', true) + '</div>';
-        }
         html += "</div>";
       });
       html += '<button class="add-line" type="button" data-act="add-line" data-id="' + cat.id +
@@ -4379,7 +4412,7 @@
 
   /* v37.5.59.21: the Financial-order-of-operations strip is retired from Budget (grade-math and saved data stay). */
   function fooBudgetStripHtml(month) {
-    return merchantHintHtml();
+    return ""; /* v37.5.59.119 (owner): the "Mapped from your history" line is gone from Budget. */
   }
 
   function modeToggleHtml() {
@@ -12459,6 +12492,220 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     bindMoneyInputs(modal);
   }
 
+  /* v37.5.59.119 (owner): hold (~450ms) an envelope's name to open its edit sheet. A finger that moves first is a
+   * scroll, so the page never gets hijacked; a normal tap still opens the envelope detail. */
+  var holdSuppressClick = false;
+  function bindEnvelopeHold(screen) {
+    if (!screen || !window.PointerEvent) return;
+    Array.prototype.forEach.call(screen.querySelectorAll("[data-hold]"), function (btn) {
+      var timer = null, sx = 0, sy = 0, pid = null;
+      function clear() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        btn.classList.remove("hold-pressing");
+      }
+      btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      btn.addEventListener("pointerdown", function (e) {
+        if (e.button != null && e.button !== 0) return;
+        sx = e.clientX; sy = e.clientY; pid = e.pointerId;
+        clear();
+        btn.classList.add("hold-pressing");
+        timer = setTimeout(function () {
+          timer = null;
+          btn.classList.remove("hold-pressing");
+          holdSuppressClick = true;
+          setTimeout(function () { holdSuppressClick = false; }, 700);
+          try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+          var hm = ensureMonth(state.year, state.month);
+          var hc = hm.categories.filter(function (c) { return c.id === btn.getAttribute("data-id"); })[0];
+          if (hc) openEnvelopeEdit(hc);
+        }, 450);
+      });
+      btn.addEventListener("pointermove", function (e) {
+        if (!timer || e.pointerId !== pid) return;
+        if (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8) clear();
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) { btn.addEventListener(ev, clear); });
+    });
+  }
+
+  function openEnvelopeEdit(cat) {
+    openSheet("Edit envelope",
+      field("Name", "name", cat.name) +
+      '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
+      '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
+      deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"'),
+      "save-category");
+  }
+
+  /* v37.5.59.119 (owner): month/year jump picker from the month title. */
+  var monthPickYear = 0;
+  function openMonthPicker() {
+    monthPickYear = state.year;
+    captureModalReturnScreenTop();
+    renderMonthPicker();
+  }
+  function renderMonthPicker() {
+    var modal = document.getElementById("modal");
+    var now = new Date(), html = "";
+    for (var m = 1; m <= 12; m++) {
+      var key = ymKey(monthPickYear, m), cur = monthPickYear === state.year && m === state.month;
+      var today = monthPickYear === now.getFullYear() && m === now.getMonth() + 1;
+      var has = !!(state.months[key] && ((state.months[key].categories || []).length || (state.months[key].transactions || []).length));
+      html += '<button type="button" class="mp-cell' + (cur ? " cur" : "") + (today ? " today" : "") + '" data-act="mp-pick" data-m="' + m + '"' +
+        (cur ? ' aria-current="true"' : "") + ">" + esc(MONTH_NAMES[m - 1].slice(0, 3)) + (has ? '<span class="mp-dot" aria-label="has a budget"></span>' : "") + "</button>";
+    }
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet month-picker" role="dialog" aria-label="Jump to month">' +
+      '<div class="sheet-top"><h3>Jump to month</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<div class="mp-year"><button type="button" class="icon-btn" data-act="mp-year" data-d="-1" aria-label="Previous year">‹</button>' +
+      "<strong>" + monthPickYear + "</strong>" +
+      '<button type="button" class="icon-btn" data-act="mp-year" data-d="1" aria-label="Next year">›</button></div>' +
+      '<div class="mp-grid">' + html + "</div>" +
+      '<div class="sheet-actions"><button type="button" data-act="mp-today">This month</button></div></div>';
+    armSheetA11y(modal);
+  }
+
+  /* v37.5.59.119 (owner, EveryDollar-style): ⇅ opens Reorder Budget. Drag ⠿ handles (touch + mouse) to reorder
+   * envelopes, reorder lines, or move lines between envelopes. Save applies; ✕ discards. */
+  function openReorder(month) {
+    captureModalReturnScreenTop();
+    var html = "";
+    if (!state.reorderTipDismissed) {
+      html += '<div class="ro-info" role="note"><span aria-hidden="true">ⓘ</span><p>You can reorder budget groups, and move items between them.</p>' +
+        '<button type="button" class="ro-info-x" data-act="ro-info-x" aria-label="Dismiss">✕</button></div>';
+    }
+    html += '<div class="ro-list">';
+    sortedCategories(month).forEach(function (cat) {
+      html += '<div class="ro-group" data-cat="' + esc(cat.id) + '"><div class="ro-ghead"><span class="ro-name">' + esc(cat.name) + "</span>" +
+        '<span class="ro-handle" role="button" aria-label="Drag to reorder ' + esc(cat.name) + '" data-drag="group">⠿</span></div><div class="ro-items">';
+      sortedLines(cat).forEach(function (line) {
+        html += '<div class="ro-item" data-line="' + esc(line.id) + '"><span class="ro-name">' + esc(line.name) + "</span>" +
+          '<span class="ro-handle" role="button" aria-label="Drag to move ' + esc(line.name) + '" data-drag="item">⠿</span></div>';
+      });
+      html += "</div></div>";
+    });
+    html += "</div>";
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet reorder-sheet" role="dialog" aria-label="Reorder budget">' +
+      '<div class="sheet-top"><h3>Reorder Budget</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close without saving">✕</button></div>' +
+      html + '<div class="sheet-actions ro-foot"><button class="primary" type="button" data-act="ro-save">Save</button></div></div>';
+    armSheetA11y(modal);
+    bindReorderDrag(modal.querySelector(".reorder-sheet"));
+  }
+
+  function bindReorderDrag(sheet) {
+    if (!sheet || !window.PointerEvent) return;
+    var drag = null;
+    function scroller() { return sheet.scrollHeight > sheet.clientHeight ? sheet : (sheet.closest(".modal") || sheet); }
+    function place(y) {
+      var el = drag.el;
+      if (drag.kind === "group") {
+        var groups = Array.prototype.slice.call(sheet.querySelectorAll(".ro-group")).filter(function (g) { return g !== el; });
+        var before = null;
+        groups.some(function (g) { var r = g.getBoundingClientRect(); if (y < r.top + r.height / 2) { before = g; return true; } return false; });
+        var list = sheet.querySelector(".ro-list");
+        if (before) { if (el.nextSibling !== before) list.insertBefore(el, before); } else if (list.lastChild !== el) list.appendChild(el);
+      } else {
+        var groupsAll = Array.prototype.slice.call(sheet.querySelectorAll(".ro-group"));
+        var target = groupsAll[groupsAll.length - 1];
+        groupsAll.some(function (g) { var r = g.getBoundingClientRect(); if (y < r.bottom) { target = g; return true; } return false; });
+        var box = target.querySelector(".ro-items");
+        var items = Array.prototype.slice.call(box.querySelectorAll(".ro-item")).filter(function (it) { return it !== el; });
+        var bef = null;
+        items.some(function (it) { var r = it.getBoundingClientRect(); if (y < r.top + r.height / 2) { bef = it; return true; } return false; });
+        if (bef) { if (el.nextSibling !== bef || el.parentNode !== box) box.insertBefore(el, bef); } else if (box.lastChild !== el) box.appendChild(el);
+      }
+    }
+    function follow(y) {
+      var el = drag.el;
+      el.style.transform = "";
+      var natural = el.getBoundingClientRect().top;
+      el.style.transform = "translateY(" + (y - drag.grab - natural) + "px)";
+    }
+    function tick() {
+      if (!drag) return;
+      var sc = scroller(), r = sc.getBoundingClientRect(), edge = 56, v = 0;
+      if (drag.y < r.top + edge) v = -Math.ceil((r.top + edge - drag.y) / 6);
+      else if (drag.y > r.bottom - edge) v = Math.ceil((drag.y - (r.bottom - edge)) / 6);
+      if (v) { sc.scrollTop += v; place(drag.y); follow(drag.y); }
+      drag.raf = requestAnimationFrame(tick);
+    }
+    sheet.addEventListener("pointerdown", function (e) {
+      var h = e.target.closest && e.target.closest(".ro-handle");
+      if (!h || (e.button != null && e.button !== 0)) return;
+      e.preventDefault();
+      var kind = h.getAttribute("data-drag");
+      var el = h.closest(kind === "group" ? ".ro-group" : ".ro-item");
+      var r = el.getBoundingClientRect();
+      drag = { el: el, kind: kind, pid: e.pointerId, grab: e.clientY - r.top, y: e.clientY, h: h };
+      try { h.setPointerCapture(e.pointerId); } catch (err) {}
+      el.classList.add("ro-dragging");
+      sheet.classList.add("ro-active");
+      drag.raf = requestAnimationFrame(tick);
+    });
+    sheet.addEventListener("pointermove", function (e) {
+      if (!drag || e.pointerId !== drag.pid) return;
+      e.preventDefault();
+      drag.y = e.clientY;
+      place(e.clientY);
+      follow(e.clientY);
+    });
+    function end(e) {
+      if (!drag || (e && e.pointerId !== drag.pid)) return;
+      cancelAnimationFrame(drag.raf);
+      drag.el.classList.remove("ro-dragging");
+      drag.el.style.transform = "";
+      sheet.classList.remove("ro-active");
+      drag = null;
+    }
+    sheet.addEventListener("pointerup", end);
+    sheet.addEventListener("pointercancel", end);
+    /* Touch scrolling stays native everywhere except while a handle drag is live. */
+    sheet.addEventListener("touchmove", function (e) { if (drag) e.preventDefault(); }, { passive: false });
+  }
+
+  function retargetLineLegs(month, lineId, catId) {
+    (month.transactions || []).forEach(function (t) {
+      if (isIncomeTx(t)) return;
+      if (t.legs && t.legs.length) {
+        var hit = false;
+        t.legs.forEach(function (leg) { if (String(leg.lineId) === String(lineId)) { leg.categoryId = catId; hit = true; } });
+        if (hit) { t.categoryId = t.legs[0].categoryId; t.lineId = t.legs[0].lineId; }
+      } else if (String(t.lineId) === String(lineId)) t.categoryId = catId;
+    });
+  }
+
+  function saveReorder(month) {
+    var sheet = document.querySelector(".reorder-sheet");
+    if (!sheet) return;
+    var byCat = {}, byLine = {};
+    month.categories.forEach(function (c) { byCat[c.id] = c; (c.lines || []).forEach(function (l) { byLine[l.id] = { line: l, cat: c }; }); });
+    var plan = Array.prototype.map.call(sheet.querySelectorAll(".ro-group"), function (g) {
+      return { cat: byCat[g.getAttribute("data-cat")], lines: Array.prototype.map.call(g.querySelectorAll(".ro-item"), function (it) { return it.getAttribute("data-line"); }) };
+    }).filter(function (p) { return p.cat; });
+    plan.forEach(function (p, gi) {
+      p.cat.sortOrder = gi;
+      p.newLines = [];
+      p.lines.forEach(function (lid, li) {
+        var hit = byLine[lid];
+        if (!hit) return;
+        hit.line.sortOrder = li;
+        if (hit.cat !== p.cat) retargetLineLegs(month, lid, p.cat.id);
+        p.newLines.push(hit.line);
+      });
+    });
+    plan.forEach(function (p) {
+      p.cat.lines = p.newLines;
+      delete p.cat.autoCopy;
+      /* An envelope emptied by a move keeps $0, not its legacy group total (which would rebuild a phantom line). */
+      if (!p.newLines.length) p.cat.assigned = 0;
+    });
+    saveState();
+    closeModal();
+    render();
+  }
+
   function openEnvelopeDetail(cat, month) {
     var assigned = catAssigned(cat);
     var spent = spentFor(month, cat.id);
@@ -17068,7 +17315,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.118";
+  var APP_VERSION = "37.5.59.119";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18925,7 +19172,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (state.tab === "income") state.tab = "budget";
       searchActive = document.activeElement && document.activeElement.getAttribute("data-act") === "spend-search";
       caret = searchActive ? document.activeElement.selectionStart : null;
-      if (state.tab === "budget") screen.innerHTML = renderBudget(month, totals);
+      if (state.tab === "budget") {
+        screen.innerHTML = renderBudget(month, totals);
+        bindEnvelopeHold(screen);
+      }
       else if (state.tab === "spend") {
         screen.innerHTML = renderSpend(month, totals);
         bindSwipeRows(screen);
@@ -19882,6 +20132,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         t: Date.now()
       };
     }
+    if (holdSuppressClick && event.target.closest && event.target.closest("[data-hold]")) {
+      holdSuppressClick = false;
+      event.preventDefault();
+      return;
+    }
     if (swipeSuppressClick && event.target.closest && event.target.closest(".tx-row")) {
       swipeSuppressClick = false;
       event.preventDefault();
@@ -20510,6 +20765,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.vaultDocId = "";
       saveState();
       render();
+    }
+    else if (act === "month-picker") openMonthPicker();
+    else if (act === "mp-year") { monthPickYear += Number(actEl.getAttribute("data-d")) || 0; renderMonthPicker(); }
+    else if (act === "mp-pick") {
+      state.year = monthPickYear;
+      state.month = Number(actEl.getAttribute("data-m")) || state.month;
+      ensureMonth(state.year, state.month);
+      closeModal();
+      saveState();
+      render();
+    }
+    else if (act === "mp-today") {
+      var mpNow = new Date();
+      state.year = mpNow.getFullYear(); state.month = mpNow.getMonth() + 1;
+      ensureMonth(state.year, state.month);
+      closeModal(); saveState(); render();
+    }
+    else if (act === "open-reorder") openReorder(month);
+    else if (act === "ro-info-x") { state.reorderTipDismissed = true; saveState(); var roTip = document.querySelector(".ro-info"); if (roTip) roTip.remove(); }
+    else if (act === "ro-save") saveReorder(month);
+    else if (act === "edit-envelope") {
+      var heCat = month.categories.filter(function (c) { return c.id === actEl.getAttribute("data-id"); })[0];
+      if (heCat) openEnvelopeEdit(heCat);
     }
     else if (act === "prev-month") shiftMonth(-1);
     else if (act === "next-month") shiftMonth(1);

@@ -5056,7 +5056,7 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .launch-splash .ls-orbit {
   width: 88px;
   height: 92px;
-  transform-origin: 50% -64px; /* v37.5.59.118: pivot 110px above the plane's centre = loop radius */
+  transform-origin: 50% 50%; /* v37.5.59.119: the sampled path moves and rotates it about its centre */
   will-change: transform;
 }
 .launch-splash .ls-plane {
@@ -5067,17 +5067,60 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 }
 body.night .launch-splash .ls-plane { filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); }
 .ls-under { pointer-events: none; }
-.launch-splash .ls-trail {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 220px;
-  height: 220px;
-  box-sizing: border-box;
-  border: 2px dashed var(--plum);
-  border-radius: 50%;
-  opacity: 0;
-  transform: translate(-50%, -100%);
-  pointer-events: none;
-  will-change: transform, opacity;
+.launch-splash .ls-trail { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.launch-splash .ls-trail line { stroke: #B794F6; stroke-linecap: round; opacity: 0; }
+body.night .launch-splash .ls-trail line { stroke: #A585F0; }
+
+/* v37.5.59.119: Budget header — month jump, ⇅ reorder, + add; one-line left to budget; hold-to-edit feedback. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.month-bar .bar-tool { width: 38px; font-size: 20px; }
+.month-jump {
+  border: 0; background: transparent; color: var(--ink); font: inherit; padding: 6px 4px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; border-radius: 8px; max-width: 100%; white-space: nowrap;
 }
+.month-jump-caret { font-size: 12px; color: var(--muted); }
+.month-jump:active { background: var(--highlight); }
+.left-to-budget {
+  margin: -2px 16px 12px; text-align: center; font-family: var(--serif); font-size: 16px; color: var(--ink);
+}
+.left-to-budget .mono { font-weight: 650; }
+.left-to-budget.zero { color: var(--moss); }
+.envelope-main { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; border-radius: 8px; transition: background-color 0.45s ease, transform 0.45s ease; }
+.envelope-main.hold-pressing { background: var(--highlight); transform: scale(0.98); }
+
+/* Month picker. */
+.month-picker .mp-year { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 4px 0 12px; font-family: var(--serif); font-size: 20px; }
+.mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mp-cell {
+  position: relative; min-height: 52px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card);
+  color: var(--ink); font: 600 16px var(--serif); cursor: pointer;
+}
+.mp-cell.today { border-color: var(--moss); }
+.mp-cell.cur { background: var(--moss); border-color: var(--moss); color: #fff; }
+.mp-dot { position: absolute; left: 50%; bottom: 7px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--moss); }
+.mp-cell.cur .mp-dot { background: #fff; }
+
+/* Reorder Budget sheet. */
+.reorder-sheet { max-height: min(calc(100% - 12px), 820px); display: block; padding-bottom: 0; }
+.ro-info {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; padding: 12px 12px 12px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--plum) 14%, var(--card)); color: var(--ink); font-family: var(--serif); font-size: 15px;
+}
+.ro-info p { flex: 1; margin: 0; }
+.ro-info-x { border: 0; background: transparent; color: var(--muted); font-size: 16px; width: 28px; height: 28px; cursor: pointer; }
+.ro-group { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; margin: 0 0 12px; padding: 2px 14px; }
+.ro-ghead, .ro-item { display: flex; align-items: center; gap: 8px; min-height: 50px; }
+.ro-ghead { font: 650 17px var(--serif); border-bottom: 1px solid var(--rule); }
+.ro-item { font: 15px var(--serif); border-bottom: 1px solid var(--rule); background: var(--card); }
+.ro-items .ro-item:last-child { border-bottom: 0; }
+.ro-items:empty { min-height: 36px; }
+.ro-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-handle {
+  flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--plum); font-size: 20px; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.ro-dragging { position: relative; z-index: 5; box-shadow: 0 8px 22px var(--shadow), 0 2px 6px var(--shadow); border-radius: 12px; opacity: 0.96; }
+.ro-item.ro-dragging { padding: 0 8px; margin: 0 -8px; }
+.ro-active, .ro-active * { cursor: grabbing !important; user-select: none; }
+.ro-foot { position: sticky; bottom: 0; background: var(--paper); margin: 0 -16px; padding: 12px 16px 20px; border-top: 1px solid var(--rule); }
+.ro-foot .primary { flex: 1; }
