@@ -832,7 +832,7 @@
       var line = (cat.lines || []).filter(function (l) { return l.id === leg.lineId; })[0];
       if (line) return cat.name + " · " + line.name;
     }
-    return cat ? cat.name : "No category";
+    return cat && !leg.lineId ? cat.name : "Needs a category";
   }
 
   function shouldMergeSplit(payee, notes, count) {
@@ -889,10 +889,52 @@
     });
   }
 
+  /* v37.5.59.109 (owner): a spend whose envelope is gone is kept as is and waits in "Needs a category" (EveryDollar style).
+   * Uncategorized = no envelope, an envelope that no longer exists, or a budget line that no longer exists. Income never. */
+  function legNeedsCategory(month, leg) {
+    if (!leg || !leg.categoryId) return true;
+    var cat = (month.categories || []).filter(function (c) { return c.id === leg.categoryId; })[0];
+    if (!cat) return true;
+    if (leg.lineId && !(cat.lines || []).some(function (l) { return l.id === leg.lineId; })) return true;
+    return false;
+  }
+  function txNeedsCategory(month, tx) {
+    if (!tx || isIncomeTx(tx)) return false;
+    return txLegs(tx).some(function (leg) { return legNeedsCategory(month, leg); });
+  }
+  function uncategorizedTxs(month) {
+    return ((month && month.transactions) || []).filter(function (tx) { return txNeedsCategory(month, tx); });
+  }
+  /* Clear the envelope on every leg that matches (amount, date, payee, notes untouched). Returns how many transactions changed. */
+  function uncategorizeLegs(month, match) {
+    var n = 0;
+    (month.transactions || []).forEach(function (t) {
+      if (isIncomeTx(t)) return;
+      var hit = false;
+      if (t.legs && t.legs.length) {
+        t.legs.forEach(function (leg) { if (match(leg)) { leg.categoryId = ""; leg.lineId = ""; hit = true; } });
+        if (hit) { t.categoryId = t.legs[0].categoryId; t.lineId = t.legs[0].lineId; }
+      } else if (match({ categoryId: t.categoryId, lineId: t.lineId })) {
+        t.categoryId = ""; t.lineId = ""; hit = true;
+      }
+      if (hit) n++;
+    });
+    return n;
+  }
+  function migrateOrphanTxs(month) {
+    /* Spends left pointing at an envelope or line deleted before .109 move to "Needs a category". */
+    if (!month || !Array.isArray(month.categories)) return;
+    uncategorizeLegs(month, function (leg) { return (leg.categoryId || leg.lineId) && legNeedsCategory(month, leg); });
+  }
+  function uncatMoveText(n) {
+    return n === 1 ? "1 transaction moves to Needs a category" : n + " transactions move to Needs a category";
+  }
+
   function migrateTransactions(month) {
     (month.transactions || []).forEach(function (tx) {
       if (tx.note == null) tx.note = "";
     });
+    migrateOrphanTxs(month);
     migrateSplits(month);
     migrateLoanFields(month);
   }
@@ -1166,7 +1208,7 @@
       var line = (cat.lines || []).filter(function (l) { return l.id === tx.lineId; })[0];
       if (line) return cat.name + " · " + line.name;
     }
-    return cat ? cat.name : "No category";
+    return cat ? cat.name : "Needs a category";
   }
 
   function migrateSubsections(month) {
@@ -1260,27 +1302,15 @@
   function deleteEnvelope(month, id) {
     var cat = month.categories.filter(function (c) { return c.id === id; })[0];
     if (!cat) return;
-    var spendCount = month.transactions.filter(function (t) {
-      return txLegs(t).some(function (leg) { return leg.categoryId === id; });
+    var spendCount = (month.transactions || []).filter(function (t) {
+      return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
-    var message = "Delete " + cat.name + "?\n\n";
-    if (spendCount === 0) {
-      message += "This envelope has no spending.";
-    } else if (spendCount === 1) {
-      message += "This also deletes 1 spend on this envelope. Spends are not left behind without a category.";
-    } else {
-      message += "This also deletes " + spendCount + " spends on this envelope. Spends are not left behind without a category.";
-    }
+    var assigned = catAssigned(cat);
+    var message = "Delete " + cat.name + "?\n\n" + (spendCount === 0 ? "This envelope has no transactions."
+      : uncatMoveText(spendCount) + ". Amounts, dates, merchants and notes stay; pick a new envelope for " + (spendCount === 1 ? "it" : "them") + " in Transactions.") +
+      (assigned > 0 ? "\n\n" + money(assigned) + " assigned returns to Left to assign." : "");
     if (!window.confirm(message)) return;
-    month.transactions = month.transactions.filter(function (t) {
-      if (!t.legs || !t.legs.length) return t.categoryId !== id;
-      t.legs = t.legs.filter(function (leg) { return leg.categoryId !== id; });
-      if (!t.legs.length) return false;
-      t.amount = txTotal(t);
-      t.categoryId = t.legs[0].categoryId;
-      t.lineId = t.legs[0].lineId;
-      return true;
-    });
+    uncategorizeLegs(month, function (leg) { return leg.categoryId === id; });
     month.categories = month.categories.filter(function (c) { return c.id !== id; });
     reindexCategories(month);
     closeModal();
@@ -1326,212 +1356,26 @@
     return found;
   }
 
-  /* Delete an envelope line but keep its transaction history (moved to a sensible neighbour). */
-  function deleteLineKeepHistory(month, lineId) {
-    var found = findLine(month, lineId);
-    if (!found) return;
-    var txs = txsTouchingLine(month, lineId);
-    if (!txs.length) { deleteLine(month, lineId); return; }
-    var target = fallbackLineFor(month, found.cat.id, lineId);
-    if (!target) { deleteLine(month, lineId); return; }
-    var assigned = Number(found.line.assigned) || 0;
-    var msg = "Delete " + found.line.name + "?\n\nIt has " + txs.length + (txs.length === 1 ? " transaction" : " transactions") +
-      (assigned > 0 ? " and " + money(assigned) + " assigned" : "") +
-      ". The transactions are kept and move to “" + target.line.name + "”" +
-      (assigned > 0 ? "; the assigned dollars return to Left to assign" : "") + ".";
-    if (!window.confirm(msg)) return;
-    var wasDebt = found.cat && /^debt$/i.test(found.cat.name);
-    var debtName = found.line.name;
-    reassignLineTxs(month, lineId, target.cat, target.line);
-    found.cat.lines = (found.cat.lines || []).filter(function (l) { return l.id !== lineId; });
-    reindexLines(found.cat);
-    if (wasDebt) removeBudgetNwLiability(debtName);
-    closeModal();
-    saveState();
-    render();
-  }
+  /* v37.5.59.109: delete a budget line; its transactions stay and move to Needs a category. */
+  function deleteLineKeepHistory(month, lineId) { deleteLine(month, lineId); }
 
-  function deleteEnvelopeKeepHistory(month, catId) {
-    var cat = month.categories.filter(function (c) { return c.id === catId; })[0];
-    if (!cat) return;
-    var txs = (month.transactions || []).filter(function (t) {
-      return txLegs(t).some(function (leg) { return leg.categoryId === catId; });
-    });
-    if (!txs.length) { deleteEnvelope(month, catId); return; }
-    var target = null;
-    var others = sortedCategories(month).filter(function (c) { return c.id !== catId; });
-    var misc = others.filter(function (c) { return /^miscellaneous$/i.test(c.name); })[0] || others[0];
-    if (misc && sortedLines(misc).length) target = { cat: misc, line: sortedLines(misc)[0] };
-    if (!target) { deleteEnvelope(month, catId); return; }
-    var assigned = catAssigned(cat);
-    var msg = "Delete " + cat.name + "?\n\nIt has " + txs.length + (txs.length === 1 ? " transaction" : " transactions") +
-      (assigned > 0 ? " and " + money(assigned) + " assigned" : "") +
-      ". The transactions are kept and move to “" + target.cat.name + " › " + target.line.name + "”" +
-      (assigned > 0 ? "; the assigned dollars return to Left to assign" : "") + ".";
-    if (!window.confirm(msg)) return;
-    (month.transactions || []).forEach(function (t) {
-      if (t.legs && t.legs.length) {
-        t.legs.forEach(function (leg) {
-          if (leg.categoryId === catId) { leg.categoryId = target.cat.id; leg.lineId = target.line.id; }
-        });
-        t.categoryId = t.legs[0].categoryId;
-        t.lineId = t.legs[0].lineId;
-      } else if (t.categoryId === catId) {
-        t.categoryId = target.cat.id;
-        t.lineId = target.line.id;
-      }
-    });
-    month.categories = month.categories.filter(function (c) { return c.id !== catId; });
-    reindexCategories(month);
-    closeModal();
-    saveState();
-    render();
-  }
-
-  function moveLineToCategory(month, lineId, destCatId) {
-    var found = findLine(month, lineId);
-    var dest = month.categories.filter(function (c) { return c.id === destCatId; })[0];
-    if (!found || !dest || dest.id === found.cat.id) return;
-    found.cat.lines = (found.cat.lines || []).filter(function (l) { return l.id !== lineId; });
-    reindexLines(found.cat);
-    found.line.sortOrder = (dest.lines || []).length;
-    dest.lines = (dest.lines || []).concat([found.line]);
-    (month.transactions || []).forEach(function (t) {
-      if (t.legs && t.legs.length) {
-        t.legs.forEach(function (leg) { if (leg.lineId === lineId) leg.categoryId = dest.id; });
-        t.categoryId = t.legs[0].categoryId;
-      } else if (t.lineId === lineId) {
-        t.categoryId = dest.id;
-      }
-    });
-    closeModal();
-    saveState();
-    render();
-  }
-
-  function openEnvelopeMenu(kind, id) {
-    var month = ensureMonth(state.year, state.month);
-    var html = '<div class="sheet env-menu">';
-    if (kind === "line") {
-      var found = findLine(month, id);
-      if (!found) return;
-      var lines = sortedLines(found.cat);
-      var idx = lines.map(function (l) { return l.id; }).indexOf(id);
-      html += "<h3>" + esc(found.line.name) + '</h3><p class="caption">' + esc(found.cat.name) + "</p>" +
-        '<div class="env-menu-list">' +
-        '<button type="button" data-act="envmenu-line-up" data-id="' + esc(id) + '"' + (idx <= 0 ? " disabled" : "") + ">Move up</button>" +
-        '<button type="button" data-act="envmenu-line-down" data-id="' + esc(id) + '"' + (idx >= lines.length - 1 ? " disabled" : "") + ">Move down</button>";
-      if (!/^debt$/i.test(found.cat.name)) {
-        sortedCategories(month).filter(function (c) { return c.id !== found.cat.id && !/^debt$/i.test(c.name); }).forEach(function (c) {
-          html += '<button type="button" data-act="envmenu-line-to" data-id="' + esc(id) + '" data-to="' + esc(c.id) + '">Move to ' + esc(c.name) + "</button>";
-        });
-      }
-      html += deleteBtnHtml("envmenu-line-delete", "Delete line", ' data-id="' + esc(id) + '"') + '</div>';
-    } else {
-      var cat = month.categories.filter(function (c) { return c.id === id; })[0];
-      if (!cat) return;
-      var cats = sortedCategories(month);
-      var ci = cats.map(function (c) { return c.id; }).indexOf(id);
-      html += "<h3>" + esc(cat.name) + '</h3><div class="env-menu-list">' +
-        '<button type="button" data-act="envmenu-cat-up" data-id="' + esc(id) + '"' + (ci <= 0 ? " disabled" : "") + ">Move up</button>" +
-        '<button type="button" data-act="envmenu-cat-down" data-id="' + esc(id) + '"' + (ci >= cats.length - 1 ? " disabled" : "") + ">Move down</button>" +
-        deleteBtnHtml("envmenu-cat-delete", "Delete envelope", ' data-id="' + esc(id) + '"') + '</div>';
-    }
-    html += '<div class="sheet-actions"><button type="button" data-act="close-modal">Cancel</button></div></div>';
-    var modal = document.getElementById("modal");
-    modal.hidden = false;
-    modal.innerHTML = html;
-    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
-  }
-
-  /* Long-press (~500ms) on a budget envelope row. Cancels on movement (so scrolling still works); the
-     click that follows a fired press is swallowed so it never also opens the edit sheet. */
-  (function () {
-    var timer = null;
-    var startX = 0;
-    var startY = 0;
-    var suppressUntil = 0;
-    function cancel() { if (timer) { clearTimeout(timer); timer = null; } }
-    document.addEventListener("pointerdown", function (ev) {
-      if (ev.button > 0 || state.tab !== "budget") return;
-      var row = ev.target.closest && ev.target.closest("#screen .envelope-line, #screen .envelope-head");
-      if (!row || envelopeEditMode) return;
-      cancel();
-      startX = ev.clientX;
-      startY = ev.clientY;
-      var isLine = row.classList.contains("envelope-line");
-      var idEl = isLine ? row.querySelector("[data-act=edit-line-item]") : row.querySelector("[data-act=open-envelope]");
-      var id = idEl && idEl.getAttribute("data-id");
-      if (!id) return;
-      timer = setTimeout(function () {
-        timer = null;
-        suppressUntil = Infinity;
-        openEnvelopeMenu(isLine ? "line" : "cat", id);
-      }, 500);
-    }, true);
-    document.addEventListener("pointermove", function (ev) {
-      if (timer && (Math.abs(ev.clientX - startX) > 8 || Math.abs(ev.clientY - startY) > 8)) cancel();
-    }, true);
-    ["pointerup", "pointercancel", "scroll", "dragstart"].forEach(function (name) {
-      document.addEventListener(name, cancel, true);
-    });
-    /* The click that ends a fired press can arrive any time after release; swallow it, then re-arm shortly after pointerup. */
-    ["pointerup", "pointercancel"].forEach(function (name) {
-      document.addEventListener(name, function () {
-        if (suppressUntil === Infinity) suppressUntil = Date.now() + 450;
-      }, true);
-    });
-    document.addEventListener("contextmenu", function (ev) {
-      if (ev.target.closest && ev.target.closest("#screen .envelope-line, #screen .envelope-head")) ev.preventDefault();
-    }, true);
-    window.addEventListener("click", function (ev) {
-      if (Date.now() < suppressUntil) {
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-      }
-    }, true);
-  })();
-
-  function moveEnvelope(month, id, delta) {
-    var ordered = sortedCategories(month);
-    var index = -1;
-    ordered.forEach(function (c, i) { if (c.id === id) index = i; });
-    var next = index + delta;
-    if (index < 0 || next < 0 || next >= ordered.length) return;
-    var swap = ordered[index];
-    ordered[index] = ordered[next];
-    ordered[next] = swap;
-    ordered.forEach(function (c, i) { c.sortOrder = i; });
-    saveState();
-    render();
-  }
+  /* v37.5.59.109: delete an envelope; its transactions stay and move to Needs a category. */
+  function deleteEnvelopeKeepHistory(month, catId) { deleteEnvelope(month, catId); }
 
   function deleteLine(month, lineId) {
     var found = findLine(month, lineId);
     if (!found) return;
-    var spendCount = month.transactions.filter(function (t) {
-      return txLegs(t).some(function (leg) { return leg.lineId === lineId; });
+    var spendCount = (month.transactions || []).filter(function (t) {
+      return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.lineId === lineId; });
     }).length;
-    var message = "Delete " + found.line.name + "?\n\n";
-    if (spendCount === 0) {
-      message += "This line has no spending. Assigned dollars return to leftover.";
-    } else if (spendCount === 1) {
-      message += "This also deletes 1 spend on this line.";
-    } else {
-      message += "This also deletes " + spendCount + " spends on this line.";
-    }
+    var assigned = Number(found.line.assigned) || 0;
+    var message = "Delete " + found.line.name + "?\n\n" + (spendCount === 0 ? "This line has no transactions."
+      : uncatMoveText(spendCount) + ". Amounts, dates, merchants and notes stay; pick a new envelope for " + (spendCount === 1 ? "it" : "them") + " in Transactions.") +
+      (assigned > 0 ? "\n\n" + money(assigned) + " assigned returns to Left to assign." : "");
     if (!window.confirm(message)) return;
     var wasDebt = found.cat && /^debt$/i.test(found.cat.name);
     var debtName = found.line.name;
-    month.transactions = month.transactions.filter(function (t) {
-      if (!t.legs || !t.legs.length) return t.lineId !== lineId;
-      t.legs = t.legs.filter(function (leg) { return leg.lineId !== lineId; });
-      if (!t.legs.length) return false;
-      t.amount = txTotal(t);
-      t.categoryId = t.legs[0].categoryId;
-      t.lineId = t.legs[0].lineId;
-      return true;
-    });
+    uncategorizeLegs(month, function (leg) { return leg.lineId === lineId; });
     found.cat.lines = (found.cat.lines || []).filter(function (l) { return l.id !== lineId; });
     reindexLines(found.cat);
     if (wasDebt) removeBudgetNwLiability(debtName);
@@ -4238,10 +4082,12 @@
       ["stats", "Stats"],
       ["insights", "Insights"]
     ];
+    var uncatN = 0;
+    try { uncatN = uncategorizedTxs(ensureMonth(state.year, state.month)).length; } catch (e) {}
     document.getElementById("tab-bar").innerHTML = tabs.map(function (t) {
       return '<button class="tab' + (state.tab === t[0] ? " active" : "") +
         '" type="button" data-act="tab" data-tab="' + t[0] + '">' +
-        tabIcon(t[0]) + esc(t[1]) + "</button>";
+        tabIcon(t[0]) + esc(t[1]) + (t[0] === "spend" && uncatN ? '<span class="tab-badge" aria-label="' + uncatN + ' need a category">' + uncatN + "</span>" : "") + "</button>";
     }).join("");
     /* v37.5.59.36: sheets stop above the tab bar so a tab tap always works as "clear the screen". */
     (function () {
@@ -4349,6 +4195,7 @@
       "<h2>Budget</h2>" +
       '<button class="text-btn" type="button" data-act="add-category">Add</button></div>' +
       demoBannerHtml() +
+      (function () { var n = uncategorizedTxs(month).length; return n ? '<button type="button" class="uncat-banner" data-act="tab" data-tab="spend"><span class="door-badge door-badge-alert">' + n + "</span> " + (n === 1 ? "1 transaction needs" : n + " transactions need") + " a category · Pick envelopes ›</button>" : ""; })() +
       onboardChecklistHtml() +
       backupNudgeHtml() +
       fooBudgetStripHtml(month) +
@@ -4498,6 +4345,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var chips = "";
     if (income) chips += ' <span class="income-chip">Income</span>';
     if (isSplitTx(tx)) chips += ' <span class="split-stamp">Split</span>';
+    if (!income && txNeedsCategory(month, tx)) chips += ' <span class="uncat-chip">' + (isSplitTx(tx) ? "Part needs a category" : "Needs a category") + "</span>";
     if (refund) chips += ' <span class="refund-chip">' + esc(refund) + "</span>";
     return '<div class="tx-swipe" data-swipe-id="' + esc(tx.id) + '">' +
       '<button class="tx-swipe-delete" type="button" data-act="swipe-delete" data-id="' + esc(tx.id) +
@@ -4540,8 +4388,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="row"><span>Take-home received this month</span><span class="mono moss">+' + money(totals.received) + "</span></div>" +
       '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
       esc(spendSearch) + '">' +
-      '<p class="section-label">Transactions</p>';
-    var txs = sortTxNewestFirst((month.transactions || []).filter(function (tx) { return txMatches(month, tx, spendSearch); }), month.transactions || []);
+      '';
+    /* v37.5.59.109 (owner): EveryDollar-style queue. Spends without an envelope wait here until you pick one. */
+    var uncat = sortTxNewestFirst(uncategorizedTxs(month), month.transactions || []);
+    if (uncat.length) {
+      html += '<section class="uncat-queue" id="uncat-queue"><p class="section-label">Needs a category <span class="door-badge door-badge-alert uncat-count">' + uncat.length + "</span></p>" +
+        '<p class="caption">Their envelope was deleted. Amounts, dates and notes are kept and still count in Spent. Tap one to pick a new envelope.</p>' +
+        uncat.map(function (tx) { return spendRowHtml(month, tx); }).join("") + "</section>";
+    }
+    html += '<p class="section-label">Transactions</p>';
+    var txs = sortTxNewestFirst((month.transactions || []).filter(function (tx) { return !txNeedsCategory(month, tx) && txMatches(month, tx, spendSearch); }), month.transactions || []);
     if (!month.transactions.length) {
       html += '<p class="empty">Spend from a category, or log a paycheck as Income. Expenses reduce that envelope’s remaining amount; income counts toward Received.</p>';
     } else if (!txs.length) {
@@ -13132,6 +12988,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="split-box" id="split-box">' +
       '<p class="sheet-label split-head">Envelope ' + helpQ("Check the envelope this came out of. One checked = a normal transaction for the whole Total. Check two or more to split it: type how much went to each (tap an empty amount to fill in what’s left); Save turns on once they add up to the Total exactly. Each line shows what’s left in it this month, counting this transaction.") + "</p>" +
       (count > 10 ? '<input type="search" class="split-search" data-split-search placeholder="Find an envelope" aria-label="Find an envelope" autocomplete="off">' : "") +
+      (function () {
+        /* v37.5.59.109: a part whose envelope was deleted shows here so it is never silently folded in. */
+        var lost = roundCents((spendDraft.legs || []).reduce(function (n, leg) { return n + (!leg.lineId ? (Number(leg.amount) || 0) : 0); }, 0));
+        if (!(lost > 0) || spendDraft.type === "income") return "";
+        return '<p class="uncat-note">' + esc(money(lost)) + ' needs a category — its envelope was deleted. Check where it goes' +
+          ((spendDraft.legs || []).some(function (leg) { return leg.lineId; }) ? ' and type its amount (one checked envelope takes the whole Total).' : '.') + "</p>";
+      })() +
       '<div class="split-list">' + body + "</div>" +
       '<p class="split-status" id="split-status" aria-live="polite"></p></div>';
   }
@@ -13197,7 +13060,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (spendDraft) spendDraft.categoryTouched = true;
       /* going from one to two: the first line no longer owns the whole Total; both start empty. */
       var toTwo = cb.checked && box.querySelectorAll(".split-row.on").length === 2;
-      if (toTwo) [].forEach.call(box.querySelectorAll(".split-row.on [data-split-amt]"), function (a) { splitSetAmt(a, 0); });
+      /* v37.5.59.109: re-homing a part whose envelope was deleted — the kept part keeps its own amount and the
+       * newly checked envelope is offered the part that needs a category. */
+      var lostPart = toTwo && spendDraft && (spendDraft.legs || []).some(function (leg) { return !leg.lineId && Number(leg.amount) > 0; });
+      if (toTwo && lostPart) {
+        [].forEach.call(box.querySelectorAll(".split-row.on"), function (r) {
+          if (r === row) return;
+          var lid = String(r.getAttribute("data-split-row")).split(":")[1];
+          var prev = (spendDraft.legs || []).filter(function (leg) { return leg.lineId === lid; })[0];
+          splitSetAmt(r.querySelector("[data-split-amt]"), prev ? Number(prev.amount) || 0 : 0);
+        });
+        splitSetAmt(row.querySelector("[data-split-amt]"), 0);
+        toTwo = false;
+      } else if (toTwo) [].forEach.call(box.querySelectorAll(".split-row.on [data-split-amt]"), function (a) { splitSetAmt(a, 0); });
       [].forEach.call(row.querySelectorAll(".split-amt, .split-ref"), function (inp) { inp.hidden = !cb.checked; });
       var amt = row.querySelector("[data-split-amt]");
       if (cb.checked && !toTwo) {
@@ -13241,6 +13116,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     [].forEach.call(box.querySelectorAll(".split-row.on"), function (row) {
       var parts = String(row.getAttribute("data-split-row")).split(":");
       var prev = old[parts[1]] || {};
+      /* v37.5.59.109: a newly checked envelope inherits the note of a part that needed a category. */
+      if (!old[parts[1]]) {
+        var lostLeg = (spendDraft.legs || []).filter(function (leg) { return !leg.lineId && leg.note && !leg.noteTaken; })[0];
+        if (lostLeg) { lostLeg.noteTaken = true; prev = { note: lostLeg.note }; }
+      }
       var ref = row.querySelector("[data-split-ref]");
       legs.push({ id: prev.id || nextId(), categoryId: parts[0], lineId: parts[1] || "", amount: centsFromDigits(row.querySelector("[data-split-amt]").value),
         refund: ref ? centsFromDigits(ref.value) : (prev.refund || 0), note: prev.note || "" });
@@ -16852,7 +16732,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.108";
+  var APP_VERSION = "37.5.59.109";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -21017,6 +20897,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             note: String(leg.note || "").replace(/^\s+|\s+$/g, "")
           };
         }).filter(function (leg) { return leg.lineId && leg.amount > 0; });
+        /* v37.5.59.109: never drop a part that still needs a category (its dollars would vanish). */
+        if (legs.length && (spendDraft.legs || []).some(function (leg) { return !leg.lineId && Number(leg.amount) > 0; })) {
+          spendDraft.error = "Pick an envelope for every part.";
+          renderSpendSheet(month);
+          scrollSheetErrorIntoView();
+          return;
+        }
         if (!legs.length) {
           var anyEnv = (spendDraft.legs || []).some(function (leg) { return leg.lineId; });
           var typedAmt = Number(spendDraft.amount);
