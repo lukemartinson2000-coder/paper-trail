@@ -3326,39 +3326,53 @@
     if (typeof ov.animate !== "function") { setTimeout(finish, 300); return; }
     var plane = ov.querySelector(".ls-plane");
     var orbit = ov.querySelector(".ls-orbit");
-    var T = reduce ? 320 : 1400;
+    var T = reduce ? 320 : 2800;
     if (reduce) {
       plane.style.opacity = "1";
       anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
     } else {
-      /* The orbit pivots above the plane: rotating it -360deg flies one full loop (nose follows the path). */
+      /* v37.5.59.118: slower, fuller. 0–0.34s appear · 0.34–1.88s one full 360° loop (ease-in-out, radius 110px,
+       * nose follows the path, faint dashed trail) · 1.88–2.6s gentle climb up and away · Budget crossfades in from
+       * 1.5s to 2.8s (fade + scale 0.98→1), overlapping the exit so there is no hard cut. */
+      var trail = document.createElement("div");
+      trail.className = "ls-trail";
+      ov.insertBefore(trail, orbit);
+      var ez = "cubic-bezier(.45,0,.55,1)";
       anims.push(plane.animate([
-        { opacity: 0, transform: "rotate(45deg) scale(0.4)" },
-        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.16 },
-        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.62 },
-        { opacity: 1, transform: "rotate(-20deg) translate(0, 0) scale(1.15)", offset: 0.7 },
-        { opacity: 0.9, transform: "rotate(-20deg) translate(0, -46vh) scale(2.2)", offset: 0.9 },
-        { opacity: 0, transform: "rotate(-20deg) translate(0, -70vh) scale(2.6)" }
-      ], { duration: T, easing: "linear", fill: "forwards" }));
+        { opacity: 0, transform: "rotate(45deg) scale(0.5)", easing: "cubic-bezier(.2,.7,.3,1)" },
+        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.12 },
+        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.6, easing: "ease-in-out" },
+        { opacity: 1, transform: "rotate(-15deg) translate(0, 0) scale(1.05)", offset: 0.69, easing: "cubic-bezier(.5,0,.75,.4)" },
+        { opacity: 0.85, transform: "rotate(-15deg) translate(0, -40vh) scale(1.9)", offset: 0.86, easing: "ease-out" },
+        { opacity: 0, transform: "rotate(-15deg) translate(0, -62vh) scale(2.3)", offset: 0.94 },
+        { opacity: 0, transform: "rotate(-15deg) translate(0, -62vh) scale(2.3)" }
+      ], { duration: T, fill: "forwards" }));
       anims.push(orbit.animate([
         { transform: "rotate(0deg)" },
-        { transform: "rotate(0deg)", offset: 0.16 },
-        { transform: "rotate(-360deg)", offset: 0.62 },
+        { transform: "rotate(0deg)", offset: 0.12, easing: ez },
+        { transform: "rotate(-360deg)", offset: 0.67 },
         { transform: "rotate(-360deg)" }
-      ], { duration: T, easing: "linear", fill: "forwards" }));
+      ], { duration: T, fill: "forwards" }));
+      anims.push(trail.animate([
+        { opacity: 0, transform: "translate(-50%, -100%) rotate(0deg)" },
+        { opacity: 0, offset: 0.12, transform: "translate(-50%, -100%) rotate(0deg)", easing: ez },
+        { opacity: 0.55, offset: 0.4, transform: "translate(-50%, -100%) rotate(-180deg)", easing: ez },
+        { opacity: 0, offset: 0.72, transform: "translate(-50%, -100%) rotate(-360deg)" },
+        { opacity: 0, transform: "translate(-50%, -100%) rotate(-360deg)" }
+      ], { duration: T, fill: "forwards" }));
       anims.push(ov.animate([
         { backgroundColor: "var(--paper)" },
-        { backgroundColor: "var(--paper)", offset: 0.62 },
-        { backgroundColor: "transparent" }
-      ], { duration: T, easing: "ease-out", fill: "forwards" }));
+        { backgroundColor: "var(--paper)", offset: 0.54, easing: "cubic-bezier(.4,0,.2,1)" },
+        { backgroundColor: "rgba(0,0,0,0)" }
+      ], { duration: T, fill: "forwards" }));
       anims.push(phone.animate([
-        { opacity: 0, transform: "translateY(18px)" },
-        { opacity: 0, transform: "translateY(18px)", offset: 0.6 },
+        { opacity: 0, transform: "scale(0.98)" },
+        { opacity: 0, transform: "scale(0.98)", offset: 0.54, easing: "cubic-bezier(.4,0,.2,1)" },
         { opacity: 1, transform: "none" }
-      ], { duration: T, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" }));
+      ], { duration: T, fill: "forwards" }));
     }
     anims[0].onfinish = finish;
-    setTimeout(finish, T + 400);
+    setTimeout(finish, T + 600);
   }
 
   function loadState() {
@@ -17054,7 +17068,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.117";
+  var APP_VERSION = "37.5.59.118";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {

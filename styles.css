@@ -5056,7 +5056,7 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .launch-splash .ls-orbit {
   width: 88px;
   height: 92px;
-  transform-origin: 50% -26px; /* pivot ~72px above the plane's centre = loop radius */
+  transform-origin: 50% -64px; /* v37.5.59.118: pivot 110px above the plane's centre = loop radius */
   will-change: transform;
 }
 .launch-splash .ls-plane {
@@ -5067,3 +5067,17 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 }
 body.night .launch-splash .ls-plane { filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); }
 .ls-under { pointer-events: none; }
+.launch-splash .ls-trail {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 220px;
+  box-sizing: border-box;
+  border: 2px dashed var(--plum);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
