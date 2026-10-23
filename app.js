@@ -4517,6 +4517,32 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { ageNow: ageNow, ageFromBirthday: bAge != null, retireAge: retireAge, spend: Number(r.spend) > 0 ? Number(r.spend) : null,
       infl: infl, inflManual: r.infl != null, ret: ret, retManual: r.ret != null };
   }
+  /* v37.5.59.105 (owner): the Dashboard's "now …/mo" uses the savings-rate rule, not Net worth "Added".
+   * = this month's counted retirement budget lines (Feeds account → Retirement group; unlinked lines by name)
+   * + 401k (you + employer) and HSA (you + employer) from the confirmed pay stub for this month,
+   * or, with no stub, the 401k plan / HSA from Pay ÷ 12. */
+  function dashMonthlySavings() {
+    var mo = ensureMonth(state.year, state.month), items = [], skipped = [], total = 0;
+    var rep = retireLinesReport(mo);
+    rep.counted.forEach(function (x) { items.push([x.name + " (budget line) — " + x.why, x.amount]); });
+    rep.skipped.forEach(function (x) { skipped.push([x.name + " (" + x.cat + ")", x.amount, x.why]); });
+    var f = null; try { f = useStubBasis() ? stubMonthFigures(mo.year, mo.month) : null; } catch (e) {}
+    if (f) {
+      var src = " (pay stub, " + MONTH_NAMES[mo.month - 1].slice(0, 3) + " " + mo.year + ")";
+      if (f.employee401k) items.push(["401k (you)" + src, f.employee401k]);
+      if ((f.employer401k || 0) + (f.employer401kBase || 0)) items.push(["Employer 401k" + src, (f.employer401k || 0) + (f.employer401kBase || 0)]);
+      if ((f.hsa || 0) + (f.employerHsa || 0)) items.push(["HSA (you + employer)" + src, (f.hsa || 0) + (f.employerHsa || 0)]);
+    } else {
+      var est = null; try { est = estimateCompensation(state.compensation || defaultCompensation()); } catch (e) {}
+      if (est) {
+        if (est.employee401k) items.push(["401k (you), plan ÷ 12", est.employee401k / 12]);
+        if ((est.employerMatch || 0) + (est.employerBase || 0)) items.push(["Employer 401k, plan ÷ 12", ((est.employerMatch || 0) + (est.employerBase || 0)) / 12]);
+        if (est.hsa) items.push(["HSA, plan ÷ 12", est.hsa / 12]);
+      }
+    }
+    items.forEach(function (p) { total += p[1]; });
+    return { total: roundCents(total), items: items, skipped: skipped, month: mo };
+  }
   function dashInvestments() {
     var head = latestNetWorthHeadline();
     var y = head.year != null ? head.year : currentYearMonth().year;
@@ -4566,6 +4592,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     for (var q = 0; q < years; q++) F += Math.pow(1 + i, q) * Math.pow(1 + r, years - 1 - q);
     var needYearSave = F > 0 ? Math.max(0, (needNominal - inv.balance * Math.pow(1 + r, years)) / F) : 0;
     var incNow = null; try { incNow = dashIncome(); } catch (e) {}
+    var dms = { total: inv.contrib / 12, items: [], skipped: [] }; try { dms = dashMonthlySavings(); } catch (e) {}
     var th = incNow && Number(incNow.takeHome) > 0 ? Number(incNow.takeHome) : null, thBasis = "this year’s estimated take-home pay";
     if (!th) {
       try {
@@ -4576,8 +4603,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return { I: I, inv: inv, ready: true, years: years, needToday: needToday, needNominal: needNominal, projNominal: B, projToday: projToday,
       myNumber: needNominal, onTrackNeed: onTrackNeed, onTrackYear: new Date().getFullYear(), fvContrib: fvC, growYears: m,
-      gap: projToday - needToday, coastNeed: coastNeed, needMonth: needYearSave / 12, curMonth: inv.contrib / 12,
-      takeHome: th, thBasis: thBasis, needRate: th ? needYearSave / th * 100 : null, curRate: th ? inv.contrib / th * 100 : null, status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
+      gap: projToday - needToday, coastNeed: coastNeed, needMonth: needYearSave / 12, curMonth: dms.total, dms: dms,
+      takeHome: th, thBasis: thBasis, needRate: th ? needYearSave / th * 100 : null, curRate: th ? dms.total * 12 / th * 100 : null, status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
   }
 
   /* 6) Upcoming purchases. Saved = linked envelope's balance: every month so far, planned − spent on the
@@ -5080,13 +5107,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ".\n\nYou have " + moneyWhole(R.inv.balance) + ". Estimate, not advice.";
       var mHelp = "Monthly savings needed = the level monthly amount (today’s dollars, rising with inflation each year) that, added to what you have now and growing " +
         rp + "% a year, reaches My number at " + I.retireAge + ". Counts you + employer + other additions, like Projected nest egg. Always shown; when you are ahead it is less than now.\n\n" +
-        "Now = this year’s contributions ÷ 12. Estimate, not advice.";
+        "Now = what you put toward retirement this month, counted the same way as the savings rate: " + moneyWhole(R.curMonth) + "/mo.\n" +
+        (R.dms.items.length ? R.dms.items.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing counted yet") +
+        (R.dms.skipped.length ? "\n\nNot counted:\n" + R.dms.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") +
+        "\n\nBudget lines count when their Feeds account is in the Retirement group (unlinked: named Roth, IRA, HSA or retirement). 401k and HSA come from your confirmed pay stub (or your 401k plan ÷ 12 with no stub). Estimate, not advice.";
       var rHelp = "Savings rate needed = monthly savings needed × 12 ÷ " + R.thBasis + " (" + (R.takeHome ? moneyWhole(R.takeHome) : "not available yet") +
         "), the same take-home basis as the Basic savings rate. Now = this year’s contributions ÷ take-home. Estimate, not advice.";
       html += '<div class="dash-mynum dash-coast"><div class="dash-rrow"><div class="dash-rrow-top"><span><strong>Coast number</strong> ' + helpQ(coastHelp) + '</span><span class="mono">' + moneyWhole(R.coastNeed) + "</span></div>" +
         '<p class="caption">Needed today with no more contributions · you have ' + moneyWhole(R.inv.balance) + (coastGap >= 0 ? ' · <span class="moss">coasting</span>' : "") + "</p></div></div>" +
         rrow("Monthly savings needed " + helpQ(mHelp), moneyWhole(R.needMonth) + "/mo", "To be on track by " + I.retireAge + " · now " + moneyWhole(R.curMonth) + "/mo", R.needMonth <= R.curMonth ? "moss" : "") +
-        rrow("Savings rate needed " + helpQ(rHelp), R.needRate == null ? "—" : Math.round(R.needRate) + "%", R.curRate == null ? "Add a paycheck to compare" : "Of take-home · now " + Math.round(R.curRate) + "%", R.needRate != null && R.needRate <= R.curRate ? "moss" : "") +
+        rrow("Savings rate needed " + helpQ(rHelp), R.needRate == null ? "—" : Math.round(R.needRate) + "%", R.curRate == null ? "Add a paycheck to compare" : "Of take-home · now " + Math.round(R.curRate) + "% (this month’s savings × 12)", R.needRate != null && R.needRate <= R.curRate ? "moss" : "") +
         rrow("Nest egg needed", moneyWhole(R.needToday), "Today’s dollars · " + moneyWhole(R.needNominal) + " at " + I.retireAge) +
         rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
         rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
