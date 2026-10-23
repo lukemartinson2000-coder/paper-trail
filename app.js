@@ -9424,7 +9424,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var taxes = annualTaxesAmount(row, year);
     var sp = annualSpending(row, year);
     if (total == null || taxes == null || sp == null) return null;
-    var inv = year != null ? (incomeInvestParts(year).total || 0) : 0;
+    /* 401k (pre-tax and employer) is inside Total income and never subtracted as spending, so it's already in
+     * OCF; only the other investments are added back (no double count). */
+    var inv = year != null ? incomeInvestParts(year).outside401k : 0;
     return roundCents(total - taxes - sp.amount + inv);
   }
 
@@ -9683,12 +9685,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (key === "ocf") {
       var line = OCF_FORMULA;
       if (total == null) return line + " Fill in income lines for " + y + " first.";
-      var spI = annualSpending(row, Number(y)), invI = incomeInvestParts(Number(y)).total || 0;
+      var spI = annualSpending(row, Number(y)), invI = incomeInvestParts(Number(y)).outside401k;
       if (taxes == null || spI == null) {
         return line + " " + y + ": fill in " + (taxes == null ? "Taxes" : "") + (taxes == null && spI == null ? " and " : "") + (spI == null ? "spending (log it in Budget)" : "") + " to see the number.";
       }
       return line + " " + y + ": " + annualMoney(total) + " − " + annualMoney(taxes) +
-        " − " + annualMoney(spI.amount) + (spI.from === "typed" ? " (typed)" : " (budget)") + " + " + annualMoney(invI) + " = " + annualMoney(ocf) + ".";
+        " − " + annualMoney(spI.amount) + (spI.from === "typed" ? " (typed)" : " (budget)") + " + " + annualMoney(invI) + " investments (401k excluded, already in income) = " + annualMoney(ocf) + ".";
     }
     if (key === "avgTax") {
       var inc = metrics.income || annualIncomeParts(row, Number(y));
@@ -10267,9 +10269,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * brokerage, legacy "investment"). Cash, lifestyle / other, vehicles, property never count; no name words
    * (HSA counts only when it sits in an investment group). There is no separate 401k group, so 401k accounts
    * are still left out by name (is401k), because the 401k (pre-tax) and Employer 401k lines already count them. */
+  function stmt401k(year) {
+    var raw = (ensureAnnualStatement().years || {})[String(year)];
+    if (!raw) return { you: 0, er: 0 };
+    var row = annualRow(raw), inc = annualIncomeParts(row, Number(year));
+    return { you: Number(row.dedRetire) || 0, er: Number(inc.match) || 0 };
+  }
   function nwInvestGroup(l) { return !!l && l.kind !== "liability" && (l.group === "retirement" || l.group === "taxable" || l.group === "investment"); }
   function incomeInvestParts(year) {
     var parts = [], addedThisYear = {}, byId = {};
+    /* v37.5.59.101 (owner): 401k counts once, from the Income statement: 401k (pre-tax) + Employer 401k.
+     * 401k accounts' Net worth Added is skipped (below) so it isn't counted twice. */
+    var k4 = stmt401k(year);
+    if (k4.you) parts.push({ name: "401k (you, pre-tax)", src: "stmt", amount: k4.you });
+    if (k4.er) parts.push({ name: "Employer 401k", src: "stmt", amount: k4.er });
     ((state.worth && state.worth.lines) || []).forEach(function (l) {
       byId[l.id] = l;
       if (!nwInvestGroup(l) || nwLeftOut(l) || is401k(l)) return;
@@ -10289,18 +10302,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     var total = null;
     parts.forEach(function (x) { total = (total || 0) + x.amount; });
-    return { total: total == null ? null : Math.round(total), parts: parts };
+    var outside = null;
+    parts.forEach(function (x) { if (x.src !== "stmt") outside = (outside || 0) + x.amount; });
+    return { total: total == null ? null : Math.round(total), parts: parts, outside401k: outside == null ? 0 : outside };
   }
   var INCOME_INVEST_HELP = "Investments = money you put into investment accounts that year, minus money you took out. It's read-only here.\n\n" +
-    "It adds up two things:\n• The Added amounts on your Net worth investment accounts (accounts in the Retirement or Investments · brokerage group on the Net worth page; the group decides, not the name). A withdrawal entered as a negative Added subtracts.\n" +
+    "It adds up three things:\n• Your 401k from this statement: 401k (pre-tax) + Employer 401k.\n• The Added amounts on your Net worth investment accounts (accounts in the Retirement or Investments · brokerage group on the Net worth page; the group decides, not the name). A withdrawal entered as a negative Added subtracts.\n" +
     "• Your budget goal funds (like a house fund): what you logged into the fund's budget line that year minus what you took out. A fund tied to a Cash or Property account doesn't count.\n\n" +
-    "401k accounts are left out because the 401k (pre-tax) and Employer 401k lines already count them. A goal linked to an investment account already counted here isn't added again.\n\n" +
+    "401k counts once, from this statement: the 401k (pre-tax) and Employer 401k lines. The Added amounts on 401k accounts on the Net worth page are skipped so they aren't counted twice. A goal linked to an investment account already counted here isn't added again.\n\n" +
     "To change it, edit Added on the Net worth page (tap › on the account) or log money in your Budget. Tap Investments to see each account.";
   var OCF_FORMULA = "Operating cash flow = Total income − Taxes − Spending + Investments.";
   var OCF_HELP = OCF_FORMULA + "\n\nSpending = everything you logged in Budget that year (refunds taken off; months after today left out). A year where you typed Op. expenses uses that number instead.\n\n" +
-    "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
+    "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. " +
+    "401k is already in it once: your pre-tax 401k and employer 401k are part of Total income and never subtracted, so they aren't added back again. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
     "The small figure under each year is the change versus the prior year. Whole dollars.";
-  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\nRetirement contributions = the Added amounts that year on your Net worth accounts in the Retirement group (401k, IRA, Roth, HSA if you put it there), plus employer match and base on those accounts. A withdrawal entered as a negative Added subtracts.\n\n" +
+  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\nRetirement contributions = 401k (pre-tax) + Employer 401k from this statement, plus the Added amounts that year on your other Net worth accounts in the Retirement group (IRA, Roth, HSA if you put it there) and any employer money on them. 401k accounts' Added on the Net worth page is skipped so 401k counts once. A withdrawal entered as a negative Added subtracts.\n\n" +
     "Only the group counts, not the name. Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow instead. Enter Added on the Net worth page (tap › on the account).";
   var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income. The small figure is the change versus the prior year, in percentage points.";
   /* v37.5.59.101 (owner): Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
@@ -10393,7 +10409,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += sgRow(nm, years, function (y) {
           var hit = invP[y].parts.filter(function (x) { return x.src === src && x.name === nm; })[0];
           return invCell(hit ? hit.amount : null, y);
-        }, "sg-subline", '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : "") + "</span>");
+        }, "sg-subline", '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : src === "stmt" ? ' <i class="caption">statement</i>' : "") + "</span>");
       });
     }
     function yoyMoney(y, fn) {
@@ -10434,11 +10450,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     function retireContrib(y) {
       var sum = 0, any = false;
       ((state.worth && state.worth.lines) || []).forEach(function (l) {
-        if (l.kind === "liability" || l.group !== "retirement" || nwLeftOut(l)) return;
+        if (l.kind === "liability" || l.group !== "retirement" || nwLeftOut(l) || is401k(l)) return; // 401k from the statement below
         var a = l.additions && l.additions[y] != null && l.additions[y] !== "" ? Number(l.additions[y]) : null;
         var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
         if (a != null || e) { any = true; sum += (a || 0) + e; }
       });
+      var k4 = stmt401k(y);
+      if (k4.you || k4.er) { any = true; sum += k4.you + k4.er; }
       return any ? sum : null;
     }
     html += sgRow("Savings rate", years, function (y) {
