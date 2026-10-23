@@ -13096,6 +13096,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(spendDraft.id) + '"');
       }
     }
+    if (spendDraft.id) { html = spendSummaryHtml(month) + html; sheetNoAutoFocus = true; }
     openSheet(spendDraft.id ? "Edit transaction" : "Add transaction", html, "save-spend-sheet");
     spendStickyFoot();
     splitArm();
@@ -13114,12 +13115,41 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (vv && vv.offsetTop) sh.style.marginBottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + "px";
     else if (vv) sh.style.marginBottom = Math.max(0, window.innerHeight - vv.height) + "px";
   }
+  /* v37.5.59.114 (owner): Edit transaction shows what you're editing at the top: merchant, amount, date, envelope(s). */
+  function spendSummaryHtml(month) {
+    var d = spendDraft, inc = d.type === "income", names = [];
+    if (inc) {
+      var il = (month.incomes || []).filter(function (x) { return String(x.id) === String(d.incomeId); })[0];
+      names.push(il ? (il.name || "Income") : "Next paycheck (auto)");
+    } else (d.legs || []).forEach(function (leg) {
+      var f = leg.lineId ? findLine(month, leg.lineId) : null;
+      if (f) names.push(f.line.name || f.cat.name || "Envelope");
+    });
+    var who = d.payee || (inc ? "Income" : "No payee");
+    return '<div class="tx-summary" aria-label="Transaction"><div class="tx-sum-top"><strong class="tx-sum-who">' + esc(who) + '</strong><span class="mono tx-sum-amt' + (inc ? " moss" : "") + '">' +
+      (inc ? "+" : "") + money(Number(d.amount) || 0) + '</span></div><p class="caption tx-sum-meta">' + esc(d.date ? usDate(d.date) : "No date") + " · " +
+      esc(names.length ? names.join(", ") : (inc ? "Income" : "No envelope yet")) + (d.refundKind ? " · refund" : "") + "</p></div>";
+  }
   function spendStickyFoot() {
     var form = document.querySelector('#modal form.sheet[data-act="save-spend-sheet"]');
     if (!form) return;
     form.classList.add("sheet-sticky");
     var acts = form.querySelector(".sheet-actions");
     if (!acts) return;
+    /* v37.5.59.114 (owner): editing → Save sits in the sticky top bar beside ✕, so nothing covers the transaction.
+     * The bottom bar only remains for the Left to split status. */
+    if (spendDraft && spendDraft.id) {
+      var top = form.querySelector(".sheet-top"), sv = acts.querySelector('button[type="submit"]'), x = top && top.querySelector(".sheet-x");
+      if (top && sv && x) {
+        sv.classList.add("sheet-top-save");
+        top.insertBefore(sv, x);
+        acts.parentNode.removeChild(acts);
+        var st0 = form.querySelector("#split-status");
+        if (st0) { var f0 = document.createElement("div"); f0.className = "sheet-foot sheet-foot-status"; st0.parentNode.insertBefore(f0, st0); f0.appendChild(st0); }
+        spendSheetFit();
+        return;
+      }
+    }
     var foot = document.createElement("div");
     foot.className = "sheet-foot";
     acts.parentNode.insertBefore(foot, acts);
@@ -13220,7 +13250,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         : st.left > 0 ? "Left to split <strong class=\"mono\">" + formatMoney(st.left, 2) + "</strong>"
         : "Over by <strong class=\"mono\">" + formatMoney(-st.left, 2) + "</strong>";
     }
-    var save = st.form && st.form.querySelector('.sheet-actions button[type="submit"]');
+    var save = st.form && st.form.querySelector('button[type="submit"]');
     if (save) { save.disabled = !ok; save.setAttribute("aria-disabled", ok ? "false" : "true"); }
   }
   function splitArm() {
@@ -16946,7 +16976,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.113";
+  var APP_VERSION = "37.5.59.114";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18926,6 +18956,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     );
   }
 
+  var sheetNoAutoFocus = false;
   function armSheetA11y(modal) {
     if (!modal) return;
     sheetTriggerEl = document.activeElement && document.activeElement !== document.body ? document.activeElement : sheetTriggerEl;
@@ -18933,6 +18964,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.setAttribute("aria-modal", "true");
     var nodes = sheetFocusables(modal);
     var first = nodes[0];
+    /* v37.5.59.114 (owner): Edit transaction opens with no field focused (no keyboard); focus rests on ✕. */
+    if (sheetNoAutoFocus) {
+      sheetNoAutoFocus = false;
+      var x = modal.querySelector(".sheet-x");
+      if (x) { try { x.focus({ preventScroll: true }); } catch (err) {} }
+      return;
+    }
     if (first) {
       try { first.focus(); } catch (err) {}
     }
@@ -20779,7 +20817,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var tx = (month.transactions || []).filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
       if (tx) {
         openEditSpend(tx, month);
-        focusSheetField(actEl.getAttribute("data-focus") === "amount" ? "amount" : "payee");
+        /* v37.5.59.114 (owner): opening a transaction focuses nothing (no keyboard); only a tap on its $ amount still jumps to Amount. */
+        if (actEl.getAttribute("data-focus") === "amount") focusSheetField("amount");
       }
     } else if (act === "reset-spend") {
       if (window.confirm("Clear this month’s spending?\n\nThis permanently removes every expense and refund in " +

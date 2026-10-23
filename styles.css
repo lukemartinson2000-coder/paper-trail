@@ -1365,7 +1365,8 @@ body.night .phone {
 
 .nw-scrubber {
   position: relative;
-  touch-action: none;
+  /* v37.5.59.114 (owner): a finger on the chart still scrolls the page up/down; sideways drags scrub years. */
+  touch-action: pan-y;
   cursor: ew-resize;
 }
 
@@ -5026,3 +5027,14 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .dash-sr-pick.on{background:var(--paper-2,rgba(0,0,0,.05));box-shadow:inset 0 0 0 1px var(--line,rgba(0,0,0,.12))}
 .dash-sr-pick.on .caption::after{content:" ✓"}
 .dash-of{font-size:13px;font-weight:500;font-family:inherit;letter-spacing:0;white-space:nowrap}
+
+/* v37.5.59.114 (owner): Edit transaction — summary at the top, Save in the sticky top bar beside ✕. */
+.sheet-top .sheet-top-save{flex:none;min-height:36px;padding:6px 16px;border-radius:18px;border:1px solid var(--moss);background:var(--moss);color:#fff;font:600 15px var(--serif);cursor:pointer}
+.sheet-top .sheet-top-save:disabled{opacity:.45;cursor:not-allowed}
+.tx-summary{margin:0 0 14px;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:rgba(127,127,127,.06)}
+.tx-sum-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.tx-sum-who{font:600 18px var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tx-sum-amt{font-size:20px;font-weight:700;flex:none}
+.tx-sum-meta{margin:4px 0 0}
+.sheet-sticky .sheet-foot-status:has(.split-status[hidden]){display:none}
+.sheet-sticky .sheet-foot-status .split-status{margin:0}
