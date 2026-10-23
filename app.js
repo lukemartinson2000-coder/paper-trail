@@ -3526,6 +3526,7 @@
       if (parsed.statementDetails == null) parsed.statementDetails = false;
       migrateWorthIncome(parsed.worth);
       migrateSampleAnnualDefaults(parsed);
+      migrateAddedSplit(parsed);
       ensureAnnualStatement(parsed);
       /* Defer incomeYear fix until state is assigned — yearIncomeFigure needs state. */
       if (parsed.incomeYear == null) parsed.incomeYear = currentYearMonth().year;
@@ -3605,6 +3606,7 @@
   }
 
   function saveState() {
+    addedAutoCache = {};
     try {
       var payload = storagePayload();
       var text = JSON.stringify(payload);
@@ -3719,10 +3721,72 @@
     return value == null ? 0 : Number(value);
   }
 
-  function lineAddition(line, year) {
-    if (!line.additions) return 0;
+  /* v37.5.59.106 (owner): one source of contributions. An account's yearly Added = auto + extra.
+   * auto = that year's budget lines routed to it (Feeds account, state.lineFeeds; assigned amounts)
+   *      + for the main 401k account: 401k (pre-tax) + Employer 401k from the Income statement (pay stub / plan)
+   *      + for the main HSA account: pay-stub HSA (you + employer).
+   * extra = the typed Added (line.additions[y]); withdrawals (negative) still subtract.
+   * Migration: a year that already had a typed, non-zero Added when .106 first loaded is marked
+   * line.addedLegacy[y]; in those years auto is shown but NOT added, so old totals don't change (no double count).
+   * Clearing that cell removes the mark and auto starts counting. */
+  var addedAutoCache = {};
+  function lineExtraAdded(line, year) {
+    if (!line || !line.additions) return 0;
     var value = line.additions[year];
-    return value == null ? 0 : Number(value);
+    return value == null || value === "" ? 0 : Number(value) || 0;
+  }
+  function primaryWorthAcct(test) {
+    return ((state.worth && state.worth.lines) || []).filter(function (l) { return l.kind !== "liability" && !l.vehicle && !nwLeftOut(l) && test(l); })[0] || null;
+  }
+  function stubHsaYearTotal(y) {
+    var b = null; try { b = payStubBasisFor(y); } catch (e) {}
+    if (!b || !b.total) return 0;
+    return roundCents((Number(b.total.hsa) || 0) + (Number(b.total.erHsa) || 0));
+  }
+  function addedAuto(line, year) {
+    var y = Number(year), ck = (line && line.id) + ":" + y;
+    if (addedAutoCache[ck]) return addedAutoCache[ck];
+    var out = { budget: 0, k401: 0, k401you: 0, k401er: 0, hsa: 0, total: 0, legacy: false, applied: 0 };
+    if (!line || line.kind === "liability" || line.vehicle) return out;
+    var feeds = state.lineFeeds || {}, mine = {};
+    Object.keys(feeds).forEach(function (k) { if (feeds[k] === line.id) mine[k] = 1; });
+    if (Object.keys(mine).length) {
+      Object.keys(state.months || {}).forEach(function (k) {
+        if (Number(String(k).slice(0, 4)) !== y) return;
+        ((state.months[k] || {}).categories || []).forEach(function (cat) {
+          (cat.lines || []).forEach(function (l) { if (mine[nwNorm(l.name)]) out.budget += Math.max(0, Number(l.assigned) || 0); });
+        });
+      });
+      out.budget = roundCents(out.budget);
+    }
+    if (is401k(line) && primaryWorthAcct(is401k) === line) {
+      var k4 = stmt401k(y);
+      out.k401you = Number(k4.you) || 0;
+      /* employer typed on the account (Employer match / base) wins, so employer money isn't counted twice */
+      out.k401er = lineEmployerMatch(line, y) || lineEmployerBase(line, y) ? 0 : Number(k4.er) || 0;
+      out.k401 = roundCents(out.k401you + out.k401er);
+    }
+    if (isHsaLine(line) && !is401k(line) && primaryWorthAcct(function (l) { return isHsaLine(l) && !is401k(l); }) === line) out.hsa = stubHsaYearTotal(y);
+    out.total = roundCents(out.budget + out.k401 + out.hsa);
+    out.legacy = !!(line.addedLegacy && line.addedLegacy[y]);
+    out.applied = out.legacy ? 0 : out.total;
+    addedAutoCache[ck] = out;
+    return out;
+  }
+  function lineAddition(line, year) {
+    return roundCents(lineExtraAdded(line, year) + addedAuto(line, year).applied);
+  }
+  function lineHasAdded(line, year) {
+    return !!(line && ((line.additions && line.additions[year] != null && line.additions[year] !== "") || addedAuto(line, year).applied));
+  }
+  function migrateAddedSplit(parsed) {
+    if (!parsed || parsed._addedSplit106 || !parsed.worth) return;
+    (parsed.worth.lines || []).forEach(function (l) {
+      Object.keys(l.additions || {}).forEach(function (y) {
+        if (Number(l.additions[y])) { l.addedLegacy = l.addedLegacy || {}; l.addedLegacy[y] = true; }
+      });
+    });
+    parsed._addedSplit106 = true;
   }
 
   function lineEmployerMatch(line, year) {
@@ -4521,27 +4585,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * = this month's counted retirement budget lines (Feeds account → Retirement group; unlinked lines by name)
    * + 401k (you + employer) and HSA (you + employer) from the confirmed pay stub for this month,
    * or, with no stub, the 401k plan / HSA from Pay ÷ 12. */
+  /* v37.5.59.106 (owner): the Dashboard's "now …/mo" reads the same source as Net worth Added:
+   * this year's Added (auto + extra) on retirement accounts (Retirement group or Roth / IRA / HSA / 401k by name),
+   * + employer match / base typed on them, ÷ months so far this year. 401k counts once (on the main 401k account). */
   function dashMonthlySavings() {
-    var mo = ensureMonth(state.year, state.month), items = [], skipped = [], total = 0;
-    var rep = retireLinesReport(mo);
-    rep.counted.forEach(function (x) { items.push([x.name + " (budget line) — " + x.why, x.amount]); });
-    rep.skipped.forEach(function (x) { skipped.push([x.name + " (" + x.cat + ")", x.amount, x.why]); });
-    var f = null; try { f = useStubBasis() ? stubMonthFigures(mo.year, mo.month) : null; } catch (e) {}
-    if (f) {
-      var src = " (pay stub, " + MONTH_NAMES[mo.month - 1].slice(0, 3) + " " + mo.year + ")";
-      if (f.employee401k) items.push(["401k (you)" + src, f.employee401k]);
-      if ((f.employer401k || 0) + (f.employer401kBase || 0)) items.push(["Employer 401k" + src, (f.employer401k || 0) + (f.employer401kBase || 0)]);
-      if ((f.hsa || 0) + (f.employerHsa || 0)) items.push(["HSA (you + employer)" + src, (f.hsa || 0) + (f.employerHsa || 0)]);
-    } else {
-      var est = null; try { est = estimateCompensation(state.compensation || defaultCompensation()); } catch (e) {}
-      if (est) {
-        if (est.employee401k) items.push(["401k (you), plan ÷ 12", est.employee401k / 12]);
-        if ((est.employerMatch || 0) + (est.employerBase || 0)) items.push(["Employer 401k, plan ÷ 12", ((est.employerMatch || 0) + (est.employerBase || 0)) / 12]);
-        if (est.hsa) items.push(["HSA, plan ÷ 12", est.hsa / 12]);
-      }
-    }
-    items.forEach(function (p) { total += p[1]; });
-    return { total: roundCents(total), items: items, skipped: skipped, month: mo };
+    var mo = ensureMonth(state.year, state.month), y = currentYearMonth().year, nMonths = Math.max(1, currentYearMonth().month);
+    var items = [], skipped = [], year = 0;
+    ((state.worth && state.worth.lines) || []).forEach(function (l) {
+      if (l.kind === "liability" || l.vehicle) return;
+      var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y), a = lineAddition(l, y), amt = roundCents(a + e);
+      if (!amt) return;
+      if (nwLeftOut(l)) { skipped.push([l.name, amt, "left out of net worth"]); return; }
+      if (!(l.group === "retirement" || gm().isRetirementName(l.name) || is401k(l))) { skipped.push([l.name, amt, "not a retirement account"]); return; }
+      var au = addedAuto(l, y);
+      items.push([l.name + " " + y + " Added" + (au.applied ? " (auto " + moneyWhole(au.applied) + ")" : "") + (e ? " + employer" : ""), amt]);
+      year += amt;
+    });
+    return { total: roundCents(year / nMonths), year: roundCents(year), months: nMonths, items: items, skipped: skipped, month: mo };
   }
   function dashInvestments() {
     var head = latestNetWorthHeadline();
@@ -4592,7 +4652,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     for (var q = 0; q < years; q++) F += Math.pow(1 + i, q) * Math.pow(1 + r, years - 1 - q);
     var needYearSave = F > 0 ? Math.max(0, (needNominal - inv.balance * Math.pow(1 + r, years)) / F) : 0;
     var incNow = null; try { incNow = dashIncome(); } catch (e) {}
-    var dms = { total: inv.contrib / 12, items: [], skipped: [] }; try { dms = dashMonthlySavings(); } catch (e) {}
+    var dms = { total: inv.contrib / 12, year: inv.contrib, months: 12, items: [], skipped: [] }; try { dms = dashMonthlySavings(); } catch (e) {}
     var th = incNow && Number(incNow.takeHome) > 0 ? Number(incNow.takeHome) : null, thBasis = "this year’s estimated take-home pay";
     if (!th) {
       try {
@@ -5107,16 +5167,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ".\n\nYou have " + moneyWhole(R.inv.balance) + ". Estimate, not advice.";
       var mHelp = "Monthly savings needed = the level monthly amount (today’s dollars, rising with inflation each year) that, added to what you have now and growing " +
         rp + "% a year, reaches My number at " + I.retireAge + ". Counts you + employer + other additions, like Projected nest egg. Always shown; when you are ahead it is less than now.\n\n" +
-        "Now = what you put toward retirement this month, counted the same way as the savings rate: " + moneyWhole(R.curMonth) + "/mo.\n" +
+        "Now = this year’s Added on your retirement accounts (auto from linked budget lines, 401k and HSA, plus your extras) ÷ " + R.dms.months + " months so far: " + moneyWhole(R.dms.year || 0) + " ÷ " + R.dms.months + " = " + moneyWhole(R.curMonth) + "/mo.\n" +
         (R.dms.items.length ? R.dms.items.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing counted yet") +
         (R.dms.skipped.length ? "\n\nNot counted:\n" + R.dms.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") +
-        "\n\nBudget lines count when their Feeds account is in the Retirement group (unlinked: named Roth, IRA, HSA or retirement). 401k and HSA come from your confirmed pay stub (or your 401k plan ÷ 12 with no stub). Estimate, not advice.";
+        "\n\nSame numbers as Net worth › Added. A budget line adds to an account when you pick it as the line’s Feeds account; 401k comes from the Income statement and HSA from your pay stub. Estimate, not advice.";
       var rHelp = "Savings rate needed = monthly savings needed × 12 ÷ " + R.thBasis + " (" + (R.takeHome ? moneyWhole(R.takeHome) : "not available yet") +
         "), the same take-home basis as the Basic savings rate. Now = this year’s contributions ÷ take-home. Estimate, not advice.";
       html += '<div class="dash-mynum dash-coast"><div class="dash-rrow"><div class="dash-rrow-top"><span><strong>Coast number</strong> ' + helpQ(coastHelp) + '</span><span class="mono">' + moneyWhole(R.coastNeed) + "</span></div>" +
         '<p class="caption">Needed today with no more contributions · you have ' + moneyWhole(R.inv.balance) + (coastGap >= 0 ? ' · <span class="moss">coasting</span>' : "") + "</p></div></div>" +
         rrow("Monthly savings needed " + helpQ(mHelp), moneyWhole(R.needMonth) + "/mo", "To be on track by " + I.retireAge + " · now " + moneyWhole(R.curMonth) + "/mo", R.needMonth <= R.curMonth ? "moss" : "") +
-        rrow("Savings rate needed " + helpQ(rHelp), R.needRate == null ? "—" : Math.round(R.needRate) + "%", R.curRate == null ? "Add a paycheck to compare" : "Of take-home · now " + Math.round(R.curRate) + "% (this month’s savings × 12)", R.needRate != null && R.needRate <= R.curRate ? "moss" : "") +
+        rrow("Savings rate needed " + helpQ(rHelp), R.needRate == null ? "—" : Math.round(R.needRate) + "%", R.curRate == null ? "Add a paycheck to compare" : "Of take-home · now " + Math.round(R.curRate) + "%", R.needRate != null && R.needRate <= R.curRate ? "moss" : "") +
         rrow("Nest egg needed", moneyWhole(R.needToday), "Today’s dollars · " + moneyWhole(R.needNominal) + " at " + I.retireAge) +
         rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
         rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
@@ -10115,7 +10175,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var txt = opts.text != null ? opts.text : sgWhole(value);
     if (opts.calc) return '<td class="' + cls + ' calc">' + txt + (opts.goal || "") + "</td>";
     return '<td class="' + cls + '" role="button" tabindex="0" data-sg="' + kind + '" data-key="' + esc(key) + '" data-year="' + year +
-      '" data-v="' + (value == null ? "" : value) + '" data-label="' + esc(opts.label || key) + '" aria-label="Edit ' + esc(opts.label || key) + " " + year + '">' +
+      '" data-v="' + (value == null ? "" : value) + '"' + (opts.editV !== undefined ? ' data-ev="' + opts.editV + '"' : "") + ' data-label="' + esc(opts.label || key) + '" aria-label="Edit ' + esc(opts.label || key) + " " + year + '">' +
       txt + (opts.typed ? '<i class="sg-typed">typed</i>' : "") + (opts.goal || "") + "</td>";
   }
   /* v37.5.59.103: statements open on headlines only; the toggle (saved) shows every row. */
@@ -10270,15 +10330,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!open) return out;
       /* v37.5.59.73: per-line sub-rows (same fields as the name sheet). Added and Employer match are editable;
        * Return is calculated, as before: (balance − prior balance − amounts added) ÷ prior; employer money counts as growth. */
-      function sub(label, prefix, getter) {
+      function sub(label, prefix, getter, editGetter) {
         return sgRow(label, yearsG, nocol(function (y) {
           var v = worthBlank(y) ? null : getter(y);
           var negv = v != null && v < 0;
-          return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel, cls: negv ? "neg" : "", text: negv ? "−" + moneyWhole(Math.abs(v)) : null });
+          var au = prefix === "add" && !home ? addedAuto(l, y) : null;
+          return sgCell("nw", prefix + ":" + l.id, y, v, { label: l.name + " · " + label, on: y === sel, cls: (negv ? "neg" : "") + (au && au.total ? (au.legacy ? " add-legacy" : " add-auto") : ""), text: negv ? "−" + moneyWhole(Math.abs(v)) : null,
+            editV: editGetter ? editGetter(y) : undefined });
         }), "sg-subline", '<span class="sg-sub-name">' + esc(label) + "</span>");
       }
       var home = subKind === "home";
-      out += sub(home ? "Improvements" : "Added", "add", function (y) { var a = l.additions ? l.additions[y] : null; return a == null ? null : Number(a); });
+      out += sub(home ? "Improvements" : "Added", "add", function (y) { return lineHasAdded(l, y) || addedAuto(l, y).total ? lineAddition(l, y) : null; },
+        function (y) { var a = l.additions ? l.additions[y] : null; return a == null || a === "" ? "" : Number(a); });
       if (!home && (is401k(l) || isHsaLine(l))) {
         out += sub("Employer match", "match", function (y) { var m = (l.employerMatch || {})[y]; return m == null ? null : Number(m); });
         if (Object.keys(l.employerBase || {}).some(function (k) { return Number(l.employerBase[k]); })) out += sub("Employer base", "base", function (y) { var m = (l.employerBase || {})[y]; return m == null ? null : Number(m); });
@@ -10443,8 +10506,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ((state.worth && state.worth.lines) || []).forEach(function (l) {
       byId[l.id] = l;
       if (!nwInvestGroup(l) || nwLeftOut(l) || is401k(l)) return;
-      var a = l.additions ? l.additions[year] : null;
-      if (a != null && a !== "" && Number(a)) { parts.push({ name: l.name, src: "nw", amount: Number(a) }); addedThisYear[l.id] = 1; }
+      var a = lineAddition(l, year); // v37.5.59.106: auto (Feeds-account lines, HSA stub) + extra
+      if (a) { parts.push({ name: l.name, src: "nw", amount: a }); addedThisYear[l.id] = 1; }
     });
     var seen = {};
     (dashState().purchases || []).forEach(function (p) {
@@ -10619,10 +10682,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (k4.you) { parts.push(["401k (pre-tax), this statement", k4.you]); any = true; }
       if (k4.er) { parts.push(["Employer 401k, this statement", k4.er]); any = true; }
       var hs = stubHsaYear(y);
-      if (hs) { parts.push(["HSA from pay stubs (you + employer)", hs]); any = true; }
+      /* v37.5.59.106: when the main HSA account takes the stub HSA as its auto Added, it's counted there (once). */
+      var hsAcct = primaryWorthAcct(function (l) { return isHsaLine(l) && !is401k(l); });
+      var hsInAcct = !!(hs && hsAcct && addedAuto(hsAcct, y).hsa && !addedAuto(hsAcct, y).legacy);
+      if (hs && !hsInAcct) { parts.push(["HSA from pay stubs (you + employer)", hs]); any = true; }
       ((state.worth && state.worth.lines) || []).forEach(function (l) {
         if (l.kind === "liability" || l.vehicle) return;
-        var a = l.additions && l.additions[y] != null && l.additions[y] !== "" ? Number(l.additions[y]) : null;
+        var a = lineHasAdded(l, y) ? lineAddition(l, y) : null;
         var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
         if (a == null && !e) return;
         var amt = (a || 0) + e;
@@ -10630,8 +10696,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (is401k(l)) { amt && skipped.push([l.name, amt, "401k counts once, from this statement"]); return; }
         var byName = gm().isRetirementName(l.name);
         if (l.group !== "retirement" && !byName) { amt && skipped.push([l.name, amt, "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
-        if (hs && isHsaLine(l)) { amt && skipped.push([l.name, amt, "HSA already counted from pay stubs"]); return; }
-        parts.push([l.name + " Added" + (e ? " + employer" : ""), amt]); any = true;
+        if (hs && isHsaLine(l) && !hsInAcct) { amt && skipped.push([l.name, amt, "HSA already counted from pay stubs"]); return; }
+        var au = addedAuto(l, y);
+        parts.push([l.name + " Added" + (au.applied ? " (auto " + moneyWhole(au.applied) + " + extra " + moneyWhole(lineExtraAdded(l, y)) + ")" : "") + (e ? " + employer" : ""), amt]); any = true;
       });
       var sum = 0; parts.forEach(function (p) { sum += p[1]; });
       return { total: any ? roundCents(sum) : null, parts: parts, skipped: skipped };
@@ -10664,7 +10731,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (kp) {
         var field = kp[1] === "add" ? "additions" : kp[1] === "match" ? "employerMatch" : "employerBase";
         if (!line[field]) line[field] = {};
-        if (value == null) delete line[field][ed.year];
+        if (value == null) { delete line[field][ed.year]; if (kp[1] === "add" && line.addedLegacy) delete line.addedLegacy[ed.year]; }
         else line[field][ed.year] = kp[1] === "add" && value < 0 ? -clampMoney(-value) : clampMoney(value);
       } else {
         if (!line.amounts) line.amounts = {};
@@ -10684,10 +10751,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     saveState();
   }
+  function addedBreakdownText(ed) {
+    var kp = ed && ed.kind === "nw" && String(ed.key).match(/^add:(.+)$/);
+    if (!kp) return "";
+    var line = ((state.worth && state.worth.lines) || []).filter(function (l) { return l.id === kp[1]; })[0];
+    if (!line) return "";
+    var au = addedAuto(line, ed.year), ex = lineExtraAdded(line, ed.year), bits = [];
+    if (au.budget) bits.push("budget lines " + moneyWhole(au.budget));
+    if (au.k401) bits.push("401k " + moneyWhole(au.k401));
+    if (au.hsa) bits.push("HSA stub " + moneyWhole(au.hsa));
+    var autoTxt = "auto " + moneyWhole(au.total) + (bits.length ? " (" + bits.join(", ") + ")" : "");
+    if (au.legacy && au.total) return "\nTotal " + moneyWhole(ex) + " = your typed amount. " + autoTxt + " isn’t added (typed before auto); Clear to use auto. Typing edits your amount.";
+    return "\nTotal " + moneyWhole(roundCents(au.applied + ex)) + " = " + autoTxt + " + extra " + (ex < 0 ? "−" + moneyWhole(-ex) : moneyWhole(ex)) + ". Typing edits the extra.";
+  }
   function sgOpen(td) {
     var wrap = td.closest(".sg-wrap");
     sgEdit = { kind: td.getAttribute("data-sg"), key: td.getAttribute("data-key"), year: Number(td.getAttribute("data-year")), label: td.getAttribute("data-label") };
-    var v = td.getAttribute("data-v");
+    var v = td.hasAttribute("data-ev") ? td.getAttribute("data-ev") : td.getAttribute("data-v"); // v37.5.59.106: Added edits the extra only
     /* v37.5.59.84: Added / Improvements can be negative (a withdrawal). The value is typed as a positive amount;
      * the +/− button in the edit bar flips the sign. */
     sgEdit.signed = /^add:/.test(sgEdit.key);
@@ -10722,7 +10802,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var bar = document.getElementById("sg-bar");
     if (bar) {
       bar.hidden = false;
-      document.getElementById("sg-bar-k").textContent = sgEdit.label + " · " + sgEdit.year;
+      var bk = document.getElementById("sg-bar-k"), bnote = addedBreakdownText(sgEdit);
+      bk.textContent = sgEdit.label + " · " + sgEdit.year;
+      bk.classList.toggle("has-note", !!bnote);
+      if (bnote) bk.insertAdjacentHTML("beforeend", '<small class="sg-add-note">' + esc(bnote.replace(/^\n/, "")) + "</small>");
       bar.querySelector('[data-sgbar="clear"]').hidden = !(sgEdit.kind === "is" || /^(add|match|base|goal):/.test(sgEdit.key));
       var sgn = bar.querySelector('[data-sgbar="sign"]');
       sgn.hidden = !sgEdit.signed;
@@ -16519,7 +16602,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.105";
+  var APP_VERSION = "37.5.59.106";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18335,6 +18418,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
 
   function render() {
+    addedAutoCache = {};
     applyNight();
     paintSaveWarning();
     renderMonthBar();

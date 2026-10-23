@@ -4999,3 +4999,7 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .stmt-detail-toggle button{border:1px solid var(--rule);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 16px;font:inherit;font-size:14px;cursor:pointer}
 .sg-grid.sg-slim tbody tr:not(.sg-keep){display:none}
 .sg-grid.sg-slim .sg-sub th,.sg-grid.sg-slim .sg-sub td{border-top:0}
+
+/* v37.5.59.106: Added breakdown (auto vs extra) in the edit bar */
+.sg-bar-k.has-note { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.sg-add-note { display: block; font-family: var(--sans, inherit); font-weight: 400; font-size: 11.5px; line-height: 1.3; color: var(--muted); margin-top: 2px; }
