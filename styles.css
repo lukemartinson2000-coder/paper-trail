@@ -4995,7 +4995,7 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .income-fold.open .section-label{margin-top:0}
 .income-fold .income-row-wrap,.income-fold .income-add{margin-left:0;margin-right:0}
 .dash-taxes .field{margin:8px 0}
-.stmt-detail-toggle{display:flex;justify-content:center;margin:10px 16px 4px}
+.stmt-detail-toggle{display:flex;justify-content:flex-end;margin:4px 16px 6px}
 .stmt-detail-toggle button{border:1px solid var(--rule);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 16px;font:inherit;font-size:14px;cursor:pointer}
 .sg-grid.sg-slim tbody tr:not(.sg-keep){display:none}
 .sg-grid.sg-slim .sg-sub th,.sg-grid.sg-slim .sg-sub td{border-top:0}

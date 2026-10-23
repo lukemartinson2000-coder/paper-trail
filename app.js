@@ -4517,21 +4517,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.106 (owner): the Dashboard's "now …/mo" reads the same source as Net worth Added:
    * this year's Added (auto + extra) on retirement accounts (Retirement group or Roth / IRA / HSA / 401k by name),
    * + employer match / base typed on them, ÷ months so far this year. 401k counts once (on the main 401k account). */
+  /* v37.5.59.110 (owner): the Dashboard's "now …/mo" and "now …%" = the shared retirement money set (retireMoneySet)
+   * year-to-date: Jan through this month ÷ months so far; rate = the same set ÷ the Income statement's take-home for
+   * those months (ytdSavingsRate) — exactly the Income statement's YTD savings rate. Unlinked Roth / IRA / HSA budget
+   * lines now count here too. */
   function dashMonthlySavings() {
-    var mo = ensureMonth(state.year, state.month), y = currentYearMonth().year, nMonths = Math.max(1, currentYearMonth().month);
-    var items = [], skipped = [], year = 0;
-    ((state.worth && state.worth.lines) || []).forEach(function (l) {
-      if (l.kind === "liability" || l.vehicle) return;
-      var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y), a = lineAddition(l, y), amt = roundCents(a + e);
-      if (is401k(l)) { amt = k401AcctYear(l, y).amount; e = 0; } // v37.5.59.107: same 401k number as Investments
-      if (!amt) return;
-      if (nwLeftOut(l)) { skipped.push([l.name, amt, "left out of net worth"]); return; }
-      if (!(l.group === "retirement" || gm().isRetirementName(l.name) || is401k(l))) { skipped.push([l.name, amt, "not a retirement account"]); return; }
-      var au = addedAuto(l, y);
-      items.push([l.name + " " + y + " Added" + (au.applied ? " (auto " + moneyWhole(au.applied) + ")" : "") + (e ? " + employer" : ""), amt]);
-      year += amt;
-    });
-    return { total: roundCents(year / nMonths), year: roundCents(year), months: nMonths, items: items, skipped: skipped, month: mo };
+    var cym = currentYearMonth(), mo = ensureMonth(state.year, state.month);
+    var ytd = ytdSavingsRate(cym.year, cym.month), set = ytd.set;
+    return { total: roundCents(set.total / Math.max(1, set.months)), year: set.total, months: set.months, items: set.parts, skipped: set.skipped, month: mo,
+      ytdRate: ytd.rate, ytdTakeHome: ytd.takeHome, takeHomeYear: ytd.takeHomeYear, set: set };
   }
   function dashInvestments() {
     var head = latestNetWorthHeadline();
@@ -4582,7 +4576,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var needYearSave = F > 0 ? Math.max(0, (needNominal - inv.balance * Math.pow(1 + r, years)) / F) : 0;
     var incNow = null; try { incNow = dashIncome(); } catch (e) {}
     var dms = { total: inv.contrib / 12, year: inv.contrib, months: 12, items: [], skipped: [] }; try { dms = dashMonthlySavings(); } catch (e) {}
-    var th = incNow && Number(incNow.takeHome) > 0 ? Number(incNow.takeHome) : null, thBasis = "this year’s estimated take-home pay";
+    var th = dms.takeHomeYear > 0 ? Number(dms.takeHomeYear) : (incNow && Number(incNow.takeHome) > 0 ? Number(incNow.takeHome) : null);
+    var thBasis = dms.takeHomeYear > 0 ? "this year’s Income statement take-home" : "this year’s estimated take-home pay";
     if (!th) {
       try {
         var mo = ensureMonth(state.year, state.month);
@@ -4593,7 +4588,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { I: I, inv: inv, ready: true, years: years, needToday: needToday, needNominal: needNominal, projNominal: B, projToday: projToday,
       myNumber: needNominal, onTrackNeed: onTrackNeed, onTrackYear: new Date().getFullYear(), fvContrib: fvC, growYears: m,
       gap: projToday - needToday, coastNeed: coastNeed, needMonth: needYearSave / 12, curMonth: dms.total, dms: dms,
-      takeHome: th, thBasis: thBasis, needRate: th ? needYearSave / th * 100 : null, curRate: th ? dms.total * 12 / th * 100 : null, status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
+      takeHome: th, thBasis: thBasis, needRate: th ? needYearSave / th * 100 : null, curRate: dms.ytdRate != null ? dms.ytdRate * 100 : (th ? dms.total * 12 / th * 100 : null), status: status, incomeYear: projToday * DASH_SWR, incomeMonth: projToday * DASH_SWR / 12 };
   }
 
   /* 6) Upcoming purchases. Saved = linked envelope's balance: every month so far, planned − spent on the
@@ -5096,12 +5091,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ".\n\nYou have " + moneyWhole(R.inv.balance) + ". Estimate, not advice.";
       var mHelp = "Monthly savings needed = the level monthly amount (today’s dollars, rising with inflation each year) that, added to what you have now and growing " +
         rp + "% a year, reaches My number at " + I.retireAge + ". Counts you + employer + other additions, like Projected nest egg. Always shown; when you are ahead it is less than now.\n\n" +
-        "Now = this year’s Added on your retirement accounts (auto from linked budget lines, 401k and HSA, plus your extras) ÷ " + R.dms.months + " months so far: " + moneyWhole(R.dms.year || 0) + " ÷ " + R.dms.months + " = " + moneyWhole(R.curMonth) + "/mo.\n" +
+        "Now = this year’s retirement money so far (Jan–this month; the same set as the Income statement savings rate and the monthly Basic / True rates) ÷ " + R.dms.months + " months: " + moneyWhole(R.dms.year || 0) + " ÷ " + R.dms.months + " = " + moneyWhole(R.curMonth) + "/mo.\n" +
         (R.dms.items.length ? R.dms.items.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing counted yet") +
         (R.dms.skipped.length ? "\n\nNot counted:\n" + R.dms.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") +
-        "\n\nSame numbers as Net worth › Added. A budget line adds to an account when you pick it as the line’s Feeds account; 401k comes from the Income statement and HSA from your pay stub. Estimate, not advice.";
+        "\n\nBudget lines count when they feed a Retirement account (Feeds account) or, not linked yet, by name (Roth / IRA / HSA / retire); 401k and HSA come from your pay stubs. Estimate, not advice.";
       var rHelp = "Savings rate needed = monthly savings needed × 12 ÷ " + R.thBasis + " (" + (R.takeHome ? moneyWhole(R.takeHome) : "not available yet") +
-        "), the same take-home basis as the Basic savings rate. Now = this year’s contributions ÷ take-home. Estimate, not advice.";
+        "). Now = this year’s retirement money so far ÷ take-home for the same months" + (R.dms.ytdTakeHome ? " (" + moneyWhole(R.dms.year) + " ÷ " + moneyWhole(R.dms.ytdTakeHome) + ")" : "") + " — the same number as the Income statement’s year-to-date savings rate. Estimate, not advice.";
       html += '<div class="dash-mynum dash-coast"><div class="dash-rrow"><div class="dash-rrow-top"><span><strong>Coast number</strong> ' + helpQ(coastHelp) + '</span><span class="mono">' + moneyWhole(R.coastNeed) + "</span></div>" +
         '<p class="caption">Needed today with no more contributions · you have ' + moneyWhole(R.inv.balance) + (coastGap >= 0 ? ' · <span class="moss">coasting</span>' : "") + "</p></div></div>" +
         rrow("Monthly savings needed " + helpQ(mHelp), moneyWhole(R.needMonth) + "/mo", "To be on track by " + I.retireAge + " · now " + moneyWhole(R.curMonth) + "/mo", R.needMonth <= R.curMonth ? "moss" : "") +
@@ -8593,25 +8588,137 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return { counted: counted, skipped: skipped };
   }
+  /* ---- v37.5.59.110 (owner): ONE retirement money set for every savings figure ----------------------------
+   * Dashboard savings ($/mo and rate), the monthly Basic / True savings rates and the Income statement savings rate
+   * all count exactly this, and differ only by period (a month, year-to-date, a calendar year):
+   *  1. Budget lines that count for retirement (retireLineVerdict): linked via Feeds account to a Net worth account in
+   *     the Retirement group (this is what those accounts' auto Added is made of), or unlinked lines counted by name
+   *     (Roth / IRA / HSA / retire). Each month's assigned amount.
+   *  2. 401k (you, traditional + Roth) + employer 401k (match + base): the month's pay-stub basis; with no stub basis,
+   *     the year's routed 401k (Income statement / Pay settings) ÷ 12.
+   *  3. HSA (you + employer) from the pay-stub basis month.
+   *  4. Extras typed on Net worth retirement accounts (typed Added, typed employer match / base), spread evenly over
+   *     the year (÷ 12 per month). A year typed before .106 (legacy) counts its typed Added instead of the budget
+   *     lines / 401k / HSA that feed that account, so nothing counts twice.
+   * Withdrawals typed as a negative Added subtract. Brokerage, cash and house-fund lines never count. */
+  function retireAcctCounts(l) {
+    return !!(l && l.kind !== "liability" && !l.vehicle && !nwLeftOut(l) && (l.group === "retirement" || gm().isRetirementName(l.name) || is401k(l)));
+  }
+  function retireMoneySet(year, m1, m2) {
+    var y = Number(year), from = Math.max(1, Number(m1) || 1), to = Math.min(12, Number(m2) || 12), n = Math.max(0, to - from + 1);
+    var out = { year: y, from: from, to: to, months: n, budget: 0, budgetLinked: 0, budgetByName: 0, k401you: 0, k401er: 0, hsa: 0, extras: 0, total: 0, parts: [], skipped: [], monthly: {} };
+    if (!n) return out;
+    var accts = ((state.worth && state.worth.lines) || []).filter(function (l) { return l.kind !== "liability" && !l.vehicle; });
+    var legacyIds = {}, legacy401 = false, legacyHsa = false;
+    accts.forEach(function (l) {
+      if (!retireAcctCounts(l) || !(l.addedLegacy && l.addedLegacy[y])) return;
+      legacyIds[l.id] = 1;
+      if (is401k(l)) legacy401 = true;
+      if (isHsaLine(l) && primaryWorthAcct(function (a) { return isHsaLine(a) && !is401k(a); }) === l) legacyHsa = true;
+    });
+    var useBasis = useStubBasis(), r4 = null;
+    var lineAgg = {};
+    for (var m = from; m <= to; m++) {
+      var mm = { budget: 0, k401: 0, hsa: 0, extras: 0 };
+      var rec = state.months[ymKey(y, m)];
+      ((rec && rec.categories) || []).forEach(function (cat) {
+        var ls = cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
+        ls.forEach(function (ln) {
+          var a = Math.max(0, roundCents(Number(ln.assigned) || 0));
+          if (!(a > 0)) return;
+          var v = retireLineVerdict(cat.name, ln.name);
+          if (!v.counts) return;
+          var acct = lineFeedAccount(ln.name);
+          var key = (v.linked ? "L" : "N") + nwNorm(ln.name);
+          if (acct && legacyIds[acct.id]) { (lineAgg["S" + key] = lineAgg["S" + key] || { name: ln.name, amt: 0, why: "“" + acct.name + "” " + y + " uses its typed Added (set before auto)" }).amt += a; return; }
+          (lineAgg[key] = lineAgg[key] || { name: ln.name, amt: 0, linked: v.linked, why: v.why }).amt += a;
+          mm.budget += a;
+          if (v.linked) out.budgetLinked += a; else out.budgetByName += a;
+        });
+      });
+      var sm = useBasis ? stubMonthFigures(y, m) : null;
+      if (!legacy401) {
+        if (sm) {
+          out.k401you += Number(sm.employee401k) || 0;
+          out.k401er += (Number(sm.employer401k) || 0) + (Number(sm.employer401kBase) || 0);
+          mm.k401 += (Number(sm.employee401k) || 0) + (Number(sm.employer401k) || 0) + (Number(sm.employer401kBase) || 0);
+        } else {
+          if (!r4) { try { r4 = k401Routed(y); } catch (e) { r4 = { trad: 0, roth: 0, er: 0 }; } }
+          out.k401you += (r4.trad + r4.roth) / 12;
+          out.k401er += r4.er / 12;
+          mm.k401 += (r4.trad + r4.roth + r4.er) / 12;
+        }
+      }
+      if (sm && !legacyHsa) {
+        var h = (Number(sm.hsa) || 0) + (Number(sm.employerHsa) || 0);
+        out.hsa += h; mm.hsa += h;
+      }
+      out.monthly[m] = mm;
+    }
+    var exParts = [];
+    accts.forEach(function (l) {
+      var ex = lineExtraAdded(l, y), emp = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
+      if (!ex && !emp) return;
+      if (!retireAcctCounts(l)) { out.skipped.push([l.name, roundCents(ex + emp), nwLeftOut(l) ? "left out of net worth" : "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
+      /* employer typed on a 401k account replaces the stub / statement employer 401k (as before), so count it once */
+      var amt = roundCents((ex + emp) * n / 12);
+      if (is401k(l) && emp && !legacyIds[l.id]) out.k401er = 0;
+      out.extras += amt;
+      exParts.push([l.name + (legacyIds[l.id] ? " " + y + " typed Added (set before auto)" : " extras you typed") + (n < 12 ? " × " + n + "/12" : ""), amt]);
+    });
+    if (out.extras) for (var q = from; q <= to; q++) out.monthly[q].extras = out.extras / n;
+    Object.keys(lineAgg).forEach(function (k) {
+      var p = lineAgg[k];
+      if (k.charAt(0) === "S") out.skipped.push([p.name + " (budget)", roundCents(p.amt), p.why]);
+      else out.parts.push([p.name + " — budget line, " + (p.linked ? p.why : "not linked, counted by name"), roundCents(p.amt)]);
+    });
+    if (out.k401you) out.parts.push(["401k (you, traditional + Roth)" + (useBasis ? " — pay stubs" : " — Income statement / Pay"), roundCents(out.k401you)]);
+    if (out.k401er) out.parts.push(["Employer 401k (match + base)" + (useBasis ? " — pay stubs" : " — Income statement / Pay"), roundCents(out.k401er)]);
+    if (out.hsa) out.parts.push(["HSA (you + employer) — pay stubs", roundCents(out.hsa)]);
+    out.parts = out.parts.concat(exParts);
+    ["budget", "budgetLinked", "budgetByName", "k401you", "k401er", "hsa", "extras"].forEach(function (f) { out[f] = roundCents(out[f]); });
+    out.budget = roundCents(out.budgetLinked + out.budgetByName);
+    out.total = roundCents(out.budget + out.k401you + out.k401er + out.hsa + out.extras);
+    return out;
+  }
+  /* The Income statement's Take-home for a calendar year (same formula as the statement row). */
+  function annualTakeHomeFor(y) {
+    var raw = (ensureAnnualStatement().years || {})[String(y)];
+    if (!raw) return null;
+    var row = annualRow(raw), inc = annualIncomeParts(row, y), taxes = annualTaxesAmount(row, y), ded = null;
+    ANNUAL_DED_FIELDS.forEach(function (f) { if (row[f] != null) ded = (ded || 0) + row[f]; });
+    return inc.taxedIncome == null || taxes == null ? null : roundCents(inc.taxedIncome - taxes - (ded || 0));
+  }
+  /* Year-to-date savings rate: the set for Jan–month ÷ the statement's Take-home × months ÷ 12. The Dashboard and the
+   * Income statement's YTD line both call this, so they always match. */
+  function ytdSavingsRate(year, month) {
+    var set = retireMoneySet(year, 1, month), th = annualTakeHomeFor(year);
+    var thY = th > 0 ? roundCents(th * set.months / 12) : null;
+    return { set: set, takeHomeYear: th, takeHome: thY, rate: thY > 0 ? set.total / thY : null };
+  }
   function monthSavingsRates(month) {
     month = month || ensureMonth(state.year, state.month);
     var envelopes = retireEnvTotal(month.categories || []);
     var th = gm().monthTakeHome(sums(month).income, month.transactions || [], month.incomes || [], takeHomeOpts(month));
     var plan = state.compensation || {};
+    /* v37.5.59.110: Basic counts the whole retirement money set for the month; True gets the budget + extras part and
+     * adds the same month's pay-stub 401k / HSA itself (identical figures). */
+    var set = retireMoneySet(month.year, month.month, month.month);
     return {
       month: month,
+      set: set,
       envelopes: envelopes,
       takeHomeSource: th.source,
       takeHomeLabel: th.label,
       takeHomePeriod: th.period,
       paychecksPlanned: th.plannedCount || 0,
       paychecksReceived: th.receivedCount || 0,
-      basic: gm().basicSavingsRate({ savings: envelopes.total, takeHome: th.amount }),
+      basic: gm().basicSavingsRate({ savings: set.total, takeHome: th.amount }),
       trueRate: gm().trueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
         premium: isPremium(),
         snapshot: plan.payStubSnapshot || null,
         paychecksPerYear: plan.paychecksPerYear || checksForFrequency(payFrequencyOf(plan)),
-        savings: envelopes.total,
+        savings: roundCents(set.budget + set.extras),
         takeHome: th.amount, // v37.5.59.47: Budget take-home the stub doesn't cover joins the denominator
         useBasis: useStubBasis(),
         stubMonth: useStubBasis() ? stubMonthFigures(month.year, month.month) : null
@@ -8654,7 +8761,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (r.basic.rate == null) {
       html += '<p class="caption">Add a paycheck to this month’s budget to see your Basic savings rate.</p>';
     } else {
-      html += '<p class="caption">Retirement budget lines ' + money(r.basic.savings) + " ÷ take-home " + money(r.basic.takeHome) +
+      html += '<p class="caption">Retirement money ' + money(r.basic.savings) + (r.set && (r.set.k401you || r.set.k401er || r.set.hsa) ? " (budget lines " + money(r.set.budget) + " + 401k " + money(roundCents(r.set.k401you + r.set.k401er)) + (r.set.hsa ? " + HSA " + money(r.set.hsa) : "") + (r.set.extras ? " + extras " + money(r.set.extras) : "") + ")" : "") + " ÷ take-home " + money(r.basic.takeHome) +
         " (this month’s " + esc(r.takeHomeLabel || "planned paychecks") + " · after tax, not gross).</p>" +
         /* v37.5.59: say which denominator and why (owner's rule). */
         '<p class="caption basic-denominator">' +
@@ -10128,6 +10235,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* v37.5.59.103: statements open on headlines only; the toggle (saved) shows every row. */
   function stmtFull(k) { return !!(state.stmtFull && state.stmtFull[k]); }
+  /* v37.5.59.110 (owner): the toggle sits at the top of the sheet, directly above the year row. */
   function stmtDetailToggleHtml(k) {
     var on = stmtFull(k);
     return '<div class="stmt-detail-toggle"><button type="button" data-act="stmt-detail-toggle" data-k="' + k + '" aria-pressed="' + on + '">' +
@@ -10311,6 +10419,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
     html += vehicleDupHtml(lastFilled) +
+      stmtDetailToggleHtml("nw") +
       '<div class="sg-wrap" data-sgk="nw"><table class="sg-grid' + (stmtFull("nw") ? "" : " sg-slim") + '">' + sgHead("nw", yearsG, sel, "add-prior-year", canAdd, "Year-end") + "<tbody>";
     if (assets.length) {
       html += sgGroup("Assets", yearsG);
@@ -10339,7 +10448,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var t = p > 0 ? ((c - p) >= 0 ? "+" : "−") + pctWhole(Math.abs((c - p) / p)) : signedWhole(Math.round(c - p));
       return sgCell("nw", "", y, c - p, { calc: true, text: t, on: y === sel, cls: c - p < 0 ? "neg" : "" });
     }), "sg-ratio", 'Change ' + helpQ("Change = (this year − the prior filled year) ÷ the prior year. Shown in dollars when the prior year was $0 or less. Blank years are skipped."));
-    html += "</tbody></table></div>" + stmtDetailToggleHtml("nw") + sgBar() +
+    html += "</tbody></table></div>" + sgBar() +
       '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button>' +
 "</div>" +
@@ -10503,10 +10612,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. " +
     "401k is already in it once: your pre-tax 401k and employer 401k are part of Total income and never subtracted, so they aren't added back again. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
     "The small figure under each year is the change versus the prior year. Whole dollars.";
-  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\n" +
-    "Retirement contributions = 401k (pre-tax) + Employer 401k from this statement + HSA from your pay stubs (you + employer) + the Added amounts that year on Net worth accounts in the Retirement group or named Roth, IRA, HSA or retirement (any group), plus employer money on them. " +
-    "401k accounts' Added is skipped so 401k counts once; HSA accounts' Added is skipped when the pay stubs already show HSA. A withdrawal entered as a negative Added subtracts.\n\n" +
-    "Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow. Enter Added on the Net worth page (tap › on the account). The list above shows the selected year.";
+  var SAV_RATE_HELP = "Savings rate = retirement money ÷ Take-home.\n\n" +
+    "Retirement money is one set, the same one the Dashboard and the monthly Basic / True savings rates use (only the period differs): " +
+    "budget lines that feed a Net worth account in the Retirement group (Feeds account), budget lines not linked yet whose name says Roth / IRA / HSA / retire, " +
+    "401k (you, traditional + Roth) and employer 401k from your pay stubs (or this statement / Pay settings without stubs), HSA from your pay stubs (you + employer), " +
+    "and extras you typed on Net worth retirement accounts (Added, employer match / base). A negative Added subtracts.\n\n" +
+    "Brokerage, cash and budget savings (like a house fund) aren’t in it; they show up in Investments and Op. cash flow.";
   var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income.";
   /* v37.5.59.101 (owner): Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
    * as Saved: gm().isSavingsEnvelope), per calendar year, months after today left out. Read-only; expands by category. */
@@ -10561,6 +10672,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<div class="sg-pass">' + statsSegmentHtml("statement") +
       '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.") + "</div>" +
       payFreqMismatchHtml() + annualStubBasisHtml(sel) +
+      stmtDetailToggleHtml("is") +
       '<div class="sg-wrap" data-sgk="is"><table class="sg-grid' + (stmtFull("is") ? "" : " sg-slim") + '">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
     html += sgRow("Salary", years, edit("salary", "Salary", function (d) { return d.inc.salary; }, function (d) { return d.stub && d.T.salary; }));
     html += sgRow("Bonus", years, edit("bonus", "Bonus", function (d) { return d.inc.bonus; }, function (d) { return d.stub && d.T.bonus; }));
@@ -10688,17 +10800,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var sum = 0; parts.forEach(function (p) { sum += p[1]; });
       return { total: any ? roundCents(sum) : null, parts: parts, skipped: skipped };
     }
-    function retireContrib(y) { return retireParts(y).total; }
-    var savRP = retireParts(sel);
+    /* v37.5.59.110: the shared retirement money set (retireMoneySet) replaces retireParts, so this row, the Dashboard
+     * and the monthly Basic / True rates count the same money. retireParts stays for reference only. */
+    function retireContrib(y) { return retireMoneySet(y, 1, 12).total; }
+    var savRP = retireMoneySet(sel, 1, 12);
+    var cymNow = currentYearMonth(), ytdLine = "";
+    if (Number(sel) === cymNow.year) {
+      var yr = ytdSavingsRate(sel, cymNow.month);
+      ytdLine = "\n\nYear to date (Jan–" + MONTH_NAMES[cymNow.month - 1] + "): " + money(yr.set.total) + " ÷ take-home " + (yr.takeHome ? money(yr.takeHome) + " (" + money(yr.takeHomeYear) + " × " + cymNow.month + "/12)" : "—") +
+        " = " + (yr.rate == null ? "—" : pctWhole(yr.rate)) + ". The Dashboard’s “now” savings rate is this same number.";
+    }
     var savHelp = sel + " counted:\n" + (savRP.parts.length ? savRP.parts.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing yet") +
-      (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + "\n\n" + SAV_RATE_HELP;
+      (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + ytdLine + "\n\n" + SAV_RATE_HELP;
     html += sgRow("Savings rate", years, function (y) {
       var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
       return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
     }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(savHelp));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     var filing = annualFilingStatus(book);
-    html += "</tbody></table></div>" + stmtDetailToggleHtml("is") + sgBar() +
+    html += "</tbody></table></div>" + sgBar() +
       '<section class="card sg-stub"><p class="pay-card-title">Pay stub &amp; pay details</p><p class="caption">Import a pay stub and this year fills in from it. Typed cells win. Salary can follow the stub or be set by hand (Stub / Manual) in Pay details.</p>' +
       '<button class="planner-apply" type="button" data-act="open-income-statement">Pay details</button></section>' +
       "</div>"; /* v37.5.59.103: Filing status moved to Dashboard › Taxes. */
@@ -16732,7 +16852,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.109";
+  var APP_VERSION = "37.5.59.110";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -21647,7 +21767,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     buildBackup: buildBackup,
     buildTesterPayload: buildTesterPayload,
     sendTesterPayload: sendTesterPayload,
-    readTesterQueue: readTesterQueue
+    readTesterQueue: readTesterQueue,
+    /* v37.5.59.110 test hook: every savings figure from the one money set. */
+    savingsReconcile: function () {
+      var c = currentYearMonth(), mr = monthSavingsRates(ensureMonth(c.year, c.month)), d = dashMonthlySavings(), ytd = ytdSavingsRate(c.year, c.month);
+      var yearSet = retireMoneySet(c.year, 1, 12), thY = annualTakeHomeFor(c.year), sumMonths = 0;
+      for (var m = 1; m <= c.month; m++) sumMonths += retireMoneySet(c.year, m, m).total;
+      return { ym: c, dashPerMonth: d.total, dashYtd: d.year, dashRate: d.ytdRate, isYtdRate: ytd.rate, isYtdSet: ytd.set.total, isYtdTakeHome: ytd.takeHome,
+        isYearSet: yearSet.total, isYearTakeHome: thY, isYearRate: thY > 0 ? yearSet.total / thY : null, sumOfMonthsYtd: roundCents(sumMonths),
+        monthSet: mr.set.total, basic: mr.basic.rate, basicTakeHome: mr.basic.takeHome, trueState: mr.trueRate.state, trueNum: mr.trueRate.numerator, trueRate: mr.trueRate.rate,
+        parts: yearSet.parts, ytdParts: ytd.set.parts, skipped: yearSet.skipped };
+    }
   };
 
   state = loadState();
