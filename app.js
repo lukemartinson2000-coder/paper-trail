@@ -16184,11 +16184,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       phone.appendChild(host);
     }
     host.setAttribute("aria-label", "Your data is safe");
-    host.innerHTML = '<div class="onboard-inner recover-inner"><h2>Your data is still here</h2>' +
-      '<p>Paper Trail found your saved books (' + Math.round((loadFailure.bytes || 0) / 1024) + ' KB) but couldn’t open them in this version. Nothing has been changed or erased.</p>' +
-      '<p class="welcome-note">Reason: ' + esc(loadFailure.why) + '</p>' +
+    host.innerHTML = '<div class="onboard-inner recover-inner">' + (loadFailure.snapsOnly
+      ? '<h2>Restore a backup?</h2><p>This device has no saved books right now, but automatic backups were found. Pick one to restore, or start fresh.</p>'
+      : '<h2>Your data is still here</h2><p>Paper Trail found your saved books (' + Math.round((loadFailure.bytes || 0) / 1024) + ' KB) but couldn’t open them in this version. Nothing has been changed or erased.</p>') +
+      '<div id="recover-snaps" class="snap-list"></div>' +
+      (loadFailure.snapsOnly ? "" : '<p class="welcome-note">Reason: ' + esc(loadFailure.why) + '</p>') +
       '<button class="primary onboard-primary" type="button" data-act="recover-retry">Try again</button>' +
-      '<button class="text-btn" type="button" data-act="recover-save">Save a copy of my data file</button></div>';
+      '<button class="text-btn" type="button" data-act="recover-save">Save a copy of my data file</button>' +
+      (loadFailure.snapsOnly ? '<button class="text-btn" type="button" data-act="recover-fresh">Start fresh instead</button>' : "") + "</div>";
+    fillSnapList("recover-snaps");
   }
   function downloadRawBooks() {
     var raw = null;
@@ -16198,6 +16202,119 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     a.href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
     a.download = "paper-trail-raw-" + new Date().toISOString().slice(0, 10) + ".json";
     document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  /* v37.5.59.122: automatic on-device snapshots in IndexedDB (bigger and sturdier than localStorage). One a day plus one
+   * whenever the app version changes; the last SNAP_KEEP are kept. Each holds the raw saved books text (Vault files
+   * already live in their own IndexedDB store). Restore works even when localStorage is empty. */
+  var SNAP_DB = "PaperTrail.snapshots.v1", SNAP_KEEP = 7;
+  function snapDb(done) {
+    try {
+      if (!window.indexedDB) return done(null);
+      var req = indexedDB.open(SNAP_DB, 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore("snaps", { keyPath: "id", autoIncrement: true }); };
+      req.onsuccess = function () { done(req.result); };
+      req.onerror = function () { done(null); };
+    } catch (e) { done(null); }
+  }
+  function snapList(done) {
+    snapDb(function (db) {
+      if (!db) return done([]);
+      try {
+        var out = [], cur = db.transaction("snaps", "readonly").objectStore("snaps").openCursor();
+        cur.onsuccess = function () {
+          var c = cur.result;
+          if (c) { var v = c.value; out.push({ id: v.id, at: v.at, reason: v.reason, version: v.version, bytes: v.bytes, tx: v.tx }); c.continue(); }
+          else done(out.sort(function (a, b) { return b.at - a.at; }));
+        };
+        cur.onerror = function () { done([]); };
+      } catch (e) { done([]); }
+    });
+  }
+  function snapGet(id, done) {
+    snapDb(function (db) {
+      if (!db) return done(null);
+      try { var r = db.transaction("snaps", "readonly").objectStore("snaps").get(Number(id)); r.onsuccess = function () { done(r.result || null); }; r.onerror = function () { done(null); }; }
+      catch (e) { done(null); }
+    });
+  }
+  function rawTxCount(raw) {
+    try { var p = JSON.parse(raw), n = 0; Object.keys(p.months || {}).forEach(function (k) { n += ((p.months[k] || {}).transactions || []).length; }); return n; }
+    catch (e) { return 0; }
+  }
+  function snapTake(raw, reason, done) {
+    done = done || function () {};
+    if (!rawLooksLikeBooks(raw)) return done(false);
+    snapDb(function (db) {
+      if (!db) return done(false);
+      try {
+        var tx = db.transaction("snaps", "readwrite"), st = tx.objectStore("snaps");
+        st.add({ at: Date.now(), reason: reason, version: APP_VERSION, bytes: raw.length, tx: rawTxCount(raw), raw: raw });
+        var all = st.getAllKeys ? st.getAllKeys() : null;
+        if (all) all.onsuccess = function () { var ks = all.result.slice().sort(function (a, b) { return a - b; }); while (ks.length > SNAP_KEEP) st.delete(ks.shift()); };
+        tx.oncomplete = function () { done(true); };
+        tx.onerror = function () { done(false); };
+      } catch (e) { done(false); }
+    });
+  }
+  /* Boot: snapshot if due; if this device has no readable books but snapshots exist, offer them instead of the survey. */
+  function snapBoot() {
+    var raw = null; try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    snapList(function (list) {
+      var last = list[0];
+      if (raw && rawLooksLikeBooks(raw) && !loadFailure) {
+        var due = !last || Date.now() - last.at > 86400000 ? "daily" : (last.version !== APP_VERSION ? "version change" : "");
+        if (due) snapTake(raw, due);
+      } else if (!loadFailure && list.length && !hasRealData()) {
+        loadFailure = { why: "no saved books on this device, but automatic backups were found", bytes: 0, at: new Date().toISOString(), snapsOnly: true };
+        renderOnboarding();
+      }
+      if (loadFailure) fillSnapList("recover-snaps");
+    });
+    try {
+      if (navigator.storage && navigator.storage.persist && (hasRealData() || loadFailure)) {
+        navigator.storage.persisted().then(function (p) { if (!p) return navigator.storage.persist(); }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  function snapWhen(t) {
+    var d = new Date(t);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  function fillSnapList(hostId) {
+    snapList(function (list) {
+      var host = document.getElementById(hostId);
+      if (!host) return;
+      if (!list.length) { host.innerHTML = '<p class="caption quiet">No automatic backups yet. One is saved each day you open the app.</p>'; return; }
+      host.innerHTML = list.map(function (s) {
+        return '<div class="snap-row"><div class="snap-meta"><strong>' + esc(snapWhen(s.at)) + '</strong><span class="caption">' +
+          esc(s.reason || "") + " · v" + esc(String(s.version || "").replace(/^37\.5\./, "")) + " · " + (s.tx || 0) + " transactions · " + Math.max(1, Math.round((s.bytes || 0) / 1024)) + " KB</span></div>" +
+          '<button class="text-btn" type="button" data-act="snap-restore" data-id="' + s.id + '">Restore</button>' +
+          '<button class="text-btn" type="button" data-act="snap-download" data-id="' + s.id + '">Download</button></div>';
+      }).join("");
+    });
+  }
+  function snapRestore(id) {
+    snapGet(id, function (s) {
+      if (!s || !s.raw) { showToast("That backup couldn't be read", 4000); return; }
+      if (!window.confirm("Restore the backup from " + snapWhen(s.at) + "?\n\nIt has " + (s.tx || 0) + " transactions. What's on this device now is saved as another backup first, so you can undo this.")) return;
+      var cur = null; try { cur = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+      snapTake(cur, "before restore", function () {
+        try { localStorage.setItem(STORAGE_KEY, s.raw); }
+        catch (err) { showToast("Not enough room in this browser's storage to restore. Try Download instead.", 6000); return; }
+        try { localStorage.removeItem("PaperTrail.loadError"); } catch (e) {}
+        location.reload();
+      });
+    });
+  }
+  function snapDownload(id) {
+    snapGet(id, function (s) {
+      if (!s || !s.raw) { showToast("That backup couldn't be read", 4000); return; }
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([s.raw], { type: "application/json" }));
+      a.download = "paper-trail-auto-backup-" + new Date(s.at).toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+    });
   }
 
   function renderOnboarding() {
@@ -17055,6 +17172,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       renderOnboarding();
     } else if (act === "recover-retry") {
       location.reload();
+    } else if (act === "recover-fresh") {
+      loadFailure = null; render();
+    } else if (act === "snap-restore") {
+      snapRestore(actEl.getAttribute("data-id"));
+    } else if (act === "snap-download") {
+      snapDownload(actEl.getAttribute("data-id"));
     } else if (act === "recover-save") {
       downloadRawBooks();
     } else if (act === "ob-demo") {
@@ -17420,7 +17543,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.121";
+  var APP_VERSION = "37.5.59.122";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18616,6 +18739,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="data-btn" type="button" data-act="export-xlsx"><strong>Export to Excel</strong><span class="caption">.xlsx · Budget by month, Transactions, Income, Net Worth</span></button>' +
       '<button class="data-btn" type="button" data-act="export-pdf"><strong>Monthly report (PDF)</strong><span class="caption">Budget vs spent, income planned vs received, net worth · opens Print → Save as PDF</span></button>' +
       '<button class="data-btn" type="button" data-act="export-backup"><strong>Full backup</strong><span class="caption">.json · all app data + Vault files inlined as base64</span></button>' +
+      '<p class="profile-section snap-head">Backups</p><p class="caption">Saved automatically on this device each day and before each app update (last ' + SNAP_KEEP + '). They don’t leave the phone, so an exported file is still your safest copy.</p>' +
+      '<div id="snap-list" class="snap-list"><p class="caption quiet">Loading…</p></div>' +
+      (function () { setTimeout(function () { fillSnapList("snap-list"); }, 0); return ""; })() +
       '<button class="data-btn" type="button" data-act="restore-file"><strong>Restore from file…</strong><span class="caption">Checks the file first, then asks before replacing anything</span></button>' +
       '<input id="restore-file" data-act="restore-file-input" type="file" accept="application/json,.json" hidden>' +
       '<button class="data-btn" type="button" data-act="ed-file"><strong>Import EveryDollar file…</strong><span class="caption">Adds months and transactions from a file you picked. Nothing you entered is removed; importing the same file again changes nothing</span></button>' +
@@ -20322,7 +20448,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var act = actEl.getAttribute("data-act");
     /* v37.5.57: feature usage counts for tester sharing (taps on buttons/switches only; nothing typed). */
     if (!(actEl.tagName === "INPUT" && actEl.type !== "checkbox") && actEl.tagName !== "SELECT" && actEl.tagName !== "TEXTAREA") countFeatureUse(act);
-    if (act.indexOf("ob-") === 0) { handleOnboardAct(act, actEl); return; }
+    if (act.indexOf("ob-") === 0 || act.indexOf("recover-") === 0 || act === "snap-restore" || act === "snap-download") { handleOnboardAct(act, actEl); return; }
     if (act === "tester-preview") { openTesterPreview(); return; }
     if (act === "tester-preview-back") { openProfileAt("profile-sharing"); return; }
     if (act === "tester-assign") {
@@ -22383,6 +22509,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   };
 
   state = loadState();
+  try { setTimeout(snapBoot, 1500); } catch (e) {}
   /* v37.5.59.92 (owner): every launch (cold start, PWA reopen, service-worker reload) opens on Budget. */
   state.tab = "budget";
   (function () {

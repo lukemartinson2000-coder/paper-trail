@@ -5124,3 +5124,11 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
 .ro-active, .ro-active * { cursor: grabbing !important; user-select: none; }
 .ro-foot { position: sticky; bottom: 0; background: var(--paper); margin: 0 -16px; padding: 12px 16px 20px; border-top: 1px solid var(--rule); }
 .ro-foot .primary { flex: 1; }
+
+/* v37.5.59.122: automatic backups list (Profile › Data, recovery screen) */
+.snap-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 12px; }
+.snap-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line, rgba(0,0,0,0.1)); border-radius: 10px; }
+.snap-row .snap-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.snap-row .snap-meta .caption { margin: 0; }
+.snap-row .text-btn { padding: 4px 6px; }
+.recover-inner .snap-list { text-align: left; }
