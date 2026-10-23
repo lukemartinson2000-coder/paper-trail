@@ -4281,7 +4281,9 @@
     if (!(totals.assigned > 0) && !(totals.spent > 0) && previousPlanMonth()) {
       html += '<button class="copy-month" type="button" data-act="copy-last-month">Copy last month’s budget</button>';
     }
-    html += '<button class="copy-month" type="button" data-act="start-month">Start next month</button>';
+    /* v37.5.59.115 (owner): the "Start next month" button (New month ritual: copy plan → adjust paychecks → assign
+     * leftover) is gone from the bottom of Budget. Plan ahead with › on the month bar; an empty month offers
+     * "Copy last month's budget". The ritual code stays unused; the tester month-close still runs on its schedule. */
     return html;
   }
 
@@ -16976,7 +16978,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.114";
+  var APP_VERSION = "37.5.59.115";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
