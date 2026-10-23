@@ -5046,7 +5046,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // 3 + 4
     var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
     var avg = inc ? inc.avgTax : null;
-    html += '<div class="dash-pair"><section class="dash-card dash-sr" id="dash-sr"><p class="dash-k">Savings rate</p>' +
+    html += '<div class="dash-pair"><section class="dash-card dash-sr" id="dash-sr"><p class="dash-k">Savings rate ' + helpQ(dashRateHelp(sr)) + "</p>" +
       /* v37.5.59.112 (owner): tap Basic or True to pick the mode the retirement "Needed to stay on track" row follows. */
       '<button type="button" class="dash-sr-pick' + (dashRateMode() === "basic" ? " on" : "") + '" data-dash="sr-mode" data-mode="basic" aria-pressed="' + (dashRateMode() === "basic") + '">' +
       '<span class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</span><span class="caption">Basic</span></button>' +
@@ -8739,6 +8739,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       num += Number(t.numerator != null ? t.numerator : t.rate * d) || 0; den += d; n++;
     }
     return { rate: den > 0 ? num / den : null, savings: roundCents(num), gross: roundCents(den), months: n, grossYear: n ? den * 12 / n : null };
+  }
+  /* v37.5.59.113 (owner): ? beside the Basic / True picker — what differs, with this month's dollars. */
+  /* v37.5.59.113 (owner): ? beside the Basic / True picker — what differs, with this month's dollars. */
+  function dashRateHelp(sr) {
+    var mn = sr && sr.month ? MONTH_NAMES[sr.month.month - 1] : "This month";
+    var t = "Basic vs True\n\nSame money in both: retirement budget lines (Feeds a Retirement account, or named Roth / IRA / HSA), 401k and HSA (you + employer), and retirement extras.\n\n" +
+      "Basic ÷ take-home (planned until every paycheck arrives).\n" +
+      (sr && sr.basic && sr.basic.rate != null ? mn + ": " + money(sr.basic.savings) + " ÷ " + money(sr.basic.takeHome) + " = " + pctWhole(sr.basic.rate) : mn + ": add a paycheck to see Basic.") +
+      "\n\nTrue ÷ gross pay from confirmed pay stubs — stricter; needs a stub and Premium.\n";
+    var tr = sr && sr.trueRate;
+    if (tr && tr.state === "ok" && tr.rate != null) {
+      var den = tr.denominator != null ? tr.denominator : tr.gross;
+      t += mn + ": " + money(tr.numerator != null ? tr.numerator : tr.rate * den) + " ÷ " + money(den) + " = " + pctWhole(tr.rate);
+    } else t += mn + ": " + (tr && tr.state === "locked" ? "needs Premium." : "confirm a pay stub to see True.");
+    return t + "\n\n3-paycheck months can swing monthly rates; Needed to stay on track uses this year so far.\n\n" +
+      "Tap Basic or True to pick which one that row uses (now: " + (dashRateMode() === "true" ? "True" : "Basic") + ").";
   }
   function dashRateMode() { var d = dashState(); return d && d.rateMode === "true" ? "true" : "basic"; }
   function monthSavingsRates(month) {
@@ -16109,7 +16125,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     el.querySelector("p").textContent = text;
     document.body.appendChild(el);
     var ok = el.querySelector("button");
-    if (ok) ok.focus();
+    /* v37.5.59.113: focusing OK used to scroll a long popup to its bottom; open at the top instead. */
+    if (ok) { try { ok.focus({ preventScroll: true }); } catch (e) { ok.focus(); } }
+    var card = el.querySelector(".help-card");
+    el.scrollTop = 0; if (card) card.scrollTop = 0;
   }
   document.addEventListener("click", function (e) {
     var q = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
@@ -16927,7 +16946,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.112";
+  var APP_VERSION = "37.5.59.113";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
