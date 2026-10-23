@@ -5038,3 +5038,32 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .tx-sum-meta{margin:4px 0 0}
 .sheet-sticky .sheet-foot-status:has(.split-status[hidden]){display:none}
 .sheet-sticky .sheet-foot-status .split-status{margin:0}
+
+/* v37.5.59.117: cold-launch splash (plane loop-de-loop, then up and away). Overlay sits above everything; the app is
+ * rendered underneath, so nothing reflows when it leaves. */
+.launch-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  cursor: pointer;
+}
+.launch-splash .ls-orbit {
+  width: 88px;
+  height: 92px;
+  transform-origin: 50% -26px; /* pivot ~72px above the plane's centre = loop radius */
+  will-change: transform;
+}
+.launch-splash .ls-plane {
+  display: block;
+  opacity: 0;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 6px 10px rgba(78, 42, 142, 0.18));
+}
+body.night .launch-splash .ls-plane { filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); }
+.ls-under { pointer-events: none; }

@@ -3295,6 +3295,72 @@
     };
   }
 
+  /* v37.5.59.117 (owner): cold-launch intro. Runs once per page load from boot only (never on tab switches,
+   * sheet closes or visibility resume). The app has already rendered under the overlay, so data load is not delayed.
+   * Plane appears, flies one loop-de-loop, zooms up and away while the screen fades/slides in. Tap skips.
+   * Reduced motion: a short fade. ?nosplash=1 skips (QA). */
+  function playLaunchSplash() {
+    if (playLaunchSplash.done) return;
+    playLaunchSplash.done = true;
+    if (/[?&]nosplash=1/.test(location.search)) return;
+    var phone = document.getElementById("phone") || document.body;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var ov = document.createElement("div");
+    ov.className = "launch-splash";
+    ov.setAttribute("aria-hidden", "true");
+    ov.innerHTML = '<div class="ls-orbit"><svg class="ls-plane" viewBox="100 80 820 860" width="88" height="92">' +
+      '<polygon points="864,122 160,621.1 369.9,662.7" fill="#B794F6"/>' +
+      '<polygon points="864,122 417.3,702.5 494.8,902" fill="#7A4FD0"/>' +
+      '<polygon points="864,122 369.9,662.7 300.9,793.1 417.3,702.5" fill="#4E2A8E"/></svg></div>';
+    document.body.appendChild(ov);
+    phone.classList.add("ls-under");
+    var finished = false, anims = [];
+    function finish() {
+      if (finished) return;
+      finished = true;
+      anims.forEach(function (a) { try { a.cancel(); } catch (e) {} });
+      phone.classList.remove("ls-under");
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+    }
+    ov.addEventListener("pointerdown", function (e) { e.preventDefault(); finish(); });
+    if (typeof ov.animate !== "function") { setTimeout(finish, 300); return; }
+    var plane = ov.querySelector(".ls-plane");
+    var orbit = ov.querySelector(".ls-orbit");
+    var T = reduce ? 320 : 1400;
+    if (reduce) {
+      plane.style.opacity = "1";
+      anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
+    } else {
+      /* The orbit pivots above the plane: rotating it -360deg flies one full loop (nose follows the path). */
+      anims.push(plane.animate([
+        { opacity: 0, transform: "rotate(45deg) scale(0.4)" },
+        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.16 },
+        { opacity: 1, transform: "rotate(45deg) scale(1)", offset: 0.62 },
+        { opacity: 1, transform: "rotate(-20deg) translate(0, 0) scale(1.15)", offset: 0.7 },
+        { opacity: 0.9, transform: "rotate(-20deg) translate(0, -46vh) scale(2.2)", offset: 0.9 },
+        { opacity: 0, transform: "rotate(-20deg) translate(0, -70vh) scale(2.6)" }
+      ], { duration: T, easing: "linear", fill: "forwards" }));
+      anims.push(orbit.animate([
+        { transform: "rotate(0deg)" },
+        { transform: "rotate(0deg)", offset: 0.16 },
+        { transform: "rotate(-360deg)", offset: 0.62 },
+        { transform: "rotate(-360deg)" }
+      ], { duration: T, easing: "linear", fill: "forwards" }));
+      anims.push(ov.animate([
+        { backgroundColor: "var(--paper)" },
+        { backgroundColor: "var(--paper)", offset: 0.62 },
+        { backgroundColor: "transparent" }
+      ], { duration: T, easing: "ease-out", fill: "forwards" }));
+      anims.push(phone.animate([
+        { opacity: 0, transform: "translateY(18px)" },
+        { opacity: 0, transform: "translateY(18px)", offset: 0.6 },
+        { opacity: 1, transform: "none" }
+      ], { duration: T, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" }));
+    }
+    anims[0].onfinish = finish;
+    setTimeout(finish, T + 400);
+  }
+
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
@@ -16988,7 +17054,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.116";
+  var APP_VERSION = "37.5.59.117";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -21961,6 +22027,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (gradeErrors.length) console.error("Grade fixtures failed", gradeErrors);
   }
   render();
+  try { playLaunchSplash(); } catch (e) {}
   try {
     if (!welcomeSeen() && state.onboarding && state.onboarding.status === "survey" && state.onboarding.screen === "welcome") showWelcomeSplash();
   } catch (e) {}
