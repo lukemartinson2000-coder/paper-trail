@@ -3630,7 +3630,7 @@
     }
 
     var e401 = labeledMoneyNear(blob, /401\(?k\)?\s*(?:employee|deferral|contribution|deduction)?|(?:employee|deferral)\s+401\(?k\)?/i);
-    if (e401 != null && !/employer|match|company/i.test(String(blob.match(/[^\n]*401[^\n]*/i) || ""))) {
+    if (e401 != null && !/employer|match|company|\broth\b/i.test(String(blob.match(/[^\n]*401[^\n]*/i) || ""))) {
       out.employee401k = e401;
     } else {
       var e401b = labeledMoneyNear(blob, /401\(?k\)?\s*(?:employee\s+)?(?:contribution|deferral|deduction)/i);
@@ -4163,10 +4163,12 @@
     stub = stub || {};
     var gross = stubNum(stub.gross) || 0;
     var fsa = stubNum(stub.fsa);
-    var otherPre = 0, otherPost = 0, unflagged = [], preNames = [];
+    var otherPre = 0, otherPost = 0, unflagged = [], preNames = [], roth401 = 0;
     (stub.otherDeductions || []).forEach(function (d) {
       if (!d) return;
       var amt = stubNum(d.amount) || 0;
+      /* v37.5.59.107: a Roth 401k line is the employee's after-tax 401k (never pre-tax, whatever the stub's column). */
+      if (isRoth401kName(d.name)) { roth401 += amt; otherPost += amt; return; }
       if (isFsaName(d.name) && d.preTax !== false) { fsa = (fsa || 0) + amt; return; }
       if (d.preTax === true) { otherPre += amt; preNames.push(d.name || "Other"); }
       else if (d.preTax === false) otherPost += amt;
@@ -4191,6 +4193,7 @@
       med: med || 0,
       otherTax: roundMoney(otherTax),
       e401: stubNum(stub.employee401k) || 0,
+      roth401: roundMoney(roth401),
       er401: stubNum(stub.employer401k) || 0,
       // v37.5.59.4: employer non-elective 401k ("DN401NC - 401k Company Base Contribution"). Employer
       // money into the 401k — not earnings, not gross pay, not a deduction from pay.
@@ -4232,6 +4235,7 @@
       med: med || 0,
       otherTax: stubNum(y.otherTaxes) || 0,
       e401: stubNum(y.employee401k) || 0,
+      roth401: stubNum(y.roth401k) != null ? stubNum(y.roth401k) : roundMoney((stub.otherDeductions || []).reduce(function (n, d) { return n + (d && isRoth401kName(d.name) ? stubNum(d.ytd) || 0 : 0); }, 0)),
       er401: stubNum(y.employer401k) || 0,
       er401Base: stubNum(y.employer401kBase) || 0,
       hsa: stubNum(y.hsa) || 0,
@@ -4244,7 +4248,37 @@
     };
   }
 
-  var BASIS_KEYS = ["gross", "bonus", "earnings", "fed", "state", "ss", "med", "otherTax", "e401", "er401", "er401Base", "hsa", "erHsa", "fsa", "otherPre"];
+  /* v37.5.59.107: Roth 401k = after-tax employee 401k (label says Roth and 401k / 403b / 457 / deferral, not IRA). */
+  function isRoth401kName(name) {
+    var n = String(name || "");
+    return /\broth\b/i.test(n) && !/\bira\b/i.test(n) && /401|403|457|deferr|elective|salary\s*def|\bplan\b|^\s*roth\s*$/i.test(n);
+  }
+  /* v37.5.59.107: employee 401k type for a check with no stub of its own. opts.k401Type "traditional" | "roth"
+   * (unset = keep the copied stub's own split); opts.k401Since (ISO date): checks before it are the other type. */
+  function k401RouteFor(opts, iso) {
+    var t = opts && opts.k401Type;
+    if (t !== "roth" && t !== "traditional") return null;
+    var since = opts.k401Since && /^\d{4}-\d{2}-\d{2}$/.test(String(opts.k401Since)) ? String(opts.k401Since) : "";
+    if (since && String(iso) < since) return t === "roth" ? "traditional" : "roth";
+    return t;
+  }
+  function routeCheck401(f, type) {
+    if (!type) return f;
+    var tot = roundMoney((f.e401 || 0) + (f.roth401 || 0));
+    var c = {};
+    Object.keys(f).forEach(function (k) { c[k] = f[k]; });
+    c.e401 = type === "roth" ? 0 : tot;
+    c.roth401 = type === "roth" ? tot : 0;
+    if (c.e401 === (f.e401 || 0)) return c;
+    // federal + state withholding move with taxable pay at the check's own withholding rate (as Manual 401k %)
+    var tx0 = checkTaxable(f), tx1 = checkTaxable(c), dTx = tx1 - tx0;
+    if (tx0 > 0 && Math.abs(dTx) > 0.004) {
+      c.fed = roundMoney(Math.max(0, (f.fed || 0) + dTx * ((f.fed || 0) / tx0)));
+      c.state = roundMoney(Math.max(0, (f.state || 0) + dTx * ((f.state || 0) / tx0)));
+    }
+    return c;
+  }
+  var BASIS_KEYS = ["gross", "bonus", "earnings", "fed", "state", "ss", "med", "otherTax", "e401", "roth401", "er401", "er401Base", "hsa", "erHsa", "fsa", "otherPre"];
   function basisZero() {
     var o = {};
     BASIS_KEYS.forEach(function (k) { o[k] = 0; });
@@ -4399,17 +4433,22 @@
     var prevDate = anchor ? anchor.payDate : null;
     var estimated = [];
     var capped = { e401: 0, hsa: 0, fsa: 0 };
-    var used = { e401: actual.e401, hsa: actual.hsa + actual.erHsa, fsa: actual.fsa, ssWages: 0 };
+    var used = { e401: actual.e401 + (actual.roth401 || 0), hsa: actual.hsa + actual.erHsa, fsa: actual.fsa, ssWages: 0 };
     function applyCaps(f) {
       // f: raw per-check figures → capped copy (sequential, date order)
       var c = {};
       BASIS_KEYS.forEach(function (k) { c[k] = f[k]; });
       if (limits) {
+        /* v37.5.59.107: the deferral limit covers traditional + Roth 401k together */
         var room401 = Math.max(0, limits.k401 - used.e401);
-        c.e401 = roundMoney(Math.min(f.e401, room401));
-        if (f.e401 > 0 && c.e401 < f.e401) {
-          capped.e401 += roundMoney(f.e401 - c.e401);
-          c.er401 = roundMoney(f.er401 * (c.e401 / f.e401));
+        var want401 = (f.e401 || 0) + (f.roth401 || 0);
+        var got401 = Math.min(want401, room401);
+        if (want401 > 0 && got401 < want401) {
+          var sc401 = got401 / want401;
+          c.e401 = roundMoney((f.e401 || 0) * sc401);
+          c.roth401 = roundMoney((f.roth401 || 0) * sc401);
+          capped.e401 += roundMoney(want401 - c.e401 - c.roth401);
+          c.er401 = roundMoney(f.er401 * sc401);
         }
         var roomHsa = Math.max(0, limits.hsa - used.hsa);
         c.erHsa = roundMoney(Math.min(f.erHsa, roomHsa));
@@ -4420,7 +4459,7 @@
         c.fsa = roundMoney(Math.min(f.fsa, roomFsa));
         if (c.fsa < f.fsa) capped.fsa += roundMoney(f.fsa - c.fsa);
       }
-      used.e401 += c.e401; used.hsa += c.hsa + c.erHsa; used.fsa += c.fsa;
+      used.e401 += c.e401 + (c.roth401 || 0); used.hsa += c.hsa + c.erHsa; used.fsa += c.fsa;
       c.fedTaxable = checkTaxable(c);
       c.stateTaxable = c.fedTaxable;
       return c;
@@ -4455,7 +4494,7 @@
       var f = payStubCheckFigures(s);
       if (prevDate) {
         payDatesBetween(prevDate, s.payDate, freq).forEach(function (iso) {
-          var ef = applyCaps(baseOnly(f));
+          var ef = applyCaps(routeCheck401(baseOnly(f), k401RouteFor(opts, iso)));
           estimated.push({ date: iso, from: s.payDate });
           checks.push({ date: iso, kind: "estimated", from: s.payDate, f: ef });
           basisAdd(actualAfter, ef);
@@ -4464,7 +4503,7 @@
       // a confirmed stub is actual — not capped, it already happened
       var af = {};
       BASIS_KEYS.forEach(function (k) { af[k] = f[k]; });
-      used.e401 += af.e401; used.hsa += af.hsa + af.erHsa; used.fsa += af.fsa;
+      used.e401 += af.e401 + (af.roth401 || 0); used.hsa += af.hsa + af.erHsa; used.fsa += af.fsa;
       af.fedTaxable = checkTaxable(af); af.stateTaxable = af.fedTaxable;
       checks.push({ date: s.payDate, kind: "stub", f: af });
       basisAdd(actualAfter, af);
@@ -4534,7 +4573,7 @@
     for (var p = 0; p < 60; p++) {
       dd = stepPayDate(dd, freq, 1);
       if (dd.getFullYear() !== year) break;
-      var pf = applyCaps(latestProj);
+      var pf = applyCaps(routeCheck401(latestProj, k401RouteFor(opts, isoOf(dd))));
       var ssRoom = Math.max(0, ssCap - ssSoFar);
       pf.ss = roundMoney(Math.min(pf.ss, ssRoom));
       ssSoFar += pf.ss;
@@ -4685,6 +4724,7 @@
         fed: total.fed, state: total.state, fica: roundMoney(total.ss + total.med), otherTax: total.otherTax,
         total: roundMoney(total.fed + total.state + total.ss + total.med + total.otherTax)
       },
+      k401: { traditional: roundMoney(total.e401), roth: roundMoney(total.roth401 || 0), employer: roundMoney((total.er401 || 0) + (total.er401Base || 0)) },
       fedTaxableWages: total.fedTaxable,
       stateTaxableWages: total.stateTaxable,
       grossPay: grossPay,

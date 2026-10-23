@@ -593,6 +593,23 @@
   // v37.5.14: the blended compensation savings rate is gone. Savings rates now come from
   // GradeMath.basicSavingsRate (Free) and GradeMath.trueSavingsRate (Premium + confirmed stub).
 
+  /* v37.5.59.107: share (0–1) of a year's paychecks whose employee 401k is Roth, from Pay settings:
+   * k401Type ("traditional" default | "roth") and k401Since (ISO date the current type started; earlier checks are the
+   * other type). Split by calendar days of that year (no stub dates here). */
+  function k401TypeOf(plan) { var t = plan && plan.k401Type; return t === "roth" || t === "traditional" ? t : ""; }
+  function k401RothFraction(plan, year) {
+    var t = k401TypeOf(plan) || "traditional", since = String((plan && plan.k401Since) || "");
+    var cur = t === "roth" ? 1 : 0;
+    var m = since.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return cur;
+    var y = Number(year), d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    var a = new Date(y, 0, 1), b = new Date(y + 1, 0, 1);
+    if (d <= a) return cur;
+    if (d >= b) return 1 - cur;
+    var after = (b - d) / (b - a);
+    return t === "roth" ? after : 1 - after;
+  }
+
   function estimateCompensation(plan) {
     plan = migrateCompensation(plan || defaultCompensation());
     var base = Math.max(0, Number(plan.baseSalary) || 0);
@@ -622,6 +639,11 @@
       if (r.kind === "hsa") hsa += yr;
       if (r.kind === "retirement" && /401/.test(r.name)) employee401k += yr;
     });
+    /* v37.5.59.107 (owner): employee 401k type (Pay settings). The Roth share of this year's checks (by date, from the
+     * "switched on" date) is after-tax: it leaves pre-tax and is taken from pay after taxes. Traditional stays pre-tax. */
+    var rothFrac = k401RothFraction(plan, currentYearMonth().year);
+    var employee401kRoth = roundCents(employee401k * rothFrac);
+    if (employee401kRoth > 0) { pretax = roundCents(pretax - employee401kRoth); pcPost += employee401kRoth; }
     var employerBase = employerContribution(
       plan.employer401kBase,
       plan.employer401kBaseIsPercent,
@@ -661,6 +683,8 @@
       bonus: bonus,
       cashPay: cash,
       employee401k: employee401k,
+      employee401kRoth: employee401kRoth,
+      employee401kTraditional: roundCents(employee401k - employee401kRoth),
       employerBase: employerBase,
       employerMatch: employerMatch,
       hsa: hsa,
@@ -3746,7 +3770,7 @@
   function addedAuto(line, year) {
     var y = Number(year), ck = (line && line.id) + ":" + y;
     if (addedAutoCache[ck]) return addedAutoCache[ck];
-    var out = { budget: 0, k401: 0, k401you: 0, k401er: 0, hsa: 0, total: 0, legacy: false, applied: 0 };
+    var out = { budget: 0, k401: 0, k401you: 0, k401er: 0, k401erRaw: 0, k401trad: 0, k401roth: 0, hsa: 0, total: 0, legacy: false, applied: 0 };
     if (!line || line.kind === "liability" || line.vehicle) return out;
     var feeds = state.lineFeeds || {}, mine = {};
     Object.keys(feeds).forEach(function (k) { if (feeds[k] === line.id) mine[k] = 1; });
@@ -3759,11 +3783,17 @@
       });
       out.budget = roundCents(out.budget);
     }
-    if (is401k(line) && primaryWorthAcct(is401k) === line) {
-      var k4 = stmt401k(y);
-      out.k401you = Number(k4.you) || 0;
+    if (is401k(line)) {
+      /* v37.5.59.107 (owner): each paycheck's employee 401k routes by type — traditional to the main traditional 401k
+       * account, Roth to the main Roth 401k account (either falls back to the other when only one exists). Employer
+       * money always goes to the traditional 401k. */
+      var T = k401Targets(), R = k401Routed(y);
+      out.k401trad = line === T.tradTo ? R.trad : 0;
+      out.k401roth = line === T.rothTo ? R.roth : 0;
+      out.k401you = roundCents(out.k401trad + out.k401roth);
+      out.k401erRaw = line === T.tradTo ? R.er : 0;
       /* employer typed on the account (Employer match / base) wins, so employer money isn't counted twice */
-      out.k401er = lineEmployerMatch(line, y) || lineEmployerBase(line, y) ? 0 : Number(k4.er) || 0;
+      out.k401er = lineEmployerMatch(line, y) || lineEmployerBase(line, y) ? 0 : out.k401erRaw;
       out.k401 = roundCents(out.k401you + out.k401er);
     }
     if (isHsaLine(line) && !is401k(line) && primaryWorthAcct(function (l) { return isHsaLine(l) && !is401k(l); }) === line) out.hsa = stubHsaYearTotal(y);
@@ -3775,6 +3805,46 @@
   }
   function lineAddition(line, year) {
     return roundCents(lineExtraAdded(line, year) + addedAuto(line, year).applied);
+  }
+  /* v37.5.59.107: 401k account type — the account's Traditional / Roth switch, else its name (Roth → Roth), else traditional. */
+  function k401Kind(line) {
+    var t = line && line.k401Type;
+    if (t === "roth" || t === "traditional") return t;
+    return /\broth\b/i.test(String(line && line.name || "")) ? "roth" : "traditional";
+  }
+  function k401Targets() {
+    var trad = primaryWorthAcct(function (l) { return is401k(l) && k401Kind(l) === "traditional"; });
+    var roth = primaryWorthAcct(function (l) { return is401k(l) && k401Kind(l) === "roth"; });
+    return { trad: trad, roth: roth, tradTo: trad || roth, rothTo: roth || trad, any: !!(trad || roth) };
+  }
+  /* A year's employee 401k by type + employer 401k. A number typed on the Income statement row wins
+   * (401k (pre-tax) = traditional, Roth 401k (after-tax) = Roth); otherwise the pay-stub year (each check routed by
+   * its own stub labels; checks with no stub by Pay settings' type and switched-on date). Employer = Employer 401k row. */
+  function k401Routed(year) {
+    var y = Number(year), raw = (ensureAnnualStatement().years || {})[String(y)] || null;
+    var row = raw ? annualRow(raw) : null, b = null;
+    try { b = payStubBasisFor(y); } catch (e) {}
+    var bk = b && b.k401 ? b.k401 : null;
+    var trad = row && row.dedRetire != null ? Number(row.dedRetire) || 0 : (bk ? bk.traditional : 0);
+    var roth = row && row.dedRoth401 != null ? Number(row.dedRoth401) || 0 : (bk ? bk.roth : 0);
+    var er = stmt401k(y).er;
+    return {
+      trad: roundCents(trad), roth: roundCents(roth), er: roundCents(er),
+      tradFrom: row && row.dedRetire != null ? "statement" : (bk ? "stubs" : ""), rothFrom: row && row.dedRoth401 != null ? "statement" : (bk ? "stubs" : "")
+    };
+  }
+  /* v37.5.59.107: what a 401k account put in that year — the one number Investments, Savings rate, the Dashboard and the
+   * retirement projection all use. Normal year: Added (auto + extra) + employer typed on the account. A year typed
+   * before auto (legacy) keeps counting what it counted before (the routed 401k from the statement / stubs), so
+   * old totals don't move; the typed Added still shows on Net worth until you Clear it. */
+  function k401AcctYear(l, y) {
+    var au = addedAuto(l, y), e = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
+    if (au.legacy) {
+      var amt = roundCents(au.k401you + au.k401erRaw);
+      return { amount: amt, k401: amt, legacy: true, au: au, typedEr: 0 };
+    }
+    var a = lineAddition(l, y);
+    return { amount: roundCents(a + e), k401: roundCents(au.k401 + e), legacy: false, au: au, typedEr: e };
   }
   function lineHasAdded(line, year) {
     return !!(line && ((line.additions && line.additions[year] != null && line.additions[year] !== "") || addedAuto(line, year).applied));
@@ -4594,6 +4664,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ((state.worth && state.worth.lines) || []).forEach(function (l) {
       if (l.kind === "liability" || l.vehicle) return;
       var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y), a = lineAddition(l, y), amt = roundCents(a + e);
+      if (is401k(l)) { amt = k401AcctYear(l, y).amount; e = 0; } // v37.5.59.107: same 401k number as Investments
       if (!amt) return;
       if (nwLeftOut(l)) { skipped.push([l.name, amt, "left out of net worth"]); return; }
       if (!(l.group === "retirement" || gm().isRetirementName(l.name) || is401k(l))) { skipped.push([l.name, amt, "not a retirement account"]); return; }
@@ -4612,8 +4683,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (line.group !== "retirement" && line.group !== "taxable") return;
       any = true;
       bal += lineAmount(line, y);
-      adds += lineAddition(line, y);
-      if (is401k(line)) adds += lineEmployerMatch(line, y) + lineEmployerBase(line, y);
+      adds += is401k(line) ? k401AcctYear(line, y).amount : lineAddition(line, y); // v37.5.59.107
     });
     var source = adds > 0 ? "your " + y + " additions (you + employer)" : "";
     if (!(adds > 0)) {
@@ -9131,7 +9201,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var row = {};
     ANNUAL_FIELDS.forEach(function (id) { row[id] = annualNumber(raw[id]); });
     ANNUAL_TAX_PART_FIELDS.forEach(function (id) { row[id] = annualNumber(raw[id]); });
-    ["dedRetire", "dedHealth", "dedOther"].forEach(function (id) { row[id] = annualNumber(raw[id]); });
+    ["dedRetire", "dedRoth401", "dedHealth", "dedOther"].forEach(function (id) { row[id] = annualNumber(raw[id]); });
     row._typed = raw._typed && typeof raw._typed === "object" ? raw._typed : null;
     /* Prefer the current match field. Fall back to the old key only when match is blank, so it is not added twice. */
     if (row.match == null) row.match = annualLegacyMatch(raw);
@@ -9378,7 +9448,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bonusMonth: bonusMonthOf(),
       bonusAmount: typedRow ? annualRow(typedRow).bonus : null,
       bonusTargetPercent: Number(plan.bonusTargetPercent) || 0,
-      salaryTarget: incomeTargetFor(year).salaryTarget
+      salaryTarget: incomeTargetFor(year).salaryTarget,
+      // v37.5.59.107: checks with no stub of their own follow Pay settings' 401k type (+ switched-on date)
+      k401Type: k401TypeOf(plan) || null, k401Since: plan.k401Since || null
     };
     if (!noAdj) opts.perCheckAdj = perCheckBasisAdj(year);
     var key = JSON.stringify([stubs, opts]);
@@ -10104,6 +10176,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  /* v37.5.59.107 (owner): Pay settings · your 401k type. Used for paychecks without a stub of their own
+   * (estimated / projected checks) and the pay planner; a stub's own line labels decide its own check. */
+  function k401TypeFieldHtml(plan) {
+    var t = k401TypeOf(plan), since = String(plan.k401Since || "");
+    return '<p class="sheet-label">Your 401k type ' + helpQ("Traditional = pre-tax (lowers taxable pay now). Roth = after-tax (taxed now, no tax later). " +
+      "A pay stub's own lines decide its check (a line named Roth 401k is Roth; 401k / pre-tax is traditional). Checks with no stub — estimated gaps and the rest of the year — use this setting. " +
+      "If you switched mid-year, set the date the current type started: checks before it count as the other type. Traditional and employer money go to your traditional 401k on Net worth; Roth goes to your Roth 401k account.") + "</p>" +
+      '<div class="planner-row k401-type-row"><label>Type<select data-act="comp-401k-type">' +
+      '<option value=""' + (t ? "" : " selected") + ">Follow my latest stub</option>" +
+      '<option value="traditional"' + (t === "traditional" ? " selected" : "") + ">Traditional (pre-tax)</option>" +
+      '<option value="roth"' + (t === "roth" ? " selected" : "") + ">Roth (after-tax)</option></select></label>" +
+      '<label>Switched on<input type="date" data-act="comp-401k-since" value="' + esc(since) + '"></label></div>' +
+      '<p class="caption">' + esc(!t ? "Checks without a stub copy the latest stub's split. Unset counts as traditional in the planner." :
+        since ? "Checks before " + since + " are " + (t === "roth" ? "traditional" : "Roth") + "; from " + since + " on, " + (t === "roth" ? "Roth" : "traditional") + "." :
+        "All checks without a stub are " + (t === "roth" ? "Roth" : "traditional") + ".") + "</p>";
+  }
+
   function annualStubBasisHtml(year) {
     var basis = payStubBasisFor(year);
     if (!basis) return "";
@@ -10341,7 +10430,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       var home = subKind === "home";
       out += sub(home ? "Improvements" : "Added", "add", function (y) { return lineHasAdded(l, y) || addedAuto(l, y).total ? lineAddition(l, y) : null; },
-        function (y) { var a = l.additions ? l.additions[y] : null; return a == null || a === "" ? "" : Number(a); });
+        null); // v37.5.59.107 (owner): the editor opens on the number shown (total); typing replaces it
       if (!home && (is401k(l) || isHsaLine(l))) {
         out += sub("Employer match", "match", function (y) { var m = (l.employerMatch || {})[y]; return m == null ? null : Number(m); });
         if (Object.keys(l.employerBase || {}).some(function (k) { return Number(l.employerBase[k]); })) out += sub("Employer base", "base", function (y) { var m = (l.employerBase || {})[y]; return m == null ? null : Number(m); });
@@ -10448,7 +10537,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- Income statement grid ---- */
-  var ANNUAL_DED_FIELDS = ["dedRetire", "dedHealth", "dedOther"];
+  var ANNUAL_DED_FIELDS = ["dedRetire", "dedRoth401", "dedHealth", "dedOther"];
   function sgBudgetSaved(year) {
     var t = new Date(), any = false, sum = 0;
     Object.keys(state.months || {}).forEach(function (k) {
@@ -10497,14 +10586,32 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function nwInvestGroup(l) { return !!l && l.kind !== "liability" && (l.group === "retirement" || l.group === "taxable" || l.group === "investment"); }
   function incomeInvestParts(year) {
-    var parts = [], addedThisYear = {}, byId = {};
-    /* v37.5.59.101 (owner): 401k counts once, from the Income statement: 401k (pre-tax) + Employer 401k.
-     * 401k accounts' Net worth Added is skipped (below) so it isn't counted twice. */
-    var k4 = stmt401k(year);
-    if (k4.you) parts.push({ name: "401k (you, pre-tax)", src: "stmt", amount: k4.you });
-    if (k4.er) parts.push({ name: "Employer 401k", src: "stmt", amount: k4.er });
+    var parts = [], addedThisYear = {}, byId = {}, k401In = 0;
+    /* v37.5.59.107 (owner): Investments reads every account from Net worth, 401k included: each 401k account's
+     * routed contributions (traditional you + employer → traditional 401k, Roth you → Roth 401k) + extras. The
+     * statement's 401k rows stay as detail lines under each account (not added again). With no 401k account on
+     * Net worth, the statement amounts are listed on their own so nothing is lost. */
+    var T = k401Targets(), R = k401Routed(year);
+    if (!T.any) {
+      if (R.trad) parts.push({ name: "401k (you, traditional)", src: "stmt", amount: R.trad, k401: R.trad });
+      if (R.roth) parts.push({ name: "Roth 401k (you)", src: "stmt", amount: R.roth, k401: R.roth });
+      if (R.er) parts.push({ name: "Employer 401k", src: "stmt", amount: R.er, k401: R.er });
+    }
     ((state.worth && state.worth.lines) || []).forEach(function (l) {
       byId[l.id] = l;
+      if (is401k(l) && !nwLeftOut(l) && l.kind !== "liability" && !l.vehicle) {
+        var ky = k401AcctYear(l, year);
+        if (!ky.amount) return;
+        parts.push({ name: l.name, src: "nw", amount: ky.amount, k401: ky.k401, legacy: ky.legacy });
+        addedThisYear[l.id] = 1;
+        var au = ky.au;
+        if (au.k401trad) parts.push({ name: l.name + " · you, traditional (pre-tax)", src: "detail", amount: au.k401trad });
+        if (au.k401roth) parts.push({ name: l.name + " · you, Roth (after-tax)", src: "detail", amount: au.k401roth });
+        if (ky.legacy ? au.k401erRaw : (au.k401er + ky.typedEr)) parts.push({ name: l.name + " · employer", src: "detail", amount: ky.legacy ? au.k401erRaw : roundCents(au.k401er + ky.typedEr) });
+        var exA = ky.legacy ? 0 : roundCents(ky.amount - ky.k401);
+        if (exA) parts.push({ name: l.name + " · extra / budget", src: "detail", amount: exA });
+        return;
+      }
       if (!nwInvestGroup(l) || nwLeftOut(l) || is401k(l)) return;
       var a = lineAddition(l, year); // v37.5.59.106: auto (Feeds-account lines, HSA stub) + extra
       if (a) { parts.push({ name: l.name, src: "nw", amount: a }); addedThisYear[l.id] = 1; }
@@ -10521,15 +10628,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (v) parts.push({ name: p.envelope, src: "budget", amount: v });
     });
     var total = null;
-    parts.forEach(function (x) { total = (total || 0) + x.amount; });
+    parts.forEach(function (x) { if (x.src !== "detail") total = (total || 0) + x.amount; });
+    /* 401k money (either type, + employer) is never subtracted in Op. cash flow, so it isn't added back there. */
     var outside = null;
-    parts.forEach(function (x) { if (x.src !== "stmt") outside = (outside || 0) + x.amount; });
+    parts.forEach(function (x) { if (x.src === "detail") return; var o = x.amount - (x.k401 || 0); if (o) outside = (outside || 0) + o; });
     return { total: total == null ? null : Math.round(total), parts: parts, outside401k: outside == null ? 0 : outside };
   }
   var INCOME_INVEST_HELP = "Investments = money you put into investment accounts that year, minus money you took out. It's read-only here.\n\n" +
-    "It adds up three things:\n• Your 401k from this statement: 401k (pre-tax) + Employer 401k.\n• The Added amounts on your Net worth investment accounts (accounts in the Retirement or Investments · brokerage group on the Net worth page; the group decides, not the name). A withdrawal entered as a negative Added subtracts.\n" +
+    "It adds up two things:\n• The Added amounts on your Net worth investment accounts, 401k included (accounts in the Retirement or Investments · brokerage group on the Net worth page; the group decides, not the name). A withdrawal entered as a negative Added subtracts.\n" +
     "• Your budget goal funds (like a house fund): what you logged into the fund's budget line that year minus what you took out. A fund tied to a Cash or Property account doesn't count.\n\n" +
-    "401k counts once, from this statement: the 401k (pre-tax) and Employer 401k lines. The Added amounts on 401k accounts on the Net worth page are skipped so they aren't counted twice. A goal linked to an investment account already counted here isn't added again.\n\n" +
+    "401k counts once, on its Net worth account: each paycheck's traditional (pre-tax) 401k and the employer 401k go to your traditional 401k account, Roth 401k to your Roth 401k account (by the stub's line label, or Pay settings for checks without a stub). The lines under each 401k account show that split; they aren't added again. A goal linked to an investment account already counted here isn't added again.\n\n" +
     "To change it, edit Added on the Net worth page (tap › on the account) or log money in your Budget. Tap Investments to see each account.";
   var OCF_FORMULA = "Operating cash flow = Total income − Taxes − Spending + Investments.";
   var OCF_HELP = OCF_FORMULA + "\n\nSpending = everything you logged in Budget that year (refunds taken off; months after today left out). A year where you typed Op. expenses uses that number instead.\n\n" +
@@ -10609,6 +10717,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub sg-keep", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here."));
     html += sgGroup("Deductions", years);
     html += sgRow("401k (pre-tax)", years, edit("dedRetire", "401k (pre-tax)", function (d) { return d.row.dedRetire; }));
+    html += sgRow("Roth 401k (after-tax)", years, edit("dedRoth401", "Roth 401k (after-tax)", function (d) { return d.row.dedRoth401; })); // v37.5.59.107
     html += sgRow("Health", years, edit("dedHealth", "Health insurance", function (d) { return d.row.dedHealth; }));
     html += sgRow("Other", years, edit("dedOther", "Other deductions", function (d) { return d.row.dedOther; }));
     html += sgRow("Total deductions", years, calc(function (d) { return d.ded; }), "sg-sub");
@@ -10631,7 +10740,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += sgRow(nm, years, function (y) {
           var hit = invP[y].parts.filter(function (x) { return x.src === src && x.name === nm; })[0];
           return invCell(hit ? hit.amount : null, y);
-        }, "sg-subline", '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : src === "stmt" ? ' <i class="caption">statement</i>' : "") + "</span>");
+        }, "sg-subline" + (src === "detail" ? " sg-detail" : ""), '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : src === "stmt" ? ' <i class="caption">statement</i>' : src === "detail" ? ' <i class="caption">detail</i>' : "") + "</span>");
       });
     }
     function yoyMoney(y, fn) {
@@ -10678,9 +10787,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     function retireParts(y) {
       var parts = [], skipped = [], any = false;
-      var k4 = stmt401k(y);
-      if (k4.you) { parts.push(["401k (pre-tax), this statement", k4.you]); any = true; }
-      if (k4.er) { parts.push(["Employer 401k, this statement", k4.er]); any = true; }
+      /* v37.5.59.107: 401k counts from its Net worth account(s) (same number as Investments); statement only when
+       * there's no 401k account on Net worth. */
+      var T4 = k401Targets(), R4 = k401Routed(y);
+      if (!T4.any) {
+        if (R4.trad) { parts.push(["401k (you, traditional), this statement", R4.trad]); any = true; }
+        if (R4.roth) { parts.push(["Roth 401k (you), this statement", R4.roth]); any = true; }
+        if (R4.er) { parts.push(["Employer 401k, this statement", R4.er]); any = true; }
+      }
       var hs = stubHsaYear(y);
       /* v37.5.59.106: when the main HSA account takes the stub HSA as its auto Added, it's counted there (once). */
       var hsAcct = primaryWorthAcct(function (l) { return isHsaLine(l) && !is401k(l); });
@@ -10693,7 +10807,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (a == null && !e) return;
         var amt = (a || 0) + e;
         if (nwLeftOut(l)) { amt && skipped.push([l.name, amt, "left out of net worth"]); return; }
-        if (is401k(l)) { amt && skipped.push([l.name, amt, "401k counts once, from this statement"]); return; }
+        if (is401k(l)) {
+          var ky = k401AcctYear(l, y);
+          if (ky.amount) {
+            var b4 = [];
+            if (ky.au.k401trad) b4.push("traditional " + moneyWhole(ky.au.k401trad));
+            if (ky.au.k401roth) b4.push("Roth " + moneyWhole(ky.au.k401roth));
+            var erx = ky.legacy ? ky.au.k401erRaw : roundCents(ky.au.k401er + ky.typedEr);
+            if (erx) b4.push("employer " + moneyWhole(erx));
+            if (!ky.legacy && ky.amount - ky.k401) b4.push("extra " + moneyWhole(roundCents(ky.amount - ky.k401)));
+            parts.push([l.name + (b4.length ? " (" + b4.join(" + ") + ")" : ""), ky.amount]); any = true;
+          }
+          return;
+        }
         var byName = gm().isRetirementName(l.name);
         if (l.group !== "retirement" && !byName) { amt && skipped.push([l.name, amt, "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
         if (hs && isHsaLine(l) && !hsInAcct) { amt && skipped.push([l.name, amt, "HSA already counted from pay stubs"]); return; }
@@ -10728,7 +10854,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var kp = String(ed.key).match(/^(add|match|base):(.+)$/);
       var line = (state.worth.lines || []).filter(function (l) { return l.id === (kp ? kp[2] : ed.key); })[0];
       if (!line) return;
-      if (kp) {
+      if (kp && kp[1] === "add" && value != null) {
+        /* v37.5.59.107: you type the total; what's saved is the extra = total − auto (auto keeps updating). */
+        var auNow = addedAuto(line, ed.year).applied;
+        value = roundCents(value - auNow);
+        if (!line.additions) line.additions = {};
+        if (!value && auNow) delete line.additions[ed.year];
+        else line.additions[ed.year] = value < 0 ? -clampMoney(-value) : clampMoney(value);
+        addedAutoCache = {};
+      } else if (kp) {
         var field = kp[1] === "add" ? "additions" : kp[1] === "match" ? "employerMatch" : "employerBase";
         if (!line[field]) line[field] = {};
         if (value == null) { delete line[field][ed.year]; if (kp[1] === "add" && line.addedLegacy) delete line.addedLegacy[ed.year]; }
@@ -10758,11 +10892,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!line) return "";
     var au = addedAuto(line, ed.year), ex = lineExtraAdded(line, ed.year), bits = [];
     if (au.budget) bits.push("budget lines " + moneyWhole(au.budget));
-    if (au.k401) bits.push("401k " + moneyWhole(au.k401));
+    if (au.k401trad) bits.push("401k traditional " + moneyWhole(au.k401trad));
+    if (au.k401roth) bits.push("Roth 401k " + moneyWhole(au.k401roth));
+    if (au.k401er) bits.push("employer 401k " + moneyWhole(au.k401er));
     if (au.hsa) bits.push("HSA stub " + moneyWhole(au.hsa));
     var autoTxt = "auto " + moneyWhole(au.total) + (bits.length ? " (" + bits.join(", ") + ")" : "");
-    if (au.legacy && au.total) return "\nTotal " + moneyWhole(ex) + " = your typed amount. " + autoTxt + " isn’t added (typed before auto); Clear to use auto. Typing edits your amount.";
-    return "\nTotal " + moneyWhole(roundCents(au.applied + ex)) + " = " + autoTxt + " + extra " + (ex < 0 ? "−" + moneyWhole(-ex) : moneyWhole(ex)) + ". Typing edits the extra.";
+    if (au.legacy && au.total) return "\nTotal " + moneyWhole(ex) + " = your typed amount. " + autoTxt + " isn’t added (typed before auto); Clear to use auto. Type a new total to replace it.";
+    return "\nTotal " + moneyWhole(roundCents(au.applied + ex)) + " = " + autoTxt + " + extra " + (ex < 0 ? "−" + moneyWhole(-ex) : moneyWhole(ex)) + ". Type a new total; the extra becomes total − auto.";
   }
   function sgOpen(td) {
     var wrap = td.closest(".sg-wrap");
@@ -11480,7 +11616,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var totD = (youD == null && erD == null) ? null : (youD || 0) + (erD || 0);
     var fp = function (v) { return v == null ? "—" : (Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, "") + "%"; };
     var fd = function (v) { return v == null ? "—" : moneyWhole(v); };
-    var kind = line.k401Type || (/roth/i.test(line.name || "") ? "roth" : "");
+    var kind = k401Kind(line); // v37.5.59.107: unset = traditional (never assume Roth)
     var tag = kind ? '<span class="k401-tag">' + (kind === "roth" ? "Roth" : "Traditional") + "</span>" : "";
     var seg = function (v, label) {
       return '<button type="button" class="' + (kind === v ? "on" : "") + '" data-act="set-401k-type" data-id="' + line.id + '" data-v="' + v + '">' + label + "</button>";
@@ -14332,7 +14468,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<h3>Details ' + helpQ(compStubFigures()
         ? "Your confirmed pay stubs set these numbers — the same as Stats › Income statement. The fields below are a what-if and only take over when there’s no stub. Budget paycheck $ stays manual unless you opt in below."
         : "Type compensation here. Estimates update as you go. Budget paycheck $ stays manual unless you opt in below.") + '</h3><span class="income-sheet-spacer" aria-hidden="true"></span></div>' +
-      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) + perCheckSectionHtml(plan) +
+      payFreqMismatchHtml() + payEntryCardsHtml(plan) + statedDetailsHtml(plan) + planTermsHtml(plan) + perCheckSectionHtml(plan) + k401TypeFieldHtml(plan) +
 
       '<div id="comp-estimates">' + compensationEstimateHtml(est) + "</div>" +
       payStubFoldHtml(plan) +
@@ -16602,7 +16738,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.106";
+  var APP_VERSION = "37.5.59.107";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -20463,7 +20599,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var tl = state.worth.lines.filter(function (l) { return l.id === actEl.getAttribute("data-id"); })[0];
       if (tl) {
         var tv = actEl.getAttribute("data-v");
-        tl.k401Type = tl.k401Type === tv ? "" : tv;
+        tl.k401Type = tv === "roth" ? "roth" : "traditional"; // v37.5.59.107: always one of the two
         nwOpenLines[tl.id] = true;
         saveState(); render();
       }
@@ -21295,6 +21431,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ensureAnnualStatement();
       var filingVal = el.value;
       state.annualStatement.filingStatus = (filingVal === "mfj" || filingVal === "hoh") ? filingVal : "single";
+      saveState();
+      render();
+    } else if (el.getAttribute("data-act") === "comp-401k-type" || el.getAttribute("data-act") === "comp-401k-since") {
+      state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+      if (el.getAttribute("data-act") === "comp-401k-type") state.compensation.k401Type = el.value === "roth" || el.value === "traditional" ? el.value : "";
+      else state.compensation.k401Since = /^\d{4}-\d{2}-\d{2}$/.test(el.value) ? el.value : "";
+      payStubBasisCache = {}; addedAutoCache = {};
       saveState();
       render();
     } else if (el.getAttribute("data-act") === "annual-bonus-month") {
