@@ -766,7 +766,7 @@
         score: spendScore(rate),
         weight: 0.2,
         // v37.5.59.2: Insights precision (43.6%) + say which basis is in use.
-        whatWentIn: "Basic savings rate " + formatSavingsRate(rate) + " this month (savings envelopes ÷ " +
+        whatWentIn: "Basic savings rate " + formatSavingsRate(rate) + " this month (retirement budget lines ÷ " +
           monthBasisPhrase(input.takeHomeBasis) + ").",
         sentence: rate >= 0.2
           ? "A healthy share of income is staying invested or reserved."
@@ -990,7 +990,720 @@
     if (!cond) errors.push(message);
   }
 
-  function runFixtureTests() { return []; }
+  function runFixtureTests() {
+    var errors = [];
+    var a = evaluate(fixtureA);
+    assert(a.score >= 75, "A score " + a.score, errors);
+    assert(a.band.id === "strong" || a.band.id === "excellent", "A band " + a.band.id, errors);
+    assert(!a.provisional, "A should not be provisional", errors);
+    var b = evaluate(fixtureB);
+    assert(b.lowestVisible === "resilience", "B lowest " + b.lowestVisible, errors);
+    assert(b.nextAction.fooStep === 3, "B FOO " + b.nextAction.fooStep, errors);
+    assert(b.nextAction.fooStep <= b.foo.currentStep, "B next never past current", errors);
+    assert(b.perfectScore === false, "B is not a perfect score", errors);
+    assert(b.allBarsMaxed === false, "B bars are not all maxed", errors);
+    assert(b.foo.currentStep === 3, "B FOO current stays on high-interest debt " + b.foo.currentStep, errors);
+    assert(b.diagnosis.indexOf("High-interest debt") >= 0, "B diagnosis follows FOO 3 " + b.diagnosis, errors);
+    assert(b.diagnosis.indexOf("Investing pace") < 0, "B diagnosis is not investing " + b.diagnosis, errors);
+    assert(b.nextAction.title.indexOf("High-interest debt") >= 0, "B next stays on debt " + b.nextAction.title, errors);
+    assert(!/park more cash|essentials/i.test(b.nextAction.title), "B next is not cash " + b.nextAction.title, errors);
+    assert(b.nextAction.why.indexOf("weak bar") >= 0, "B next still names the weak bar", errors);
+    assert(b.nextAction.why.indexOf("Step 3") >= 0, "B next why is step 3 " + b.nextAction.why, errors);
+    var underwater = evaluate({
+      savingsRate: 0.3,
+      liquidMonths: 6,
+      consumerDebtToIncome: 0.02,
+      totalDebtToAssets: 0.05,
+      netWorth: -80000,
+      annualIncome: 60000,
+      ageYears: 28,
+      deltaNWToIncome: 0.2,
+      completedStatementYears: 3,
+      consecutiveCompletedYears: 3,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: true,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.06,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: false,
+      maxEmployerPlans: false,
+      hyperOnTrack: false,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    var accUnder = underwater.sections.filter(function (s) { return s.id === "accumulation"; })[0];
+    assert(underwater.foo.currentStep === 3, "underwater FOO current " + underwater.foo.currentStep, errors);
+    assert(underwater.lowestVisible === "accumulation", "underwater lowest " + underwater.lowestVisible, errors);
+    assert(underwater.nextAction.fooStep === 3, "underwater next FOO " + underwater.nextAction.fooStep, errors);
+    assert(accUnder && accUnder.score >= 0, "underwater accumulation " + (accUnder && accUnder.score), errors);
+    assert(underwater.diagnosis.indexOf("High-interest debt") >= 0, "underwater diagnosis " + underwater.diagnosis, errors);
+    assert(underwater.diagnosis.indexOf("Investing pace") < 0, "underwater diagnosis is not investing", errors);
+    assert(accumulationScore(-80000, 28, 60000) === 0, "accumulation floors at 0", errors);
+    assert(accumulationScore(200000, 30, 100000) === 100, "accumulation caps at 100", errors);
+    var perfectInput = {
+      savingsRate: 0.3,
+      liquidMonths: 6,
+      consumerDebtToIncome: 0,
+      totalDebtToAssets: 0,
+      netWorth: 100000,
+      annualIncome: 100000,
+      ageYears: 30,
+      deltaNWToIncome: 0.25,
+      completedStatementYears: 4,
+      consecutiveCompletedYears: 4,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: false,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.25,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: true,
+      maxEmployerPlans: true,
+      hyperOnTrack: true,
+      prepayFuture: false,
+      prepayLowInterest: false
+    };
+    var perfect = evaluate(perfectInput);
+    assert(perfect.score === 100, "perfect score " + perfect.score, errors);
+    assert(perfect.perfectScore === true, "perfectScore flag", errors);
+    assert(perfect.allBarsMaxed === true, "allBarsMaxed flag", errors);
+    assert(perfect.lowestVisible === "spend", "tied 100 still mins to spend " + perfect.lowestVisible, errors);
+    assert(perfect.diagnosis.indexOf("weak point") < 0, "perfect diagnosis " + perfect.diagnosis, errors);
+    assert(perfect.diagnosis.indexOf("Nothing is weak here.") >= 0, "perfect celebrates " + perfect.diagnosis, errors);
+    assert(perfect.diagnosis.indexOf("Excellent and compounding.") === 0, "perfect lead " + perfect.diagnosis, errors);
+    assert(perfect.nextAction.title.indexOf("optim") >= 0, "perfect next " + perfect.nextAction.title, errors);
+    assert(perfect.nextAction.title.indexOf("savings rate") < 0, "perfect next is not spend " + perfect.nextAction.title, errors);
+    assert(perfect.nextAction.why.indexOf("lowest") < 0, "perfect why " + perfect.nextAction.why, errors);
+    assert(perfect.nextAction.why.indexOf("weak") < 0, "perfect why has no weak " + perfect.nextAction.why, errors);
+    assert(perfect.nextAction.fooStep === perfect.foo.currentStep, "perfect fooStep follows current FOO", errors);
+    var spendDrag = evaluate({
+      savingsRate: 0.05,
+      liquidMonths: 6,
+      consumerDebtToIncome: 0,
+      totalDebtToAssets: 0,
+      netWorth: 100000,
+      annualIncome: 100000,
+      ageYears: 30,
+      deltaNWToIncome: 0.25,
+      completedStatementYears: 4,
+      consecutiveCompletedYears: 4,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: false,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.25,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: true,
+      maxEmployerPlans: true,
+      hyperOnTrack: true,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    assert(spendDrag.score < 100, "spend drag score " + spendDrag.score, errors);
+    assert(spendDrag.perfectScore === false && spendDrag.allBarsMaxed === false, "spend drag is not perfect", errors);
+    assert(spendDrag.lowestVisible === "spend", "spend drag lowest " + spendDrag.lowestVisible, errors);
+    assert(spendDrag.diagnosis.indexOf("Spending is the weak point.") >= 0, "spend drag diagnosis " + spendDrag.diagnosis, errors);
+    assert(spendDrag.nextAction.title.indexOf("savings rate") >= 0, "spend drag next " + spendDrag.nextAction.title, errors);
+    var roundedPerfect = evaluate({
+      savingsRate: 0.29,
+      liquidMonths: 6,
+      consumerDebtToIncome: 0,
+      totalDebtToAssets: 0,
+      netWorth: 100000,
+      annualIncome: 100000,
+      ageYears: 30,
+      deltaNWToIncome: 0.25,
+      completedStatementYears: 4,
+      consecutiveCompletedYears: 4,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: false,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.25,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: true,
+      maxEmployerPlans: true,
+      hyperOnTrack: true,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    assert(roundedPerfect.score === 100, "rounded perfect score " + roundedPerfect.score, errors);
+    assert(roundedPerfect.perfectScore === true, "rounded 100 sets perfectScore", errors);
+    assert(roundedPerfect.allBarsMaxed === false, "a 99 spend bar is not maxed", errors);
+    assert(roundedPerfect.diagnosis.indexOf("weak point") < 0, "rounded diagnosis " + roundedPerfect.diagnosis, errors);
+    assert(roundedPerfect.nextAction.title.indexOf("savings rate") < 0, "rounded next " + roundedPerfect.nextAction.title, errors);
+    var c = evaluate(fixtureC);
+    var acc = c.sections.filter(function (s) { return s.id === "accumulation"; })[0];
+    var traj = c.sections.filter(function (s) { return s.id === "trajectory"; })[0];
+    assert(acc.score == null, "C accumulation should be omitted", errors);
+    assert(acc.omittedReason === "Needs birthday", "C reason " + acc.omittedReason, errors);
+    assert(c.provisional, "C provisional hero", errors);
+    assert(traj.provisional, "C trajectory provisional", errors);
+    assert(traj.score != null, "C trajectory still scored", errors);
+    assert(ageYears(null) == null, "missing birthday invents age", errors);
+    var asOf = parseISODate("2026-09-14");
+    assert(ageYears("1996-03-15", asOf) === 30, "age from birthday", errors);
+
+    var card0 = classifyDebt({ name: "Wings", apr: 0, debtType: "creditCard" }, 28);
+    assert(card0.fooStep === 3, "0% card should be FOO 3", errors);
+    var studentHigh = classifyDebt({ name: "Student Loan", apr: 6.8 }, 28);
+    assert(studentHigh.fooStep === 3, "6.8% student in 20s should be FOO 3", errors);
+    var studentCheap = classifyDebt({ name: "Student Loan", apr: 4.5 }, 28);
+    assert(studentCheap.fooStep === 9, "4.5% student in 20s should be FOO 9", errors);
+    var student50 = classifyDebt({ name: "Student Loan", apr: 3.2 }, 52);
+    assert(student50.fooStep === 3, "any student loan at 50+ is FOO 3", errors);
+    var mortgage = classifyDebt({ name: "Home loan", apr: 6.5, debtType: "mortgage" }, 35);
+    assert(mortgage.fooStep === 9, "mortgage never FOO 3", errors);
+    var noAgeStudent = classifyDebt({ name: "Student Loan", apr: 4.5 }, null);
+    assert(noAgeStudent.needsBirthday === true, "student under 6% needs birthday", errors);
+    assert(noAgeStudent.fooStep == null, "do not invent FOO step without age", errors);
+    var carHigh = classifyDebt({ name: "Car", apr: 11 }, 25);
+    assert(carHigh.fooStep === 3, "11% car in 20s is FOO 3", errors);
+    var carCheap = classifyDebt({ name: "Car", apr: 7 }, 25);
+    assert(carCheap.fooStep === 9, "7% car in 20s is FOO 9 estimate", errors);
+    var explainer = fooExplainer(8);
+    assert(explainer && explainer.name === "Prepaid future expenses", "step 8 name", errors);
+    assert(explainer.examples.length >= 2, "step 8 examples", errors);
+    var classified = classifyDebts([
+      { name: "Student Loan", apr: 6.8, balance: 8500 },
+      { name: "Home loan", apr: 4, balance: 200000, debtType: "mortgage" }
+    ], 28);
+    assert(classified.hasHighInterest, "student 6.8 counts as FOO 3", errors);
+    assert(classified.cheapTotal === 200000, "mortgage is cheap FOO 9", errors);
+    assert(enteredEmployerPercent(5, true) === 5, "Income 5% match is shown", errors);
+    assert(enteredEmployerPercent(2, true) === 2, "Income 2% base is shown", errors);
+    assert(enteredEmployerPercent(0, true) == null, "empty percent is not invented", errors);
+    assert(enteredEmployerPercent(4725, false) == null, "dollars do not invent a percent", errors);
+
+    assert(normalizeVaultType("Insurance") === "insurance", "vault type insurance", errors);
+    assert(normalizeVaultType("mystery") === "other", "unknown vault type is other", errors);
+    assert(inferVaultType({ slot: "insurance", fileName: "scan.pdf" }) === "insurance", "slot maps insurance", errors);
+    assert(inferVaultType({ slot: "loans", fileName: "Rocket_Mortgage.pdf" }) === "mortgage", "mortgage from filename", errors);
+    assert(inferVaultType({ slot: "loans", fileName: "note.pdf" }) === "loan", "loan from loans slot", errors);
+    assert(inferVaultType({ slot: "payStubs", fileName: "july-stub.pdf" }) === "other", "pay stub is other", errors);
+    var stubFixture = [
+      "ACME MANUFACTURING INC",
+      "Earnings Statement / Pay Stub",
+      "Pay Period: 08/01/2026 - 08/15/2026",
+      "Pay Date: 08/20/2026",
+      "Gross Pay                        $3,750.00   $60,000.00",
+      "Federal Income Tax                 $412.50    $6,600.00",
+      "State Income Tax                   $168.75    $2,700.00",
+      "Social Security                    $232.50    $3,720.00",
+      "Medicare                            $54.38      $870.00",
+      "401(k) Employee Contribution       $187.50    $3,000.00",
+      "HSA Employee                       $100.00    $1,600.00",
+      "Net Pay                          $2,572.37   $41,157.92"
+    ].join("\n");
+    var stubParsed = parsePayStubText(stubFixture);
+    assert(stubParsed.adapterId === "generic-us", "pay stub adapter id", errors);
+    assert(Math.abs((stubParsed.gross || 0) - 3750) < 0.01, "pay stub gross " + stubParsed.gross, errors);
+    assert(Math.abs((stubParsed.net || 0) - 2572.37) < 0.01, "pay stub net " + stubParsed.net, errors);
+    assert(Math.abs((stubParsed.federalTax || 0) - 412.5) < 0.01, "pay stub federal " + stubParsed.federalTax, errors);
+    assert(detectVaultType(stubFixture) === "paystub", "pay stub detectVaultType", errors);
+    assert(detectVaultType("GEICO AUTO INSURANCE POLICY\\nPremium: $165.00 monthly") === "insurance", "insurance still wins over paystub words", errors);
+    var tri = taxTriangleBuckets([
+      { name: "NQ Brokerage", kind: "asset", group: "taxable", amounts: { 2025: 6200 } },
+      { name: "Roth IRA", kind: "asset", group: "retirement", amounts: { 2025: 118110 } },
+      { name: "401k + IRA", kind: "asset", group: "retirement", amounts: { 2025: 12000 } },
+      { name: "Checking", kind: "asset", group: "cash", amounts: { 2025: 3000 } }
+    ], 2025);
+    assert(Math.abs(tri.buckets[0].amount - 6200) < 0.01, "triangle non-qualified", errors);
+    assert(Math.abs(tri.buckets[1].amount - 12000) < 0.01, "triangle pre-tax", errors);
+    assert(Math.abs(tri.buckets[2].amount - 118110) < 0.01, "triangle after-tax", errors);
+    var triAlias = taxTriangleBuckets([
+      { name: "Brokerage", kind: "asset", group: "investment", amounts: { 2025: 8500 } },
+      { name: "Employer 401(k)", kind: "asset", group: "retirement", amounts: { 2025: 12000 } },
+      { name: "Roth IRA", kind: "asset", group: "retirement", amounts: { 2025: 5000 } }
+    ], 2025);
+    assert(Math.abs(triAlias.buckets[0].amount - 8500) < 0.01, "triangle investment alias", errors);
+    assert(Math.abs(triAlias.buckets[2].amount - 5000) < 0.01, "triangle roth after-tax", errors);
+    var triHsa = taxTriangleBuckets([
+      { name: "HSA", kind: "asset", group: "cash", amounts: { 2025: 2200 } },
+      { name: "Health Savings", kind: "asset", group: "investment", amounts: { 2025: 800 } },
+      { name: "Checking", kind: "asset", group: "cash", amounts: { 2025: 400 } }
+    ], 2025);
+    assert(Math.abs(triHsa.buckets[2].amount - 3000) < 0.01, "triangle HSA after-tax " + triHsa.buckets[2].amount, errors);
+    assert(Math.abs(triHsa.buckets[0].amount) < 0.01, "triangle HSA not non-qualified", errors);
+    assert(triHsa.buckets[2].lines.length === 2, "triangle both HSA lines", errors);
+    var src = savingsRateCompare({ savingsRate: 0.25, peerRates: [] });
+    assert(src.peerReady === false, "peer rank hidden under n=50", errors);
+    assert(src.multipleOfUs != null, "BEA multiple present", errors);
+    var stubComp = paycheckComposition(stubParsed);
+    assert(stubComp != null, "paycheckComposition from fixture stub", errors);
+    if (stubComp) {
+      assert(Math.abs(stubComp.taxesPct + stubComp.deductionsPct + stubComp.netPct - 1) < 0.02,
+        "paycheckComposition sum≈1 " + (stubComp.taxesPct + stubComp.deductionsPct + stubComp.netPct), errors);
+      assert(stubComp.taxesPct > 0 && stubComp.netPct > 0, "paycheckComposition taxes/net > 0", errors);
+    }
+    assert(paycheckComposition({ gross: 0, net: 100 }) == null, "paycheckComposition hides when gross≤0", errors);
+    assert(paycheckComposition({ gross: 1000 }) == null, "paycheckComposition hides when net missing", errors);
+    try {
+      var fsStub = typeof require !== "undefined" ? require("fs") : null;
+      var stubPath = typeof __dirname !== "undefined" ? (__dirname + "/fixtures/sample-us-paystub.txt") : "";
+      if (fsStub && stubPath && fsStub.existsSync(stubPath)) {
+        var fileStub = parsePayStubText(fsStub.readFileSync(stubPath, "utf8"));
+        assert(Math.abs((fileStub.gross || 0) - 3750) < 0.01, "fixture file gross", errors);
+        assert(Math.abs((fileStub.net || 0) - 2572.37) < 0.01, "fixture file net", errors);
+        assert(Math.abs((fileStub.federalTax || 0) - 412.5) < 0.01, "fixture file federal", errors);
+        var fileComp = paycheckComposition(fileStub);
+        assert(fileComp != null, "fixture file paycheckComposition", errors);
+        if (fileComp) {
+          assert(Math.abs(fileComp.taxesPct + fileComp.deductionsPct + fileComp.netPct - 1) < 0.02,
+            "fixture file composition sum≈1", errors);
+        }
+      }
+    } catch (stubFileErr) {}
+
+
+    assert(inferVaultType({ slot: "k401", fileName: "401k.pdf" }) === "other", "401k is other", errors);
+    assert(guessVaultProvider("State Farm Auto Insurance.pdf") === "State Farm", "provider from filename", errors);
+    assert(guessVaultProvider("geico_policy.pdf") === "Geico", "geico provider", errors);
+    assert(guessVaultProvider("State Farm Auto Insurance.pdf", "loan") === "", "loan does not guess insurance carrier", errors);
+    assert(guessVaultProvider("State Farm Auto Insurance.pdf", "mortgage") === "", "mortgage does not guess insurance carrier", errors);
+    assert(guessVaultProvider("Rocket_Mortgage.pdf", "mortgage") === "Rocket", "mortgage guesses lender from filename", errors);
+    assert(guessVaultProvider("note.pdf", "loan") === "", "blank loan stays blank lender", errors);
+    var loanEnrich = enrichVaultDoc({
+      id: "loan-1",
+      slot: "loans",
+      vaultType: "loan",
+      fileName: "State Farm Auto Insurance.pdf",
+      provider: "",
+      title: ""
+    });
+    assert(loanEnrich.provider === "", "enrich loan never copies insurance carrier", errors);
+    var insEnrich = enrichVaultDoc({
+      id: "ins-1",
+      slot: "insurance",
+      fileName: "State Farm Auto Insurance.pdf",
+      provider: "",
+      title: ""
+    });
+    assert(insEnrich.provider === "State Farm", "enrich insurance still guesses carrier", errors);
+    assert(insEnrich.provider !== loanEnrich.provider, "enrich does not copy provider between docs", errors);
+    var writeDocs = [
+      { id: "ins-1", provider: "State Farm", title: "Auto Insurance — State Farm" },
+      { id: "loan-1", provider: "", title: "Loan" }
+    ];
+    assert(findVaultDocForWrite(writeDocs, "") == null, "vault write requires data-id", errors);
+    assert(findVaultDocForWrite(writeDocs, null) == null, "vault write rejects missing id", errors);
+    assert(findVaultDocForWrite(writeDocs, "loan-1") === writeDocs[1], "vault write resolves only that id", errors);
+    findVaultDocForWrite(writeDocs, "loan-1").provider = "Navy Federal";
+    assert(writeDocs[0].provider === "State Farm", "writing one doc leaves the other intact", errors);
+    var kept = removeVaultDocById(writeDocs, "loan-1");
+    assert(kept.length === 1 && kept[0].id === "ins-1", "delete removes only that vault id", errors);
+    assert(writeDocs.length === 2 && writeDocs[0].provider === "State Farm", "delete does not mutate the other card", errors);
+    assert(removeVaultDocById(writeDocs, "").length === 2, "delete without id removes nothing", errors);
+    assert(vaultTypeLabel("insurance", "State Farm Auto Insurance.pdf") === "Auto Insurance", "specific auto type", errors);
+    assert(
+      defaultVaultTitle("insurance", "State Farm", "State Farm Auto Insurance.pdf") === "Auto Insurance — State Farm",
+      "default title Type — Provider",
+      errors
+    );
+    assert(
+      defaultVaultTitle("loan", "", "note.pdf") === "Loan",
+      "title without provider stays type",
+      errors
+    );
+    var reviewBare = { vaultType: "insurance", title: "Insurance", premium: 0, hasBlob: false };
+    assert(docNeedsReview(reviewBare) === true, "empty insurance needs review", errors);
+    var reviewFile = {
+      vaultType: "insurance",
+      title: "Auto Insurance — State Farm",
+      provider: "State Farm",
+      hasBlob: true,
+      premium: 0
+    };
+    assert(docNeedsReview(reviewFile) === false, "file + provider clears review", errors);
+    var reviewMoney = { vaultType: "loan", title: "Student Loan", balance: 8500, hasBlob: false };
+    assert(docNeedsReview(reviewMoney) === false, "money field clears review", errors);
+    var reviewScan = { vaultType: "insurance", title: "Insurance", provider: "", hasBlob: true };
+    assert(docNeedsReview(reviewScan) === true, "generic insurance scan still needs review", errors);
+    var reviewStub = { vaultType: "other", title: "Pay stub", slot: "payStubs", hasBlob: true };
+    assert(docNeedsReview(reviewStub) === false, "other + file is enough", errors);
+    var badges = vaultBadges([reviewBare, reviewFile, reviewMoney]);
+    assert(badges.total === 3, "vault door total count", errors);
+    assert(badges.review === 1, "vault door review count", errors);
+    var row = vaultRowMoney({ vaultType: "insurance", premium: 120, premiumFrequency: "monthly" });
+    assert(row && row.amount === 120 && row.suffix === "/ mo", "insurance premium on the right", errors);
+    var ownerCost = insuranceMonthlyCost({ premium: 600.06, premiumFrequency: "semiannual" });
+    assert(ownerCost && ownerCost.amount === 100.01 && ownerCost.estimated === true && ownerCost.months === 6, "state farm monthly cost " + (ownerCost && ownerCost.amount), errors);
+    var ownerRow = vaultRowMoney({ vaultType: "insurance", premium: 600.06, premiumFrequency: "semiannual" });
+    assert(ownerRow && ownerRow.amount === 100.01 && ownerRow.suffix === "est. / mo", "state farm card shows monthly estimate", errors);
+    var paidMonthly = insuranceMonthlyCost({ premium: 600.06, premiumFrequency: "monthly" });
+    assert(paidMonthly && paidMonthly.amount === 600.06 && paidMonthly.estimated === false, "monthly billing uses the premium itself", errors);
+    var ask = { vaultType: "insurance", premium: 600.06, premiumFrequency: "semiannual", touchedFields: {} };
+    assert(insuranceBillingNeedsPrompt(ask) === true, "unconfirmed semiannual bill asks how you pay", errors);
+    ask.touchedFields.premiumFrequency = true;
+    assert(insuranceBillingNeedsPrompt(ask) === false, "confirmed billing does not ask again", errors);
+    assert(insuranceBillingNeedsPrompt({ vaultType: "insurance", premium: 165, premiumFrequency: "monthly", touchedFields: {} }) === false, "explicit monthly bill does not ask", errors);
+    assert(normalizePlan("premium") === "premium", "premium plan", errors);
+    assert(normalizePlan("") === "free", "missing plan is free", errors);
+    var peers = comparePeers({ ageYears: 30, zip: "94110", income: 87885, netWorth: 165726, debt: 0 });
+    assert(peers.ageBand.id === "under35", "age 30 is under 35", errors);
+    assert(peers.geo && peers.geo.digit === 9, "94110 is Pacific", errors);
+    assert(peers.peerIncome > 60700, "Pacific ZIP lifts income median vs national SCF", errors);
+    assert(peers.citation.indexOf("SCF") >= 0 && peers.citation.indexOf("Census") >= 0, "cite Fed SCF / Census", errors);
+    var noAge = comparePeers({ zip: "10001", income: 80000 });
+    assert(noAge.needsBirthday === true, "compare without birthday is omitted, not invented", errors);
+    assert(autoCategorize("Market").line === "Groceries", "Market maps to Groceries", errors);
+    var tops = topMerchants([
+      { payee: "Market", amount: 62.4 },
+      { payee: "Market", amount: 40 },
+      { payee: "Netflix", amount: 15 },
+      { payee: "Shell", amount: 40 }
+    ], 3);
+    assert(tops[0].name === "Market" && tops[0].amount === 102.4, "top merchant rolls up", errors);
+    var over = insuranceOverpay([
+      { title: "Auto Insurance", provider: "Geico", premium: 240, premiumFrequency: "monthly", vaultType: "insurance" }
+    ], 30);
+    assert(over.totalOverpayMonthly > 0, "auto premium above cohort", errors);
+    assert(over.teaser.indexOf("subscribe") >= 0, "insurance teaser asks to subscribe", errors);
+    var needs = rankedNeeds({ significance: 4, acceptance: 5, intelligence: 2 });
+    assert(needs.primary && needs.primary.id === "acceptance", "primary need is highest score", errors);
+    assert(needs.secondary && needs.secondary.id === "significance", "secondary need is next", errors);
+
+    var insPdf = makeUncompressedPdf(FIXTURE_INSURANCE_LINES);
+    var insText = extractPdfText(insPdf);
+    assert(insText.indexOf("GEICO AUTO INSURANCE POLICY") >= 0, "insurance PDF extracts title line", errors);
+    var insParsed = parseVaultPdfFields(insText);
+    assert(insParsed.vaultType === "insurance", "insurance PDF type " + insParsed.vaultType, errors);
+    assert(insParsed.provider === "Geico", "insurance PDF provider " + insParsed.provider, errors);
+    assert(insParsed.policyNumber === "4412-8871", "insurance PDF policy " + insParsed.policyNumber, errors);
+    assert(insParsed.premium === 165, "insurance PDF premium " + insParsed.premium, errors);
+    assert(insParsed.premiumFrequency === "monthly", "insurance PDF frequency", errors);
+    assert(String(insParsed.deductibles).indexOf("500") >= 0, "insurance PDF deductible", errors);
+    assert(String(insParsed.insuredItems).indexOf("Honda") >= 0, "insurance PDF insured item", errors);
+    var insDoc = applyVaultPdfAutofill({
+      vaultType: "",
+      title: "",
+      provider: "",
+      premium: 0,
+      touchedFields: {}
+    }, insParsed);
+    assert(insDoc.filled.indexOf("premium") >= 0, "insurance autofill premium", errors);
+    assert(insDoc.doc.premium === 165, "insurance autofill writes empty premium", errors);
+    var insTouched = applyVaultPdfAutofill({
+      vaultType: "insurance",
+      title: "My policy",
+      provider: "Mine",
+      premium: 90,
+      touchedFields: { premium: true, provider: true }
+    }, insParsed);
+    assert(insTouched.doc.premium === 90, "touched premium is not overwritten", errors);
+    assert(insTouched.doc.provider === "Mine", "touched provider is not overwritten", errors);
+
+    var loanPdf = makeUncompressedPdf(FIXTURE_LOAN_LINES);
+    var loanParsed = parseVaultPdfFields(extractPdfText(loanPdf));
+    assert(loanParsed.vaultType === "loan", "loan PDF type " + loanParsed.vaultType, errors);
+    assert(loanParsed.provider === "Navy Federal", "loan PDF lender", errors);
+    assert(loanParsed.policyNumber === "90011234", "loan PDF account", errors);
+    assert(loanParsed.originalBalance === 24500, "loan PDF original " + loanParsed.originalBalance, errors);
+    assert(loanParsed.balance === 18240, "loan PDF balance " + loanParsed.balance, errors);
+    assert(loanParsed.rate === 5.9, "loan PDF rate " + loanParsed.rate, errors);
+    assert(loanParsed.minPayment === 385, "loan PDF min " + loanParsed.minPayment, errors);
+    assert(loanParsed.term === "Jan 2029", "loan payoff date " + loanParsed.term, errors);
+    assert(String(loanParsed.notes).indexOf("60 months") >= 0, "original term noted " + loanParsed.notes, errors);
+    var loanFilled = applyVaultPdfAutofill({ vaultType: "loan", title: "Loan", balance: 0 }, loanParsed);
+    assert(loanFilled.doc.balance === 18240, "loan autofill fills empty balance", errors);
+    assert(loanFilled.doc.originalBalance === 24500, "loan autofill original balance", errors);
+    var loanAgain = applyVaultPdfAutofill(loanFilled.doc, { balance: 1, originalBalance: 2 });
+    assert(loanAgain.doc.balance === 18240, "second pass does not overwrite filled balance", errors);
+
+    var payoff = extraPayoffInsight(10000, 12, 200, 100);
+    assert(payoff && payoff.savedMonths > 0, "extra payment shortens payoff", errors);
+    assert(payoff.interestSaved > 0, "extra payment saves interest", errors);
+    assert(monthsToPayOff(10000, 12, 50) == null, "payment below interest has no payoff", errors);
+
+    assert(exactAgeLine(30) === "You're 30", "exact age line", errors);
+    assert(exactAgeLine(null) === "", "missing age is not invented", errors);
+    var deckFree = compareDeck({ ageYears: 30, zip: "94110", income: 87885, netWorth: 165726, debt: 0, plan: "free" });
+    assert(deckFree.exactAge === "You're 30", "deck exact age", errors);
+    assert(deckFree.ageBand.id === "under35", "finest SCF band for 30", errors);
+    assert(deckFree.cards.length === 2, "free deck is 1-2 teasers", errors);
+    assert(deckFree.cards[0].id === "income" && deckFree.cards[0].locked === false, "free first card is income", errors);
+    var deckPrem = compareDeck({ ageYears: 42, zip: "94110", income: 87885, netWorth: 165726, debt: 8000, plan: "premium" });
+    assert(deckPrem.ageBand.id === "35-44", "age 42 is 35-44", errors);
+    assert(deckPrem.cards.length === 3, "premium full compare deck", errors);
+    assert(shouldAddVaultToNetWorth({ vaultType: "loan" }) === true, "null addToNetWorth defaults onto NW", errors);
+    assert(shouldAddVaultToNetWorth({ vaultType: "loan", addToNetWorth: true }) === true, "loan defaults onto NW", errors);
+    assert(shouldAddVaultToNetWorth({ vaultType: "loan", addToNetWorth: false }) === false, "opt out of NW", errors);
+    assert(shouldAddVaultToNetWorth({ vaultType: "insurance" }) === false, "insurance does not add NW", errors);
+    var pdfLoanDefault = applyVaultPdfAutofill({ vaultType: "other", vaultTypeCustomized: false, addToNetWorth: null }, loanParsed);
+    assert(pdfLoanDefault.doc.vaultType === "loan", "PDF can detect loan type from text", errors);
+    assert(pdfLoanDefault.doc.addToNetWorth === true, "PDF-detected loan defaults Add to Net Worth on", errors);
+    assert(shouldAddVaultToNetWorth(pdfLoanDefault.doc) === true, "PDF-detected loan syncs onto NW", errors);
+    var pdfKeepOther = applyVaultPdfAutofill({ vaultType: "other", vaultTypeCustomized: true }, loanParsed);
+    assert(pdfKeepOther.doc.vaultType === "other", "custom Other type is not overwritten", errors);
+
+    var flateText = extractPdfText(makeFlatePdf(FIXTURE_INSURANCE_LINES));
+    assert(flateText.indexOf("GEICO AUTO INSURANCE POLICY") >= 0, "flate insurance PDF inflates text", errors);
+    var flateParsed = parseVaultPdfFields(flateText);
+    assert(flateParsed.premium === 165 && flateParsed.premiumFrequency === "monthly", "flate fixture premium " + flateParsed.premium + " " + flateParsed.premiumFrequency, errors);
+    assert(flateParsed.provider === "Geico", "flate fixture provider", errors);
+
+    var hexPdf = makeContentPdf("BT /F1 12 Tf 72 700 Td <5072656D69756D3A20243138382E3430206D6F6E74686C79> Tj ET\n");
+    var hexParsed = parseVaultPdfFields(extractPdfText(hexPdf));
+    assert(hexParsed.premium === 188.4 && hexParsed.premiumFrequency === "monthly", "hex string premium " + hexParsed.premium, errors);
+
+    var kernPdf = makeContentPdf("BT /F1 12 Tf 72 700 Td [(Total Premium ) -20 ($1,482.00)] TJ T* (for the 6-month policy period) Tj T* (Progressive Auto Policy) Tj T* (Policy Number: 945821773) Tj ET\n", { flate: true });
+    var kernText = extractPdfText(kernPdf);
+    var kernParsed = parseVaultPdfFields(kernText);
+    assert(kernParsed.provider === "Progressive", "kerned progressive provider " + kernParsed.provider + " / " + kernText, errors);
+    assert(kernParsed.premium === 1482 && kernParsed.premiumFrequency === "semiannual", "kerned 6-month premium " + kernParsed.premium + " " + kernParsed.premiumFrequency, errors);
+    assert(kernParsed.policyNumber === "945821773", "kerned policy number", errors);
+
+    var geicoDecl = [
+      "GEICO",
+      "Government Employees Insurance Company",
+      "Automobile Policy Declarations",
+      "Policy Number: 4412887100",
+      "Named Insured: Jane Q Public",
+      "Policy Period: 01/15/2026 to 07/15/2026",
+      "Vehicle: 2019 Honda Civic",
+      "Coverages Limits Premium",
+      "Bodily Injury Liability 100/300 $186.40",
+      "Property Damage Liability $50,000 $94.20",
+      "Collision $500 ded $210.15",
+      "Comprehensive $250 ded $48.00",
+      "Total Premium for this vehicle $538.75"
+    ].join("\n");
+    var geicoFields = parseVaultPdfFields(geicoDecl);
+    assert(geicoFields.vaultType === "insurance", "geico decl type", errors);
+    assert(geicoFields.provider === "Geico", "geico decl provider " + geicoFields.provider, errors);
+    assert(geicoFields.policyNumber === "4412887100", "geico decl policy", errors);
+    assert(geicoFields.premium === 538.75, "geico decl uses total premium " + geicoFields.premium, errors);
+    assert(geicoFields.premiumFrequency === "semiannual", "geico decl 6-month frequency " + geicoFields.premiumFrequency, errors);
+    assert(String(geicoFields.insuredItems).indexOf("2019 Honda Civic") >= 0, "geico decl vehicle", errors);
+    var geicoBoxes = parseLiabilityLimits(geicoFields.limits);
+    assert(geicoBoxes.perPerson === 100000 && geicoBoxes.perAccident === 300000 && geicoBoxes.property === 50000, "geico limits boxes " + geicoFields.limits, errors);
+
+    var stateFarm = [
+      "State Farm Mutual Automobile Insurance Company",
+      "Policy Number: 123 4567-A12",
+      "Vehicle: 2018 Honda Civic",
+      "Monthly premium: $188.40"
+    ].join("\n");
+    var sf = parseVaultPdfFields(stateFarm);
+    assert(sf.provider === "State Farm", "state farm provider", errors);
+    assert(sf.policyNumber === "123 4567-A12", "state farm policy " + sf.policyNumber, errors);
+    assert(sf.premium === 188.4 && sf.premiumFrequency === "monthly", "state farm monthly premium", errors);
+    var sfDoc = applyVaultPdfAutofill({ vaultType: "", title: "", provider: "", premium: 0, premiumFrequency: "monthly", touchedFields: {} }, sf);
+    assert(sfDoc.doc.premium === 188.4 && sfDoc.doc.premiumFrequency === "monthly", "state farm autofill writes premium", errors);
+    var sfOver = insuranceOverpay([sfDoc.doc], 30);
+    assert(sfOver.rows.length === 1 && sfOver.rows[0].youMonthly === 188.4, "state farm becomes an overpay row " + (sfOver.rows[0] && sfOver.rows[0].youMonthly), errors);
+    assert(sfOver.totalOverpayMonthly > 0, "state farm monthly premium is above the auto cohort", errors);
+
+    var allstate = [
+      "Allstate Fire and Casualty Insurance Company",
+      "Auto Policy",
+      "Policy number: 987654321",
+      "Total premium",
+      "$642.18",
+      "Payment plan: Monthly",
+      "Monthly payment: $107.03"
+    ].join("\n");
+    var al = parseVaultPdfFields(allstate);
+    assert(al.provider === "Allstate", "allstate provider", errors);
+    assert(al.premium === 642.18 && al.premiumFrequency === "semiannual", "allstate total with monthly installment " + al.premium + " " + al.premiumFrequency, errors);
+    assert(Math.round(monthlyPremium(al.premium, al.premiumFrequency)) === 107, "allstate monthly equivalent", errors);
+
+    var progressive = [
+      "Progressive Casualty Insurance Company",
+      "Auto Insurance Policy",
+      "Policy number: 945821773",
+      "Your total policy premium is",
+      "$1,482.00",
+      "for the 6-month policy period shown below."
+    ].join("\n");
+    var prog = parseVaultPdfFields(progressive);
+    assert(prog.premium === 1482 && prog.premiumFrequency === "semiannual", "progressive split-line premium", errors);
+    var progDoc = applyVaultPdfAutofill({ premium: 0, premiumFrequency: "monthly", vaultType: "other", vaultTypeCustomized: true, title: "My card", touchedFields: {} }, prog);
+    assert(progDoc.doc.vaultType === "other", "re-parse keeps a customized type", errors);
+    assert(progDoc.doc.premium === 1482, "re-parse still fills an empty premium", errors);
+
+    var mortgage = [
+      "Wells Fargo Home Mortgage",
+      "Mortgage Statement",
+      "Loan Number: 0123456789",
+      "Property: 18 Oak Street",
+      "Principal Balance: $248,331.07",
+      "Original Loan Balance: $310,000.00",
+      "Interest Rate: 6.125%",
+      "Monthly Payment: $1,842.16",
+      "Maturity Date: 04/01/2052"
+    ].join("\n");
+    var mtg = parseVaultPdfFields(mortgage);
+    assert(mtg.vaultType === "mortgage", "mortgage type " + mtg.vaultType, errors);
+    assert(mtg.provider === "Wells Fargo", "mortgage lender", errors);
+    assert(mtg.balance === 248331.07, "mortgage principal " + mtg.balance, errors);
+    assert(mtg.originalBalance === 310000, "mortgage original", errors);
+    assert(mtg.rate === 6.125, "mortgage rate", errors);
+    assert(mtg.payment === 1842.16, "mortgage payment", errors);
+
+    var imagePdf = makeImageOnlyPdf();
+    assert(pdfTextIsThin(extractPdfText(imagePdf)), "image-only PDF has no text layer", errors);
+    assert(extractPdfJpegs(imagePdf).length === 1, "image-only PDF exposes the JPEG for OCR", errors);
+    var unread = insuranceOverpay([{ title: "Auto Insurance — Geico", provider: "Geico", premium: 0, premiumFrequency: "monthly", vaultType: "insurance", slot: "insurance" }], 40);
+    assert(unread.rows.length === 0 && unread.unreadPremium === true, "zero premium is not an overpay row", errors);
+    assert(unread.emptyCopy.indexOf("could not read premium") >= 0, "unread premium copy", errors);
+    assert(unread.teaser.indexOf("subscribe") < 0, "unread premium does not blame the plan", errors);
+
+    var alphabet = new Uint8Array(0x8000 + 256);
+    var bi;
+    for (bi = 0; bi < alphabet.length; bi++) alphabet[bi] = bi & 255;
+    var decoded = latin1FromBytes(alphabet);
+    var chunked = latin1FromBytesChunked(alphabet);
+    assert(decoded.length === alphabet.length && chunked === decoded, "latin1 chunked matches TextDecoder across 32KB", errors);
+    assert(decoded.charCodeAt(0) === 0 && decoded.charCodeAt(255) === 255 && decoded.charCodeAt(0x8000) === 0, "latin1 keeps every byte across the chunk boundary", errors);
+    var heavy = new Uint8Array(3 * 1024 * 1024);
+    heavy[0] = 0x41;
+    heavy[heavy.length - 1] = 0xFF;
+    var heavyStarted = Date.now();
+    var heavyText = latin1FromBytes(heavy);
+    var heavyMs = Date.now() - heavyStarted;
+    assert(heavyText.length === heavy.length, "3MB latin1 length", errors);
+    assert(heavyText.charCodeAt(0) === 0x41 && heavyText.charCodeAt(heavyText.length - 1) === 0xFF, "3MB latin1 endpoints", errors);
+    assert(heavyMs < 1500, "3MB latin1 stays responsive (" + heavyMs + "ms)", errors);
+
+    var boundPdf = makeBoundPdf([
+      FIXTURE_INSURANCE_LINES,
+      ["Page two still in range"],
+      ["Page three still in range"],
+      ["ONLYONPAGEFOUR Premium: $777.00 monthly"]
+    ], { decoy: "BT (HIDDEN DECOY $9999.00 monthly) Tj ET\n" });
+    var boundText = extractPdfText(boundPdf);
+    assert(boundText.indexOf("GEICO AUTO INSURANCE POLICY") >= 0, "page tree keeps the declarations page", errors);
+    assert(boundText.indexOf("Page three still in range") >= 0, "third page is inside the cap", errors);
+    assert(boundText.indexOf("ONLYONPAGEFOUR") < 0, "fourth page is outside the cap", errors);
+    assert(boundText.indexOf("HIDDEN DECOY") < 0, "non-content stream is not extracted", errors);
+    var boundParsed = parseVaultPdfFields(boundText);
+    assert(boundParsed.premium === 165 && boundParsed.premiumFrequency === "monthly", "capped page tree keeps geico premium " + boundParsed.premium + " " + boundParsed.premiumFrequency, errors);
+    var zeroInfo = {};
+    assert(extractPdfText(boundPdf, { maxMs: 0, info: zeroInfo }) === "" && zeroInfo.timedOut === true, "zero maxMs stops and reports timedOut", errors);
+    var geicoOpts = parseVaultPdfFields(extractPdfText(insPdf, { maxMs: 200, maxPages: 3 }));
+    assert(geicoOpts.premium === 165 && geicoOpts.premiumFrequency === "monthly", "maxMs/maxPages keeps geico premium", errors);
+    var fat = new Array(200001).join("A");
+    var fatStarted = Date.now();
+    var fatText = extractPdfText(makeBoundPdf([FIXTURE_INSURANCE_LINES], {
+      decoy: "BT (HIDDEN DECOY $9999.00 monthly) Tj ET\n" + fat
+    }));
+    var fatMs = Date.now() - fatStarted;
+    assert(fatText.indexOf("165") >= 0 && fatText.indexOf("HIDDEN DECOY") < 0, "fat non-content stream is skipped", errors);
+    assert(fatMs < 500, "fat non-content stream stays inside the budget (" + fatMs + "ms)", errors);
+    assert(vaultPdfNeedsAutofill({ pdfScanned: true, hasBlob: true, fileName: "policy.pdf", mime: "application/pdf", premium: 0, vaultType: "insurance" }) === false, "scanned insurance with premium 0 does not rescan", errors);
+    assert(vaultPdfNeedsAutofill({ pdfScanned: false, hasBlob: true, fileName: "policy.pdf", premium: 0 }) === true, "unscanned pdf still autofills once", errors);
+    assert(pdfQuickReadCopy().indexOf("Couldn") >= 0 && pdfQuickReadCopy().indexOf("shorter declarations") >= 0, "quick-read copy", errors);
+
+    var spendEarly = evaluate({
+      savingsRate: 0.02,
+      liquidMonths: 6,
+      consumerDebtToIncome: 0.02,
+      totalDebtToAssets: 0.05,
+      netWorth: 90000,
+      annualIncome: 80000,
+      ageYears: 32,
+      deltaNWToIncome: 0.2,
+      completedStatementYears: 3,
+      consecutiveCompletedYears: 3,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: true,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.1,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: false,
+      maxEmployerPlans: false,
+      hyperOnTrack: false,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    assert(spendEarly.foo.currentStep === 3, "spend-early current " + spendEarly.foo.currentStep, errors);
+    assert(spendEarly.lowestVisible === "spend", "spend-early lowest " + spendEarly.lowestVisible, errors);
+    assert(spendEarly.nextAction.fooStep === 3, "spend-early next " + spendEarly.nextAction.fooStep, errors);
+    var cheapEarly = evaluate({
+      savingsRate: 0.35,
+      liquidMonths: 8,
+      consumerDebtToIncome: 0.9,
+      totalDebtToAssets: 1.4,
+      netWorth: 120000,
+      annualIncome: 80000,
+      ageYears: 34,
+      deltaNWToIncome: 0.2,
+      completedStatementYears: 3,
+      consecutiveCompletedYears: 3,
+      completedYearsHaveGap: false,
+      hasHighInterestConsumerDebt: false,
+      hasOnlyCheapDebt: true,
+      needsBirthdayForDebt: true,
+      retirementRateOfGross: 0.1,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: false,
+      maxEmployerPlans: false,
+      hyperOnTrack: false,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    assert(cheapEarly.foo.currentStep === 3, "cheap-early current " + cheapEarly.foo.currentStep, errors);
+    assert(cheapEarly.nextAction.fooStep === 3, "cheap-early next " + cheapEarly.nextAction.fooStep + " " + cheapEarly.lowestVisible, errors);
+    assert(cheapEarly.nextAction.title.indexOf("High-interest debt") >= 0 || cheapEarly.nextAction.fooStep <= 3, "cheap-early stays on open FOO " + cheapEarly.nextAction.title, errors);
+    var trajectoryEarly = evaluate({
+      savingsRate: 0.4,
+      liquidMonths: 8,
+      consumerDebtToIncome: 0.01,
+      totalDebtToAssets: 0.05,
+      netWorth: 200000,
+      annualIncome: 80000,
+      ageYears: 32,
+      deltaNWToIncome: -0.8,
+      completedStatementYears: 2,
+      consecutiveCompletedYears: 1,
+      completedYearsHaveGap: true,
+      hasHighInterestConsumerDebt: true,
+      hasOnlyCheapDebt: false,
+      retirementRateOfGross: 0.12,
+      deductiblesCovered: true,
+      matchCaptured: true,
+      emergencyFunded: true,
+      rothOnTrack: false,
+      maxEmployerPlans: false,
+      hyperOnTrack: false,
+      prepayFuture: false,
+      prepayLowInterest: false
+    });
+    assert(trajectoryEarly.foo.currentStep === 3, "trajectory-early current " + trajectoryEarly.foo.currentStep, errors);
+    assert(trajectoryEarly.nextAction.fooStep === 3, "trajectory-early next " + trajectoryEarly.nextAction.fooStep + " lowest " + trajectoryEarly.lowestVisible, errors);
+    assert(trajectoryEarly.nextAction.fooStep <= trajectoryEarly.foo.currentStep, "trajectory-early clamp", errors);
+    var sortAsOf = new Date(2026, 8, 1);
+    var sortLoansSample = [
+      { name: "Cap One", balance: 4200, rate: 24.9, minPayment: 120, term: "" },
+      { name: "Student", balance: 28000, rate: 5.5, minPayment: 180, term: "Jan 2036" },
+      { name: "Affirm", balance: 900, rate: 18, minPayment: 80, term: "Mar 2027" }
+    ];
+    var byBalance = sortLoans(sortLoansSample, { key: "balance", dir: "desc" }, sortAsOf).map(function (item) { return item.name; });
+    assert(byBalance.join(",") === "Student,Cap One,Affirm", "loan sort balance " + byBalance.join(","), errors);
+    var byRate = sortLoans(sortLoansSample, { key: "rate", dir: "desc" }, sortAsOf).map(function (item) { return item.name; });
+    assert(byRate[0] === "Cap One" && byRate[2] === "Student", "loan sort rate " + byRate.join(","), errors);
+    var byTime = sortLoans(sortLoansSample, { key: "time", dir: "asc" }, sortAsOf).map(function (item) { return item.name; });
+    assert(byTime[0] === "Affirm", "loan sort time " + byTime.join(","), errors);
+    assert(normalizeLoanSort(null).key === "balance" && normalizeLoanSort(null).dir === "desc", "loan sort default", errors);
+    assert(normalizeLoanSort({ key: "time" }).dir === "asc", "time default soonest", errors);
+    var ranked = rankExtraPayoff(sortLoansSample, 100);
+    assert(ranked.bestSave && ranked.fastest, "payoff rank has both", errors);
+    assert(ranked.bestSave.loan.name.length > 0 && ranked.fastest.loan.name.length > 0, "payoff rank names", errors);
+    runLedgerTests(errors);
+    runShareCardTests(errors);
+    runPayStubBasisTests(errors);
+    return errors;
+  }
 
   var VAULT_TYPES = [
     { id: "insurance", title: "Insurance" },
@@ -1968,7 +2681,7 @@
       var cmap = cmapForFont ? cmapForFont(fontName) : null;
       return decodeGlyphs(bytes, cmap);
     }
-    /* v37.5.59.5: graphics-state CTM (q / Q / cm). Workday pay stubs place every text run with
+    /* v37.5.59.5: graphics-state CTM (q / Q / cm). Workday payslips place every text run with
      * "1 0 0 1 x y cm" + "1 0 0 1 0 0 Tm", so without the CTM every run landed on one line at x = 0. */
     var ctm = [1, 0, 0, 1, 0, 0];
     var ctmStack = [];
@@ -2215,7 +2928,7 @@
     return doc;
   }
 
-  /* v37.5.59.5: PDF 1.5+ compressed object streams (/Type /ObjStm). Workday pay stubs (and most modern
+  /* v37.5.59.5: PDF 1.5+ compressed object streams (/Type /ObjStm). Workday payslips (and most modern
    * generators) keep the Catalog, Pages and every Page dict inside one — without this, 0 pages were found.
    * Each embedded object becomes a cached dict-only object (no stream) under its own number. */
   function unpackPdfObjectStreams(doc, over) {
@@ -3016,7 +3729,7 @@
 
   registerPayStubAdapter("generic-us", parseGenericUsPayStub);
 
-  /* v37.5.59.5: Workday pay stub adapter ("Workday BIRT Report Engine" layout, e.g. large employers). Two tables sit side
+  /* v37.5.59.5: Workday payslip adapter ("Workday BIRT Report Engine" layout, e.g. ExampleCo). Two tables sit side
    * by side on each line (Earnings | Employee Taxes, Pre Tax | Post Tax, Employer Paid Benefits | Taxable Wages),
    * so each line is split into label + numbers segments. Current + YTD columns. Generic parsing mangled this layout. */
   function workdayNum(tok) {
@@ -3716,7 +4429,7 @@
     // the stub it's copied from is never repeated (bonuses are projected only from the bonus month).
     /* v37.5.59.5: taxable non-cash earnings (Earnings − Gross pay: group-term life, brokerage fee, other imputed
      * income) repeat on estimated/projected checks only at the smallest per-check amount seen on any stub this
-     * year. A one-off imputed item on the latest stub (an Earnings line above gross) is
+     * year. A one-off imputed item on the latest stub (the owner's Oct 2: Earnings $3,963.15 vs gross $3,380.74) is
      * counted once, on its own check — it used to be copied onto every projected check. */
     var recurringImputed = null;
     list.forEach(function (s) {
@@ -4223,6 +4936,52 @@
     return { total: ledgerCents(total), lines: lines };
   }
 
+  /* v37.5.59.102 (owner): Basic / True count only RETIREMENT money. A retirement budget line is decided by the
+   * caller's linkage test (budget line ↔ Net worth account in the Retirement group) when one is given; otherwise
+   * the savings-line test filtered to retirement names (Roth, IRA, retirement). House fund / cash savings lines no
+   * longer count. 401k/403b/457 budget lines stay out (payroll deferrals come from the pay stub on True). */
+  var RETIRE_LINE_RE = /\broth\b|roth|\bira\b|retire/i;
+  function isRetirementLineByName(categoryName, lineName) {
+    var line = String(lineName || "").replace(/^\s+|\s+$/g, "");
+    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(line)) return false;
+    return isSavingsEnvelope(categoryName, lineName) && RETIRE_LINE_RE.test(line);
+  }
+  function retirementEnvelopeTotal(categories, isRetire) {
+    var test = typeof isRetire === "function" ? isRetire : isRetirementLineByName;
+    var total = 0, lines = [];
+    (categories || []).forEach(function (cat) {
+      var catLines = cat && cat.lines && cat.lines.length ? cat.lines : null;
+      if (!catLines) {
+        if (cat && test(cat.name, cat.name)) {
+          var a0 = Math.max(0, ledgerCents(cat.assigned));
+          if (a0 > 0) { total += a0; lines.push({ name: cat.name, amount: a0 }); }
+        }
+        return;
+      }
+      catLines.forEach(function (line) {
+        if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(String(line.name || ""))) return;
+        if (!test(cat.name, line.name)) return;
+        var a = Math.max(0, ledgerCents(line.assigned));
+        if (!(a > 0)) return;
+        total += a;
+        lines.push({ name: line.name, group: cat.name, amount: a });
+      });
+    });
+    return { total: ledgerCents(total), lines: lines };
+  }
+  /* v37.5.59.102: HSA on True counts only when its Net worth account is in a retirement / investment group.
+   * The caller passes excludeHsa: true otherwise; the HSA row stays visible at $0 marked "not counted". */
+  function dropHsa(out, opts) {
+    if (!out || !opts || !opts.excludeHsa || !out.rows) return out;
+    out.rows.forEach(function (r) {
+      if (r.id !== "hsa") return;
+      if (r.amount > 0 && out.numerator != null) out.numerator = ledgerCents(out.numerator - r.amount);
+      r.amount = 0; r.label += " (not counted)"; r.notCounted = true;
+    });
+    if (out.numerator != null) out.rate = safeRatio(out.numerator, out.denominator != null ? out.denominator : out.gross);
+    return out;
+  }
+
   function safeRatio(num, den) {
     var n = Number(num);
     var d = Number(den);
@@ -4269,7 +5028,8 @@
     out.rate = safeRatio(out.numerator, out.denominator);
     return out;
   }
-  function trueSavingsRate(opts) {
+  function trueSavingsRate(opts) { return dropHsa(trueSavingsRateRaw(opts), opts); }
+  function trueSavingsRateRaw(opts) {
     opts = opts || {};
     var snap = opts.snapshot || null;
     var out = {
@@ -4290,7 +5050,7 @@
       if (!sm || !(Number(sm.gross) > 0)) { out.state = "needsStub"; out.noMonthStub = true; return out; }
       var sav0 = Math.max(0, ledgerCents(opts.savings));
       out.rows = [
-        { id: "savings", label: "Savings envelopes", amount: sav0, missing: false },
+        { id: "savings", label: "Retirement budget lines", amount: sav0, missing: false },
         { id: "employee401k", label: "Employee 401k", amount: ledgerCents(sm.employee401k || 0), missing: false },
         { id: "employerMatch", label: "Employer match", amount: ledgerCents(sm.employer401k || 0), missing: false },
         { id: "hsa", label: "HSA", amount: ledgerCents(sm.hsa || 0), missing: false }
@@ -4323,7 +5083,7 @@
     var hsa = monthly(snap.hsa);
     var grossM = ledgerCents(gross * perMonth);
     out.rows = [
-      { id: "savings", label: "Savings envelopes", amount: savings, missing: false },
+      { id: "savings", label: "Retirement budget lines", amount: savings, missing: false },
       { id: "employee401k", label: "Employee 401k", amount: e401 == null ? 0 : e401, missing: e401 == null },
       { id: "employerMatch", label: "Employer match", amount: match == null ? 0 : match, missing: match == null },
       { id: "hsa", label: "HSA", amount: hsa == null ? 0 : hsa, missing: hsa == null }
@@ -4387,7 +5147,7 @@
       " received so far; switches to received when all arrive";
   }
 
-  /* v37.5.59 Basic denominator rule (owner): a month uses PLANNED paychecks until EVERY planned
+  /* v37.5.59 Basic denominator rule (owner, locked): a month uses PLANNED paychecks until EVERY planned
    * paycheck (income line with amount > 0) has Received ≥ its planned amount; only then Received.
    *   incomes = the month's income lines [{ id, amount }]. Without them we can't prove "all arrived",
    *   so the month stays on planned (unless nothing is planned and income was logged → Received).
@@ -4400,7 +5160,7 @@
     return { plannedCount: lines.length, receivedCount: got, all: lines.length > 0 && got === lines.length };
   }
 
-  /* v37.5.59.2 (owner): which side of today a budget month sits on.
+  /* v37.5.59.2 (owner refinement): which side of today a budget month sits on.
    * year/month are 1-based; today defaults to the device clock. */
   function monthPeriod(year, month, today) {
     var d = today ? new Date(today) : new Date();
@@ -4449,7 +5209,8 @@
    * Design (honest): there is a single confirmed stub on compensation (not per-month stubs). Without
    * it → needsStub/empty — never invent stub figures for uncovered months. With it, the stub applies
    * uniformly across every month in the period (scaled). True NEVER uses envelope-only or Ramsey estimates. */
-  function periodTrueSavingsRate(opts) {
+  function periodTrueSavingsRate(opts) { return dropHsa(periodTrueSavingsRateRaw(opts), opts); }
+  function periodTrueSavingsRateRaw(opts) {
     opts = opts || {};
     var monthCount = Math.max(0, Math.round(Number(opts.monthCount) || 0));
     var savings = Math.max(0, ledgerCents(opts.savings));
@@ -4470,7 +5231,7 @@
       var covered = ms.length, all = (opts.stubMonths || []).length;
       var tag = covered > 1 ? " (" + covered + " mo)" : "";
       outB.rows = [
-        { id: "savings", label: "Savings envelopes" + (covered > 1 ? " (period)" : ""), amount: savings, missing: false },
+        { id: "savings", label: "Retirement budget lines" + (covered > 1 ? " (period)" : ""), amount: savings, missing: false },
         { id: "employee401k", label: "Employee 401k" + tag, amount: ledgerCents(tot.e401), missing: false },
         { id: "employerMatch", label: "Employer match" + tag, amount: ledgerCents(tot.er), missing: false },
         { id: "hsa", label: "HSA" + tag, amount: ledgerCents(tot.hsa), missing: false }
@@ -4551,7 +5312,7 @@
     if (hasRate) {
       headline = shareTrue
         ? { value: "Saved " + pct(Number(rate)), label: "of gross pay, counting 401k, match, and HSA", sub: "True savings rate · confirmed pay stub" }
-        : { value: "Saved " + pct(Number(rate)), label: "of take-home, into savings envelopes", sub: "Basic savings rate · savings envelopes ÷ take-home" };
+        : { value: "Saved " + pct(Number(rate)), label: "of take-home, into retirement", sub: "Basic savings rate · retirement budget lines ÷ take-home" };
     } else if (days > 0) {
       headline = { value: days + (days === 1 ? " day" : " days"), label: "logged on paper", sub: "" };
     } else {
@@ -4560,7 +5321,7 @@
     var rows = [];
     rows.push({
       id: "saved",
-      label: "Savings envelopes",
+      label: "Retirement budget lines",
       value: show ? fmt(saved) : SHARE_MASK,
       masked: !show,
       mono: true,
@@ -4630,7 +5391,108 @@
   }
 
 
+  /* v37.5.59.3 pay-stub year basis: actual YTD + capped projection; no stub × checks. */
+  function runPayStubBasisTests(errors) {
+    var near = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.011; };
+    var L = pretaxLimitsFor(2026, {});
+    assert(L.k401 === 24500 && L.hsa === 4400 && L.fsa === 3400, "2026 limits 401k 24,500 / HSA 4,400 / FSA 3,400", errors);
+    assert(pretaxLimitsFor(2026, { hsaCoverage: "family" }).hsa === 8750, "HSA family 8,750", errors);
+    assert(pretaxLimitsFor(2026, { ageAtYearEnd: 52 }).k401 === 32500 && pretaxLimitsFor(2026, { ageAtYearEnd: 61 }).k401 === 35750, "401k catch-ups", errors);
+    assert(pretaxLimitsFor(2026, { ageAtYearEnd: 56 }).hsa === 5400, "HSA 55+ catch-up", errors);
+    var stubs = [{"employer":"Example Employer Inc","payPeriodStart":"2026-08-17","payPeriodEnd":"2026-08-30","payDate":"2026-09-04","gross":3380.7,"earnings":3381.90,"net":2340.52,"federalTax":377.73,"stateTax":172.0,"socialSecurity":205.94,"medicare":51.79,"fica":null,"otherTaxes":[{"name":"Family Leave - MNPFL","amount":4.9},{"name":"Medical Leave - MNPML","amount":11.09}],"employee401k":169.04,"employer401k":169.04,"hsa":null,"otherDeductions":[{"name":"Health Care Flexible Spending Account","amount":50.0,"preTax":true},{"name":"Vacation Buy","amount":14.79,"preTax":true},{"name":"Long Term Disability","amount":4.58,"preTax":false}],"fedTaxableWages":3152.6,"stateTaxableWages":3152.6,"ytd":{"gross":59252.7,"earnings":59324.10,"net":39827.36,"federalTax":6262.16,"stateTax":2837.0,"socialSecurity":3610.85,"medicare":844.48,"otherTaxes":261.0,"employee401k":4656.62,"employer401k":2962.64,"hsa":0,"fsa":900.0,"otherPreTax":247.58,"preTaxTotal":5741.21,"postTax":72.36,"fedTaxableWages":53582.89,"stateTaxableWages":53582.89},"confidence":1,"adapterId":"manual-example-workday"},{"employer":"Example Employer Inc","payPeriodStart":"2026-09-14","payPeriodEnd":"2026-09-27","payDate":"2026-10-02","gross":3380.7,"earnings":3963.15,"net":1815.37,"federalTax":397.25,"stateTax":176,"socialSecurity":211.44,"medicare":53.18,"fica":null,"otherTaxes":[{"name":"MNPFL","amount":5.75},{"name":"MNPML","amount":12.99}],"employee401k":169.04,"employer401k":169.04,"hsa":482.44,"otherDeductions":[{"name":"Medical","amount":52.5,"preTax":true},{"name":"Dental","amount":7.69,"preTax":true},{"name":"AD&D","amount":0.7},{"name":"Vacation Buy","amount":14.79,"preTax":true},{"name":"LTD (post-tax)","amount":4.58,"preTax":false}],"confidence":1,"adapterId":"manual-example-summary"}];
+    var b = payStubYearBasis(stubs, { year: 2026, frequency: "biweekly", hsaCoverage: "self" });
+    assert(b && b.hasYtd && b.anchorDate === "2026-09-04" && b.latestDate === "2026-10-02", "owner basis anchors on the Sep 4 YTD", errors);
+    assert(b.projected.length === 6 && b.estimated.length === 1 && b.estimated[0].date === "2026-09-18", "6 projected checks + Sep 18 estimated", errors);
+    assert(b.short === "Actual through Oct 2 (1 check without a stub estimated) + projected 6 checks", "basis short copy: " + b.short, errors);
+    assert(near(b.pretax.total, 11510.85) && near(b.pretax.e401, 6008.92) && near(b.pretax.hsa, 4150) && near(b.pretax.fsa, 900) && near(b.pretax.otherPre, 866.06),
+      "owner 2026 pre-tax 11,510.85 " + JSON.stringify(b.pretax), errors);
+    // v37.5.59.5: the Oct 2 stub's one-off $625 of non-cash taxable earnings is counted once, not on 7 more checks.
+    assert(near(b.fedTaxableWages, 81128.69) && near(b.total.earnings, 93505.95) && near(b.grossPay.imputed, 711.75), "fed taxable wages 81,128.69 (earnings 93,505.95) " + b.fedTaxableWages + " / " + b.total.earnings, errors);
+    assert(b.notes.indexOf("one-off-imputed") >= 0 && /counted once, on that check/.test(b.long), "one-off imputed earnings explained", errors);
+    assert(near(b.taxes.fed, 10150.71) && near(b.taxes.state, 4245) && near(b.taxes.fica, 7034.91) && near(b.taxes.otherTax, 430.52), "taxes YTD + projected " + JSON.stringify(b.taxes), errors);
+    assert(b.unflagged.join() === "AD&D" && /not counted: AD&D/.test(b.long), "unmarked deduction listed, not counted", errors);
+    var oct = payStubBasisMonth(b, 10);
+    assert(near(oct.gross, 10905.60) && near(oct.hsa, 1556.25) && oct.checks === 3, "October = Oct 2 stub + 2 projected checks", errors);
+    // Front-loaded HSA stops at the limit.
+    var front = JSON.parse(JSON.stringify(stubs));
+    front[1].hsa = 1000;
+    var bf = payStubYearBasis(front, { year: 2026, frequency: "biweekly", hsaCoverage: "self" });
+    assert(near(bf.pretax.hsa, 4400) && bf.capped.hsa > 0 && /HSA stops at the 2026 self-only limit \$4,400\.00 \(IRS Rev\. Proc\. 2025-19\)/.test(bf.long),
+      "front-loaded HSA capped at 4,400 " + bf.pretax.hsa, errors);
+    var bfam = payStubYearBasis(front, { year: 2026, frequency: "biweekly", hsaCoverage: "family" });
+    assert(near(bfam.pretax.hsa, 8000), "family limit not hit at 8 × 1,000 " + bfam.pretax.hsa, errors);
+    // 401k stops at the deferral limit after YTD.
+    var hi = JSON.parse(JSON.stringify(stubs));
+    hi[0].ytd.employee401k = 24000;
+    var bh = payStubYearBasis(hi, { year: 2026, frequency: "biweekly" });
+    assert(near(bh.pretax.e401, 24500) && bh.capped.e401 > 0, "401k stops once YTD + actual + projected reach 24,500 " + bh.pretax.e401, errors);
+    // No YTD anywhere → sum confirmed stubs, say earlier checks aren't counted.
+    var lone = payStubYearBasis([stubs[1]], { year: 2026, frequency: "biweekly" });
+    assert(!lone.hasYtd && /aren’t counted/.test(lone.long) && near(lone.pretax.hsa, 482.44 * 7), "no-YTD basis sums stubs + projection", errors);
+    assert(payStubYearBasis(stubs, { year: 2025 }) === null, "no 2025 stub → no basis (older years never reuse 2026 stubs)", errors);
+    // True from the month's own paychecks.
+    var tr = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: oct, savings: 1000 });
+    assert(tr.state === "ok" && near(tr.gross, 10905.60) && near(tr.numerator, 1000 + oct.employee401k + oct.employer401k + oct.hsa), "True uses October’s paychecks", errors);
+    var trNone = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: null, savings: 1000 });
+    assert(trNone.state === "needsStub" && trNone.noMonthStub, "no stub for the month → needsStub", errors);
+    // Compensation from the basis (no × 26 for deductions).
+    var applied = applyPayStubToCompensation({ paychecksPerYear: 26, preTax: [{ id: "401k", value: 0 }, { id: "hsa", value: 0 }, { id: "fsa", value: 0 }] }, stubs[1],
+      { stubs: [stubs[0]], frequency: "biweekly", paychecksPerYear: 26, hsaCoverage: "self", confirmedAt: "x" });
+    var hsaRow = applied.plan.preTax.filter(function (r) { return r.id === "hsa"; })[0];
+    assert(near(hsaRow.value, 4150) && near(applied.plan.baseSalary, 86298.61), "compensation HSA 4,150 (not 12,543.38), base = YTD + projected gross", errors);
+    runGrossBasisTests(errors, stubs, near);
+  }
 
+  /* v37.5.59.4: average tax / True / compare use one gross — YTD gross + checks since + projected BASE pay +
+   * a bonus only while its month is ahead. DN401NC = employer 401k base: not pay, not a deduction. */
+  function runGrossBasisTests(errors, stubs0, near) {
+    var st = JSON.parse(JSON.stringify(stubs0));
+    st[0].employer401kBase = 67.62; st[0].ytd.employer401kBase = 1185.15;
+    st[0].earningsLines = [
+      { name: "Holiday Pay", amount: 0, ytd: 2013.12 }, { name: "Vacation", amount: 0, ytd: 3245.77 },
+      { name: "Variable Scorecard", amount: 0, ytd: 3874 }, { name: "Misc Fee", amount: 0, ytd: 60 },
+      { name: "Group Term Life - Taxable", amount: 1.25, ytd: 16.75 }, { name: "Regular Earn", amount: 3380.7, ytd: 48176.68 },
+      { name: "Monthly Variable", amount: 0, ytd: 1943 }];
+    st[1].employer401kBase = 67.62;
+    var b = payStubYearBasis(st, { year: 2026, frequency: "biweekly", hsaCoverage: "self", bonusMonth: 2 });
+    assert(near(b.grossPay.ytdStub, 59252.72) && near(b.grossPay.afterYtd, 6761.47) && near(b.grossPay.projectedBase, 20284.42) &&
+      b.grossPay.projectedBonus === 0 && near(b.grossPay.total, 86298.61), "gross pay = YTD + since + projected base " + JSON.stringify(b.grossPay), errors);
+    assert(near(b.taxesActual, 15295.36) && near(b.taxesProjected, 5035.50) && near(b.taxes.total, 20330.86), "taxes actual + projected", errors);
+    assert(Math.abs(b.taxes.total / b.grossPay.total - 0.2356) < 0.0001, "average tax 23.6% on stub gross", errors);
+    assert(b.bonus.status === "paid" && /February bonus has already paid/.test(b.bonus.note) && /3,874/.test(b.bonus.note), "Feb bonus already in YTD — nothing projected", errors);
+    assert(near(b.grossPay.bonusTotal, 6255) && near(b.grossPay.basePay, 80481.46), "bonus/variable 6,255 split from base pay", errors);
+    assert(near(b.total.er401Base, 1726.12) && near(b.total.er401, 4314.93), "DN401NC base 1,726.12 tracked apart from match", errors);
+    assert(near(b.total.earnings, 93505.95) && near(b.pretax.total, 11510.85) && near(b.fedTaxableWages, 81128.69), "DN401NC changes neither earnings nor pre-tax deductions", errors);
+    var feb = payStubBasisMonth(b, 2), jan = payStubBasisMonth(b, 1);
+    assert(near(feb.gross - jan.gross, 3874), "YTD bonus sits in February, not spread " + feb.gross + " vs " + jan.gross, errors);
+    var oct = payStubBasisMonth(b, 10);
+    var tr = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: oct, savings: 2400 });
+    assert(tr.rows.some(function (r) { return r.id === "employerBase" && near(r.amount, 218.13); }) && near(tr.gross, 10905.60), "True adds employer 401k base " + JSON.stringify(tr.rows), errors);
+    var noMonth = payStubYearBasis(st, { year: 2026, frequency: "biweekly" });
+    assert(noMonth.bonus.status === "in-ytd" && noMonth.grossPay.projectedBonus === 0, "bonus found in YTD without a month → counted, not projected", errors);
+    var dec = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 12, bonusAmount: 5000 });
+    assert(dec.bonus.status === "projected" && dec.bonus.projectedDate === "2026-12-11" && near(dec.grossPay.total, 97794.20) &&
+      near(dec.taxes.total - b.taxes.total, 5000 * (0.22 + 0.0625 + 0.0765)) && /\+ Dec bonus$/.test(dec.short), "future-month bonus projected once with supplemental withholding", errors);
+    var decNo = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 12 });
+    assert(decNo.bonus.status === "no-amount" && decNo.grossPay.projectedBonus === 0, "bonus month without an amount → nothing invented", errors);
+    var pct = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 11, bonusTargetPercent: 10 });
+    assert(pct.bonus.status === "projected" && near(pct.bonus.projected, 8653.92), "target % × base pay " + pct.bonus.projected, errors);
+    // Latest stub carrying a bonus: it is actual once, never repeated in projected checks.
+    var withBonus = JSON.parse(JSON.stringify(st));
+    withBonus[1].gross = 3380.74 + 2000; withBonus[1].earnings = 3963.15 + 2000;
+    withBonus[1].earningsLines = [{ name: "Regular Earn", amount: 3380.74 }, { name: "Annual Bonus", amount: 2000 }];
+    var wb = payStubYearBasis(withBonus, { year: 2026, frequency: "biweekly" });
+    assert(near(wb.grossPay.projectedBase, 20284.42) && near(wb.grossPay.total, 86298.61 + 2000), "a bonus on the latest stub is not projected forward " + JSON.stringify(wb.grossPay), errors);
+    // Parser: DN401NC → employer401kBase, never the match or a deduction; bonus/variable earnings lines found.
+    var txt = "Pay Stub\nGross Pay 3,380.74 59,252.72\nNet Pay 2,340.52 39,827.36\nYTD\nFederal Tax 377.73 6,262.16\n" +
+      "Variable Scorecard 0 4,166.00\nMonthly Variable 0 2,089.00\n" +
+      "Employer 401k Match 169.04 2,962.64\nDN401NC - 401k Company Base Contribution 67.62 1,185.15\n";
+    var ps = parsePayStubText(txt);
+    assert(ps.employer401kBase === 67.62 && ps.employer401k === 169.04 && ps.ytd && ps.ytd.employer401kBase === 1185.15, "parser: DN401NC is employer 401k base " + JSON.stringify([ps.employer401kBase, ps.employer401k]), errors);
+    assert(!(ps.otherDeductions || []).some(function (d) { return /DN401NC|base/i.test(d.name); }), "parser: DN401NC never a deduction", errors);
+    assert((ps.earningsLines || []).length === 2 && earningsKind(ps.earningsLines[0]) === "bonus" && earningsKind(ps.earningsLines[1]) === "variable" &&
+      ps.earningsLines[0].ytd === 3874, "parser: bonus / variable earnings lines " + JSON.stringify(ps.earningsLines), errors);
+  }
 
   function runLedgerTests(errors) {
     var near = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005; };
@@ -4691,6 +5553,15 @@
     ];
     var sv = savingsEnvelopeTotal(cats);
     assert(sv.total === 1050, "savings envelopes total " + sv.total, errors);
+    // v37.5.59.102: retirement-only lines for Basic / True.
+    var rcats = [{ name: "Savings", lines: [{ name: "Roth IRA", assigned: 500 }, { name: "House fund", assigned: 300 }, { name: "Savings", assigned: 200 }, { name: "401k", assigned: 900 }] },
+      { name: "Food", lines: [{ name: "Groceries", assigned: 400 }] }];
+    assert(retirementEnvelopeTotal(rcats).total === 500, "retirement lines by name = Roth only " + retirementEnvelopeTotal(rcats).total, errors);
+    assert(retirementEnvelopeTotal(rcats, function (c, l) { return l === "Savings"; }).total === 200, "retirement lines by linkage test", errors);
+    var hx = trueSavingsRate({ premium: true, snapshot: { gross: 2000, employee401k: 100, employer401k: 50, hsa: 40, confirmedAt: "x" }, paychecksPerYear: 12, savings: 0, excludeHsa: true });
+    assert(hx.numerator === 150 && Math.abs(hx.rate - 0.075) < 1e-9, "excludeHsa drops HSA " + hx.numerator, errors);
+    var hk = trueSavingsRate({ premium: true, snapshot: { gross: 2000, employee401k: 100, employer401k: 50, hsa: 40, confirmedAt: "x" }, paychecksPerYear: 12, savings: 0 });
+    assert(hk.numerator === 190, "HSA counted by default " + hk.numerator, errors);
     var basic = basicSavingsRate({ savings: sv.total, takeHome: 5000 });
     assert(near(basic.rate, 0.21), "basic rate 21% " + basic.rate, errors);
     assert(basicSavingsRate({ savings: 100, takeHome: 0 }).rate === null, "basic rate ÷0 → null", errors);
@@ -4783,6 +5654,18 @@
       "period true free → locked", errors);
     assert(periodTrueSavingsRate({ premium: true, snapshot: snapOk, paychecksPerYear: 24, savings: 100, monthCount: 0 }).state === "needsStub",
       "period true monthCount 0 → needsStub", errors);
+    // v37.5.59.47: Budget take-home beyond the stubs' own take-home joins the denominator (no True > 100% from other income)
+    var okSnap47 = { gross: 1, confirmedAt: "x" };
+    var m47 = { gross: 10000, employee401k: 1000, employer401k: 0, hsa: 150, takeHome: 6500 };
+    var p47 = periodTrueSavingsRate({ premium: true, snapshot: okSnap47, useBasis: true, savings: 12000, stubMonths: [m47, m47], takeHomeCovered: 30000 });
+    // num = 12000 + 2000 + 300 = 14300; denominator = 20000 gross + (30000 − 13000) other = 37000
+    assert(near(p47.otherIncome, 17000) && near(p47.denominator, 37000) && near(p47.rate, 14300 / 37000), "true adds non-stub take-home " + p47.rate, errors);
+    var p47b = periodTrueSavingsRate({ premium: true, snapshot: okSnap47, useBasis: true, savings: 2000, stubMonths: [m47, m47], takeHomeCovered: 13100 });
+    assert(p47b.otherIncome === 0 && near(p47b.rate, 4300 / 20000), "true: take-home within 2% of stubs adds nothing", errors);
+    var t47 = trueSavingsRate({ premium: true, snapshot: okSnap47, useBasis: true, stubMonth: m47, savings: 1000, takeHome: 9000 });
+    assert(near(t47.denominator, 12500) && near(t47.rate, 2150 / 12500), "month true adds non-stub take-home " + t47.rate, errors);
+    var t47b = trueSavingsRate({ premium: true, snapshot: okSnap47, useBasis: true, stubMonth: m47, savings: 1000 });
+    assert(near(t47b.rate, 2150 / 10000) && t47b.denominator == null, "month true without takeHome unchanged", errors);
   }
 
   var US_PERSONAL_SAVING_RATE = 0.054;
@@ -4837,7 +5720,7 @@
     var group = String((line && line.group) || "");
     /* HSA is a qualified / tax-free asset even when it lives under cash or a brokerage group. */
     if (/\bhsa\b|health\s+savings/.test(name)) return "afterTax";
-    // taxable NW group + common aliases (some books use "investment")
+    // taxable NW group + common aliases (Amber uses "investment")
     if (group === "taxable" || group === "investment" || group === "investments" || group === "brokerage") {
       if (/\broth\b/.test(name)) return "afterTax";
       return "nonQualified";
@@ -6299,7 +7182,7 @@
     if ((!categories.length) && opts.categoryName && (Number(opts.categoryAmount) || 0) > 0) {
       categories = [{ name: opts.categoryName, amount: opts.categoryAmount }];
     }
-    /* Aggregate Top categories skipped when per-category story pages exist (owner). */
+    /* Aggregate Top categories skipped when per-category story pages exist (owner 2026-10-05). */
     var hasCategoryStories = !!(opts.categoryStories && (opts.categoryStories.categories || []).length);
     if (!hasCategoryStories && categories.length) {
       var spendTotal = moneyOut > 0 ? moneyOut : categories.reduce(function (n, row) {
@@ -6556,8 +7439,8 @@
     });
     var rateLines = [];
     rateLines.push(headlineTrue
-      ? "True savings rate · savings envelopes + 401k + employer 401k (match + base) + HSA ÷ gross pay (pay stubs: actual + projected)."
-      : "Basic savings rate · savings envelopes ÷ take-home. Finished months count what you received; the current month counts planned take-home until all its paychecks arrive.");
+      ? "True savings rate · retirement budget lines + 401k + employer 401k (match + base) + HSA ÷ gross pay (pay stubs: actual + projected)."
+      : "Basic savings rate · retirement budget lines ÷ take-home. Finished months count what you received; the current month counts planned take-home until all its paychecks arrive.");
     // v37.5.59.5 (QA): the caption under the headline describes the headline's own basis. With a True
     // headline the take-home basis line moves down next to the Basic line it belongs to.
     var basisLine = takeHomeBasisLine(opts.takeHomeBasis);
@@ -6575,7 +7458,7 @@
     }
     if (headlineTrue) {
       rateLines.push("Basic savings rate " + (basicRate == null ? "—" : formatSavingsRate(basicRate)) +
-        " · savings envelopes ÷ take-home. Finished months count what you received; the current month counts planned take-home until all its paychecks arrive.");
+        " · retirement budget lines ÷ take-home. Finished months count what you received; the current month counts planned take-home until all its paychecks arrive.");
       if (basisLine) rateLines.push(basisLine);
     } else if (opts.trueSavingsState === "needsStub") {
       rateLines.push("True savings rate needs a confirmed pay stub — never estimated.");
@@ -6837,6 +7720,8 @@
     refundDraftError: refundDraftError,
     isSavingsEnvelope: isSavingsEnvelope,
     savingsEnvelopeTotal: savingsEnvelopeTotal,
+    retirementEnvelopeTotal: retirementEnvelopeTotal,
+    isRetirementLineByName: isRetirementLineByName,
     basicSavingsRate: basicSavingsRate,
     trueSavingsRate: trueSavingsRate,
     periodTrueSavingsRate: periodTrueSavingsRate,
@@ -6856,5 +7741,15 @@
   root.GradeMath = GradeMath;
   if (typeof module !== "undefined" && module.exports) {
     module.exports = GradeMath;
+  }
+  if (typeof require !== "undefined" && typeof module !== "undefined" && require.main === module) {
+    var failed = runFixtureTests();
+    if (failed.length) {
+      console.error("Grade fixtures failed:\n" + failed.join("\n"));
+      process.exit(1);
+    }
+    console.log("Grade fixtures A/B/C passed. A=" + evaluate(fixtureA).score + " " + evaluate(fixtureA).band.title);
+    console.log("v37.5.21 ledger self-tests passed (Basic=Received/planned take-home, period True, negative envelope refund, grade Basic align).");
+    console.log("v37.5.15/16 share-card self-tests passed (amounts hidden by default, shown on toggle, empty/NaN-safe).");
   }
 })(typeof globalThis !== "undefined" ? globalThis : this);

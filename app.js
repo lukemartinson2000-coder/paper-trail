@@ -6106,7 +6106,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var thInfo = GM.monthTakeHome(sums(used).income, used.transactions || [], used.incomes || [], takeHomeOpts(used));
     var takeHome = thInfo.amount;
     if (!(takeHome > 0) && income > 0) takeHome = income; // fall back to planned/annualized income already resolved
-    var savingsEnv = GM.savingsEnvelopeTotal(used.categories || []).total;
+    var savingsEnv = retireEnvTotal(used.categories || []).total;
     var savingsRate = GM.basicSavingsRate({ savings: savingsEnv, takeHome: takeHome }).rate;
     var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var latestYear = years.length ? years[years.length - 1] : 2025;
@@ -6717,7 +6717,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (recStart >= bounds.start && recStart <= bounds.end) {
         monthCount += 1;
         periodMonths.push({ year: Number(rec.year), month: Number(rec.month) });
-        savings += gm().savingsEnvelopeTotal(rec.categories || []).total;
+        savings += retireEnvTotal(rec.categories || []).total; // v37.5.59.102: retirement only
         // v37.5.59 Basic denominator, per month: planned until EVERY planned paycheck that month is
         // received, then Received. The annual rate sums each month's denominator under this rule.
         var plannedMo = (rec.incomes || []).reduce(function (n, item) { return n + (Number(item.amount) || 0); }, 0);
@@ -6773,7 +6773,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return cat ? cat.name : "Spend";
   }
 
-  /* Basic savings rate over a Wrapped period: savings envelopes ÷ take-home
+  /* Basic savings rate over a Wrapped period: retirement budget lines ÷ take-home
    * (per month: planned until every planned paycheck is received, then Received — v37.5.59 rule),
    * summed across the months inside the period. */
   function periodSavingsRate(bounds) {
@@ -7129,7 +7129,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var periodTrue = null;
     if (gm().periodTrueSavingsRate) {
       var planTrue = state.compensation || {};
-      periodTrue = gm().periodTrueSavingsRate({
+      periodTrue = gm().periodTrueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
         premium: isPremium(),
         snapshot: planTrue.payStubSnapshot || null,
         paychecksPerYear: planTrue.paychecksPerYear || checksForFrequency(payFrequencyOf(planTrue)),
@@ -7186,7 +7186,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (!gm().periodTrueSavingsRate) return null;
         var pb = activityInPeriod(prior);
         var planP = state.compensation || {};
-        var pt = gm().periodTrueSavingsRate({
+        var pt = gm().periodTrueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
           premium: isPremium(),
           snapshot: planP.payStubSnapshot || null,
           paychecksPerYear: planP.paychecksPerYear || checksForFrequency(payFrequencyOf(planP)),
@@ -7273,7 +7273,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           { label: "Saved", amount: saved, ink: "var(--moss)" },
           { label: "Everything else", amount: Math.max(0, bag.takeHomePlanned - saved), ink: "var(--rule)" }
         ] },
-        footnote: "Basic savings rate: savings envelopes " + moneyWhole(bag.savingsPlanned) + " ÷ take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross)." });
+        footnote: "Basic savings rate: retirement budget lines " + moneyWhole(bag.savingsPlanned) + " ÷ take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross)." });
     }
     if (inv.length && start > 0 && adds > 0 && hasY) { // v37.5.59.51: needs this year's column (no end balance → no growth)
       var growth = end - start - adds;
@@ -7371,7 +7371,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       : facts.trueSavingsState === "locked" ? "True savings rate: Premium with a pay stub"
       : "True savings rate: add a pay stub";
     var help = [];
-    help.push("Basic savings rate = savings envelopes " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(takeHome) +
+    help.push("Basic savings rate = retirement budget lines " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(takeHome) +
       " = " + wrapRatePct(basic) + ". Take-home is after tax: finished months count what you received; the current month counts planned paychecks until they all arrive.");
     if (tr != null && d && d.rows) {
       var parts = d.rows.filter(function (r) { return r.id === "savings" || Number(r.amount) > 0; }).map(function (r) { return r.label.replace(/\s*\((period|\d+ mo)\)/, "") + " " + moneyWhole(r.amount); });
@@ -7612,7 +7612,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       title: rate == null ? "No paychecks logged yet" : wrapRatePct(rate) + " saved" + wrapArrow(rate, prate),
       sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) === Math.round(prate * 100) ? "Same as last quarter, " + wrapRatePct(prate) : (Math.round(rate * 100) > Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter") : "First quarter on file — no arrow yet",
       graph: th > 0 ? { type: "stack", segs: [{ label: "Saved", amount: Math.min(saved, th), ink: "var(--moss)" }, { label: "Everything else", amount: Math.max(0, th - saved), ink: "var(--rule)" }] } : null,
-      help: wrapHelp(["Basic savings rate for " + b.name + " = savings envelopes " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + ".",
+      help: wrapHelp(["Basic savings rate for " + b.name + " = retirement budget lines " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + ".",
         prate != null ? "Last quarter (" + pb.name + "): " + wrapRatePct(prate) + ". The arrow compares whole percents." : "No prior quarter on file, so there’s no arrow yet.",
         "Take-home: finished months count what you received; the current month counts planned paychecks until they all arrive."]) });
     var premium = all || isPremium();
@@ -7774,7 +7774,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       title: mn(best).slice(0, 3) + " " + moneyWhole(Math.round(best.saved)) + " vs " + mn(worst).slice(0, 3) + " " + moneyWhole(Math.round(worst.saved)),
       sub: "Best vs worst month, by net saved · savings rate " + cap(best.rate) + " vs " + cap(worst.rate),
       graph: { type: "pair", bars: [{ label: mn(best), value: Math.max(0, best.saved), text: moneyWhole(Math.round(best.saved)), ink: "var(--moss)" }, { label: mn(worst), value: Math.max(0, worst.saved), text: moneyWhole(Math.round(worst.saved)), ink: "var(--berry)" }] },
-      help: wrapHelp(["Ranked by net dollars saved (savings envelopes funded that month). Savings rate (saved ÷ take-home) is shown second and capped at 100%; a month can save more than it took home when savings come from cash already on hand.",
+      help: wrapHelp(["Ranked by net dollars saved (retirement budget lines funded that month). Savings rate (saved ÷ take-home) is shown second and capped at 100%; a month can save more than it took home when savings come from cash already on hand.",
         mn(best) + ": " + moneyWhole(best.saved) + " saved of " + moneyWhole(best.th) + " take-home. " + mn(worst) + ": " + moneyWhole(worst.saved) + " of " + moneyWhole(worst.th) + ".",
         rows.length + " months with paychecks on file this year."]) };
   }
@@ -7823,7 +7823,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       sub: "Savings rate " + wrapRatePct(sr) + " vs U.S. " + Math.round(BEA_SAVING_RATE.rate * 100) + "%",
       graph: { type: "pair", bars: [{ label: "You", value: Math.max(0, nw), text: moneyWhole(Math.round(nw)), ink: "var(--moss)" }, { label: "Median, " + band.label, value: band.median, text: moneyWhole(band.median), ink: "var(--plum)" }] },
       help: wrapHelp(["Net worth: yours " + moneyWhole(Math.round(nw)) + " vs the median for families headed by someone " + band.label + ": " + moneyWhole(band.median) + ".", SCF_SOURCE,
-        "Savings rate: your Basic rate " + wrapRatePct(sr) + " (savings envelopes ÷ take-home) vs the U.S. personal saving rate.", BEA_SOURCE]) };
+        "Savings rate: your Basic rate " + wrapRatePct(sr) + " (retirement budget lines ÷ take-home) vs the U.S. personal saving rate.", BEA_SOURCE]) };
   }
   var ANNUAL_KICKERS = { hook: "Your year, on paper", "spent-saved": "Follow the money", merchants: "Your regulars", "g-added": "Building it",
     "g-contrib": "Money making money", "savings-rate": "Pay yourself first", foo: "Level check", grade: "Report card", close: "Frame it" };
@@ -7943,11 +7943,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (isQ) {
         html += '<article class="share-card"><p class="kicker">Paper Trail · quarterly</p><strong>' + esc(slide.share.period) + "</strong>" +
           "<p>Savings rate " + esc(slide.share.grade) + "</p><p>Longest no-spend run " + esc(slide.share.streak) + "</p>" +
-          "<p>Savings envelopes " + esc(shareSaved) + "</p></article>";
+          "<p>Retirement budget lines " + esc(shareSaved) + "</p></article>";
       } else
       html += '<article class="share-card"><p class="kicker">Paper Trail</p><strong>' +
         esc(slide.share.period) + "</strong>" +
-        "<p>Savings envelopes " + esc(shareSaved) + "</p>" +
+        "<p>Retirement budget lines " + esc(shareSaved) + "</p>" +
         "<p>No-spend streak " + esc(slide.share.streak) + "</p>" +
         "<p>Grade " + esc(slide.share.grade) + "</p></article>" +
         (isQ ? "" : '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>');
@@ -8469,9 +8469,44 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 savings rates (Basic on Free, True on Premium + confirmed stub) ---- */
+  /* v37.5.59.102 (owner): Basic / True savings rates count only retirement money.
+   * Retirement budget line, in order: (1) a Dashboard goal links the line to a Net worth account; (2) the line's
+   * name matches a Net worth account (same name, or one starts with the other, 4+ letters). A linked line counts
+   * when that account is in the Retirement group (HSA: Retirement or Investments group); 401k accounts don't (the
+   * pay stub carries 401k). (3) No link: the old savings-line test, kept only for retirement names (Roth, IRA,
+   * retirement). House fund / cash savings lines no longer count. */
+  function nwNorm(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/^\s+|\s+$/g, ""); }
+  function budgetLineNwAccount(lineName) {
+    var lines = ((state.worth && state.worth.lines) || []).filter(function (l) { return l.kind !== "liability"; });
+    var byId = {}; lines.forEach(function (l) { byId[l.id] = l; });
+    var goal = ((state.dashboard && state.dashboard.purchases) || []).filter(function (p) { return p && p.envelope === lineName && p.nwLineId && byId[p.nwLineId]; })[0];
+    if (goal) return byId[goal.nwLineId];
+    var n = nwNorm(lineName);
+    if (!n) return null;
+    var exact = lines.filter(function (l) { return nwNorm(l.name) === n; })[0];
+    if (exact) return exact;
+    if (n.length < 4) return null;
+    return lines.filter(function (l) { var m = nwNorm(l.name); return m.length >= 4 && (m.indexOf(n) === 0 || n.indexOf(m) === 0); })[0] || null;
+  }
+  function isRetireBudgetLine(catName, lineName) {
+    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(String(lineName || ""))) return false;
+    var acct = budgetLineNwAccount(lineName);
+    if (acct) {
+      if (is401k(acct) || nwLeftOut(acct)) return false;
+      if (acct.group === "retirement") return true;
+      return isHsaLine(acct) && (acct.group === "taxable" || acct.group === "investment");
+    }
+    return gm().isRetirementLineByName(catName, lineName);
+  }
+  function retireEnvTotal(categories) { return gm().retirementEnvelopeTotal(categories, isRetireBudgetLine); }
+  function hsaCountsForTrue() {
+    return ((state.worth && state.worth.lines) || []).some(function (l) {
+      return l.kind !== "liability" && !nwLeftOut(l) && isHsaLine(l) && (l.group === "retirement" || l.group === "taxable" || l.group === "investment");
+    });
+  }
   function monthSavingsRates(month) {
     month = month || ensureMonth(state.year, state.month);
-    var envelopes = gm().savingsEnvelopeTotal(month.categories || []);
+    var envelopes = retireEnvTotal(month.categories || []);
     var th = gm().monthTakeHome(sums(month).income, month.transactions || [], month.incomes || [], takeHomeOpts(month));
     var plan = state.compensation || {};
     return {
@@ -8483,7 +8518,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       paychecksPlanned: th.plannedCount || 0,
       paychecksReceived: th.receivedCount || 0,
       basic: gm().basicSavingsRate({ savings: envelopes.total, takeHome: th.amount }),
-      trueRate: gm().trueSavingsRate({
+      trueRate: gm().trueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
         premium: isPremium(),
         snapshot: plan.payStubSnapshot || null,
         paychecksPerYear: plan.paychecksPerYear || checksForFrequency(payFrequencyOf(plan)),
@@ -8508,18 +8543,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return b ? b.short : "";
   }
 
+  var SAVINGS_RATE_CARD_HELP = "Both rates count only retirement money.\n\n" +
+    "Basic = this month's retirement budget lines ÷ take-home.\n" +
+    "True = retirement budget lines + your 401k + employer 401k (match + base) + HSA ÷ gross pay, from your confirmed pay stub. HSA counts only if your HSA account on the Net worth page is in the Retirement or Investments group.\n\n" +
+    "A retirement budget line is one that funds a Retirement account on your Net worth page: linked through a Dashboard goal, or with the same name (for example a Roth line and a Roth IRA account). A line with no matching account counts if it's a savings line named Roth, IRA or retirement.\n\n" +
+    "House fund, emergency fund and other cash savings lines don't count here; they still show in Saved and Op. cash flow on the Income statement. 401k budget lines never count (the pay stub carries 401k).";
   function savingsRateCardHtml(context) {
     var r = monthSavingsRates();
     var fmt = gm().formatSavingsRate;
     var label = MONTH_NAMES[r.month.month - 1] + " " + r.month.year;
     var html = '<section class="card savings-rates" data-context="' + esc(context || "") + '">' +
-      '<p class="kicker">Savings rate · ' + esc(label) + "</p>" +
+      '<p class="kicker">Savings rate · ' + esc(label) + " " + helpQ(SAVINGS_RATE_CARD_HELP) + "</p>" +
       '<div class="rate-row basic"><span>Basic savings rate</span><strong class="mono' +
       (r.basic.rate != null ? " moss" : "") + '">' + fmt(r.basic.rate) + "</strong></div>";
     if (r.basic.rate == null) {
       html += '<p class="caption">Add a paycheck to this month’s budget to see your Basic savings rate.</p>';
     } else {
-      html += '<p class="caption">Savings envelopes ' + money(r.basic.savings) + " ÷ take-home " + money(r.basic.takeHome) +
+      html += '<p class="caption">Retirement budget lines ' + money(r.basic.savings) + " ÷ take-home " + money(r.basic.takeHome) +
         " (this month’s " + esc(r.takeHomeLabel || "planned paychecks") + " · after tax, not gross).</p>" +
         /* v37.5.59: say which denominator and why (owner's rule). */
         '<p class="caption basic-denominator">' +
@@ -8534,7 +8574,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             ? " " + r.paychecksReceived + " of " + r.paychecksPlanned + " paycheck" + (r.paychecksPlanned === 1 ? "" : "s") + " received so far."
             : "")) + "</p>";
       if (!(r.basic.savings > 0)) {
-        html += '<p class="caption empty-hint">Nothing assigned to savings envelopes yet — give savings a job on Budget.</p>';
+        html += '<p class="caption empty-hint">Nothing assigned to retirement budget lines yet — budget to a Roth or IRA line on Budget (house fund and cash savings don’t count).</p>';
       }
     }
     var t = r.trueRate;
@@ -8552,14 +8592,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       html += '<div class="row dense rate-part total"><span>' + (t.otherIncome > 0 ? "÷ Total" : "÷ Gross pay") + '</span><span class="mono">' + money(t.denominator != null ? t.denominator : t.gross) + "</span></div>" +
         (t.basis === "month"
-          ? '<p class="caption true-month-basis">This month’s paychecks: ' + esc(t.monthNote) + ". Plus this month’s savings envelopes. Gross pay is the same actual-plus-projected basis as average tax (projected checks are base pay; a bonus only in its month). 401k and HSA stop at their 2026 IRS limits; " +
+          ? '<p class="caption true-month-basis">This month’s paychecks: ' + esc(t.monthNote) + ". Plus this month’s retirement budget lines. Gross pay is the same actual-plus-projected basis as average tax (projected checks are base pay; a bonus only in its month). 401k and HSA stop at their 2026 IRS limits; " +
             esc(stubBasisShort(r.month.year)) + " for the year.</p>"
-          : '<p class="caption">Monthly: confirmed pay stub × ' + t.paychecksPerYear + " paychecks ÷ 12, plus this month’s savings envelopes. Never estimated.</p>");
+          : '<p class="caption">Monthly: confirmed pay stub × ' + t.paychecksPerYear + " paychecks ÷ 12, plus this month’s retirement budget lines. Never estimated.</p>");
     } else if (t.state === "locked") {
       html += '<p class="kicker">Premium</p><div class="rate-row"><span>True savings rate</span><strong class="mono muted">🔒</strong></div>' +
         '<p class="caption">' + (confirmedPayStubSnapshot()
-          ? "Your pay stub is confirmed. Premium unlocks True savings rate — savings envelopes + 401k + employer match + HSA ÷ gross pay."
-          : "Confirm a pay stub on Premium to see your true savings rate — savings envelopes + 401k + employer match + HSA ÷ gross pay.") + "</p>" +
+          ? "Your pay stub is confirmed. Premium unlocks True savings rate — retirement budget lines + 401k + employer match + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay."
+          : "Confirm a pay stub on Premium to see your true savings rate — retirement budget lines + 401k + employer match + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay.") + "</p>" +
         '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock True savings rate</button>';
     } else {
       html += '<div class="rate-row"><span>True savings rate</span><strong class="mono muted">—</strong></div>' +
@@ -9549,7 +9589,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     var basic = gm().basicSavingsRate({ savings: savings, takeHome: takeHome });
     var plan = state.compensation || {};
-    var trueRate = gm().periodTrueSavingsRate({
+    var trueRate = gm().periodTrueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
       premium: isPremium(),
       snapshot: plan.payStubSnapshot || null,
       paychecksPerYear: plan.paychecksPerYear || checksForFrequency(payFrequencyOf(plan)),
@@ -9593,17 +9633,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var when = span ? " (" + span + ")" : "";
     if (ytd.kind === "true") {
       return "So far this year" + when +
-        ". True savings rate: savings envelopes + employee 401k + employer 401k (match + any base contribution) + HSA ÷ gross pay, from this year’s budgets and each month’s own paychecks (" +
+        ". True savings rate: retirement budget lines + employee 401k + employer 401k (match + any base contribution) + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay, from this year’s budgets and each month’s own paychecks (" +
         (stubBasisShort(currentYearMonth().year) || "confirmed pay stubs") + "). Not the yearly column.";
     }
     if (ytd.kind === "basic") {
       return "So far this year" + when +
-        ". Basic savings rate: savings envelopes ÷ take-home (finished months count what you received — planned only if nothing was logged; the current month counts planned take-home until all its paychecks arrive). 401k, match, and HSA wait for a confirmed pay stub. Not the yearly column.";
+        ". Basic savings rate: retirement budget lines ÷ take-home (finished months count what you received — planned only if nothing was logged; the current month counts planned take-home until all its paychecks arrive). 401k, match, and HSA wait for a confirmed pay stub. Not the yearly column.";
     }
     if (ytd.savings > 0 && !(ytd.takeHome > 0)) {
       return "So far this year stays blank until this year’s budget has income to divide by. Nothing is estimated.";
     }
-    return "So far this year stays blank until this year’s budget has a paycheck or savings envelopes. Nothing is estimated.";
+    return "So far this year stays blank until this year’s budget has a paycheck or retirement budget lines. Nothing is estimated.";
   }
 
   function annualRateText(ratio) {
@@ -10318,7 +10358,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     "The small figure under each year is the change versus the prior year. Whole dollars.";
   var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\nRetirement contributions = 401k (pre-tax) + Employer 401k from this statement, plus the Added amounts that year on your other Net worth accounts in the Retirement group (IRA, Roth, HSA if you put it there) and any employer money on them. 401k accounts' Added on the Net worth page is skipped so 401k counts once. A withdrawal entered as a negative Added subtracts.\n\n" +
     "Only the group counts, not the name. Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow instead. Enter Added on the Net worth page (tap › on the account).";
-  var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income. The small figure is the change versus the prior year, in percentage points.";
+  var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income.";
   /* v37.5.59.101 (owner): Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
    * as Saved: gm().isSavingsEnvelope), per calendar year, months after today left out. Read-only; expands by category. */
   var isDiscOpen = false;
@@ -10426,7 +10466,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }, "sg-sub is-ocf-row", "Op. cash flow " + helpQ(OCF_HELP));
     html += sgRow("OCF rate", years, function (y) {
       var v = ocfRateOf(y), i = years.indexOf(y), pv = i > 0 ? ocfRateOf(years[i - 1]) : null;
-      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) + (v != null && pv != null ? annualYoYHtml("savings", v, pv) : "") });
+      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) }); // v37.5.59.102: no pts YoY
     }, "sg-ratio", "OCF rate " + helpQ(OCF_RATE_HELP));
     var discP = {};
     years.forEach(function (y) { discP[y] = discretionaryYear(y); });
@@ -13175,7 +13215,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var label = MONTH_NAMES[r.month.month - 1] + " " + r.month.year;
     if (t.state === "ok") {
       return '<p class="caption">True savings rate (' + esc(label) + "): " + gm().formatSavingsRate(t.rate) +
-        " — savings envelopes + 401k + employer 401k + HSA ÷ gross pay, from your confirmed pay stubs. Details on Insights.</p>";
+        " — retirement budget lines + 401k + employer 401k + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay, from your confirmed pay stubs. Details on Insights.</p>";
     }
     if (t.state === "locked") {
       return '<p class="caption">True savings rate is a Premium feature' + (confirmedPayStubSnapshot() || confirmedPayStubs().length ? " — your pay stub is already confirmed." : " and needs a confirmed pay stub.") + "</p>";
@@ -13267,7 +13307,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="row"><span>Suggested paycheck</span><span class="mono">' + money(est.suggestedPaycheck) + "</span></div>" +
       '<p class="caption">Estimates only — not tax advice. Rough federal + state/local from job ZIP + FICA for a ' +
       (filingStatusOf(state.compensation) === "married" ? "married" : "single") + " filer.</p>" +
-      '<p class="caption">Basic savings rate = this month’s savings envelopes ÷ take-home (finished months use what you received; the current month uses planned take-home until every paycheck arrives, then what you received).</p>' +
+      '<p class="caption">Basic savings rate = this month’s retirement budget lines ÷ take-home (finished months use what you received; the current month uses planned take-home until every paycheck arrives, then what you received).</p>' +
       compTrueLineHtml() +
       (est.zipHelper ? '<p class="caption">' + esc(est.zipHelper) + "</p>" : "");
   }
@@ -16347,7 +16387,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.101";
+  var APP_VERSION = "37.5.59.102";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
