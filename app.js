@@ -16489,7 +16489,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.104";
+  var APP_VERSION = "37.5.59.105";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18504,7 +18504,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.hidden = false;
     modal.innerHTML =
       '<form class="sheet" data-act="' + saveAct + '">' +
-      "<h3>" + esc(title) + "</h3>" + fieldsHtml +
+      /* v37.5.59.105 (owner): sticky top bar with a close X so long sheets (budget line, category, income) close without scrolling; bottom Cancel stays. */
+      '<div class="sheet-top"><h3>' + esc(title) + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' + fieldsHtml +
       '<div class="sheet-actions">' +
       '<button type="button" data-act="close-modal">Cancel</button>' +
       '<button class="primary" type="submit">Save</button></div></form>';
