@@ -5057,7 +5057,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
       "Nest egg needed = yearly spending × (1 + inflation)^years ÷ 4% (shown in today’s dollars too: spending ÷ 4%). " +
       "Projected nest egg = your retirement + taxable accounts now (no home or vehicles), growing at your return each year, plus this year’s contributions (you + employer + other additions) added every year and rising with inflation. " +
-      "4% rule income = projected nest egg (today’s dollars) × 4%. Estimate, not a guarantee or advice.") + "</p>";
+      "4% rule income = projected nest egg (today’s dollars) × 4%.\n\n" + ESTIMATE_DISCLAIMER) + "</p>";
     html += '<div class="dash-ins">' +
       (I.ageFromBirthday ? "" : '<label class="dash-in">Your age<input data-dashnum="ageNow" inputmode="numeric" type="text" value="' + esc(I.ageNow == null ? "" : String(I.ageNow)) + '" placeholder="Age"></label>') +
       '<label class="dash-in">Retire at<input data-dashnum="retireAge" inputmode="numeric" type="text" value="' + I.retireAge + '"></label>' +
@@ -5105,7 +5105,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         rrow("Projected nest egg", moneyWhole(R.projToday), "Today’s dollars · " + moneyWhole(R.projNominal) + " at " + I.retireAge) +
         rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
         '<p class="caption">' + R.years + " years · starts from " + moneyWhole(R.inv.balance) + " invested" +
-        (R.inv.contrib > 0 ? " + " + moneyWhole(R.inv.contrib) + "/yr from " + esc(R.inv.source) : " · no yearly contributions found") + ".</p>";
+        (R.inv.contrib > 0 ? " + " + moneyWhole(R.inv.contrib) + "/yr from " + esc(R.inv.source) : " · no yearly contributions found") + ".</p>" +
+        '<p class="caption quiet est-disclaim">' + ESTIMATE_DISCLAIMER + "</p>";
     }
     html += "</section>";
     // 6
@@ -5148,7 +5149,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
     return '<p class="section-label dash-taxes-label" id="dash-taxes-label">Taxes</p>' +
       '<section class="dash-card dash-taxes" id="dash-taxes">' +
-      '<label class="field annual-filing">Filing status ' + helpQ("Used for the tax estimates and brackets on your Income statement.") + '<select data-act="annual-filing">' +
+      '<label class="field annual-filing">Filing status ' + helpQ("Used for the tax estimates and brackets on your Income statement.\n\n" + ESTIMATE_DISCLAIMER) + '<select data-act="annual-filing">' +
       '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
       '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
       '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option></select></label>" +
@@ -10664,7 +10665,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     function pct(v) { return v == null ? "—" : pctWhole(v); }
     var html = '<div class="sg-pass">' + statsSegmentHtml("statement") +
-      '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.") + "</div>" +
+      '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.\n\n" + ESTIMATE_DISCLAIMER) + "</div>" +
       payFreqMismatchHtml() + annualStubBasisHtml(sel) +
       stmtDetailToggleHtml("is") +
       '<div class="sg-wrap" data-sgk="is"><table class="sg-grid' + (stmtFull("is") ? "" : " sg-slim") + '">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
@@ -10679,7 +10680,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += sgRow(t[1], years, edit(t[0], t[1] + " tax", function (d) { return d.row[t[0]] != null ? d.row[t[0]] : (d.est && d.est[t[0]] != null ? d.est[t[0]] : null); },
         function (d) { return d.row[t[0]] != null && d.est && d.est[t[0]] != null; }));
     });
-    html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub sg-keep", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here."));
+    html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub sg-keep", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here.\n\n" + ESTIMATE_DISCLAIMER));
     html += sgGroup("Deductions", years);
     html += sgRow("401k (pre-tax)", years, edit("dedRetire", "401k (pre-tax)", function (d) { return d.row.dedRetire; }));
     html += sgRow("Roth 401k (after-tax)", years, edit("dedRoth401", "Roth 401k (after-tax)", function (d) { return d.row.dedRoth401; })); // v37.5.59.107
@@ -15894,11 +15895,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* v37.5.59.36: Estimated next 3 years (Income and Net worth). Assumptions live in state.projection
    * ({raisePct, growthPct}) on this device only: the tester payload is built from named fields and never includes them. */
+  /* v37.5.59.111 (owner): one calm disclaimer for every estimate (Dashboard retirement, 3-year estimates, tax estimates,
+   * Income statement projections) and Profile › About & Privacy. */
+  var ESTIMATE_DISCLAIMER = "Estimates are for informational purposes only — Paper Trail is a calculator and budgeting tool, not financial, investment, or tax advice.";
   function projAssump() {
     var p = (state && state.projection) || {};
     var raise = Number(p.raisePct), growth = Number(p.growthPct);
     return { raisePct: isFinite(raise) && p.raisePct != null ? raise : 3, growthPct: isFinite(growth) && p.growthPct != null ? growth : 5,
-      growthMode: p.growthMode === "cagr" ? "cagr" : "manual" };
+      growthMode: p.growthMode === "cagr" ? "cagr" : "manual", incomeMode: p.incomeMode === "cagr" ? "cagr" : "manual" };
+  }
+  /* v37.5.59.111 (owner): income CAGR from Income statement Total income history (full calendar years before this one
+   * with Total income above $0). Needs 2+ such years; with fewer the income estimate falls back to the manual raise %. */
+  function incomeHistory() {
+    var book = ensureAnnualStatement(), cy = currentYearMonth().year;
+    var rows = annualYearList(book).filter(function (y) { return y < cy; }).map(function (y) {
+      var t = 0; try { t = Number(annualMetrics(syncedAnnualRow(annualRow(book.years[String(y)]), y), y).income.total) || 0; } catch (e) {}
+      return { year: y, total: t };
+    }).filter(function (r) { return r.total > 0; }).sort(function (a, b) { return a.year - b.year; });
+    var out = { rows: rows, eligible: false, cagr: null, start: null, end: null };
+    if (rows.length >= 2) {
+      var f = rows[0], l = rows[rows.length - 1], n = l.year - f.year;
+      out.start = f; out.end = l;
+      if (n >= 1) { out.eligible = true; out.cagr = Math.pow(l.total / f.total, 1 / n) - 1; }
+    }
+    return out;
   }
 
   /* v37.5.59.36: net worth history. CAGR starts at the first year with positive net worth (earlier zero or
@@ -15946,14 +15966,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var bonus = Number(inc.bonus) || 0;
     var match = Number(inc.match) || 0;
     if (!(salary + bonus + match > 0)) return null;
-    var r = projAssump().raisePct / 100;
+    var A = projAssump(), H = incomeHistory();
+    var useHist = A.incomeMode === "cagr" && H.eligible;
+    var r = useHist ? H.cagr : A.raisePct / 100;
     var out = [];
     for (var n = 1; n <= 3; n++) {
       var f = Math.pow(1 + r, n);
       var sal = salary * f, bon = bonus * f, mat = match * f;
       out.push({ year: base + n, salary: sal, bonus: bon, match: mat, total: sal + bon + mat });
     }
-    return { base: base, manualSalary: !!(st.salary && st.salary.mode === "manual" && st.salary.v != null), rows: out };
+    return { base: base, hist: H, useHist: useHist, rate: r, manualSalary: !!(st.salary && st.salary.mode === "manual" && st.salary.v != null), rows: out };
   }
 
   function netWorthProjection() {
@@ -16091,6 +16113,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<label class="est-assume">' + label + '<input data-proj="' + kind + '" data-pctw="1" inputmode="decimal" autocomplete="off" type="text" value="' + esc(pctWholeShow(value)) + '" data-full="' + esc(pctWholeShow(value)) + '" aria-label="' + esc(label) + '"></label>';
   }
 
+  function incomeGrowthHtml(proj, a) {
+    var H = proj.hist;
+    return '<div class="est-seg-row"><span class="est-seg-label">Growth source</span><div class="sd-seg" role="group" aria-label="Income growth source">' +
+      '<button type="button" class="' + (proj.useHist ? "" : "on") + '" data-proj-mode="manual" data-proj-kind="income" aria-pressed="' + (proj.useHist ? "false" : "true") + '">Manual raise</button>' +
+      '<button type="button" class="' + (proj.useHist ? "on" : "") + '" data-proj-mode="cagr" data-proj-kind="income"' + (H.eligible ? "" : ' data-ineligible="1"') + ' aria-pressed="' + (proj.useHist ? "true" : "false") + '">Grow at my CAGR</button></div></div>' +
+      projInputHtml("raise", proj.useHist ? "Manual raise per year" : "Raise per year", a.raisePct) +
+      (H.eligible
+        ? '<p class="est-history">Your history: <strong>' + (H.cagr * 100).toFixed(1) + "% CAGR</strong> · Total income, " + H.start.year + " to " + H.end.year + (proj.useHist ? "" : ' <span class="caption">(not in use)</span>') +
+          (proj.useHist && H.cagr > CAGR_NOTE_ABOVE ? '<br><span class="caption">That is very high. Early years were small, so treat projections that use it with care.</span>' : "") + "</p>"
+        : (a.incomeMode === "cagr" ? '<p class="est-history caption">CAGR needs 2 full years of Total income on your Income statement. Using your manual raise for now.</p>' : ""));
+  }
   function estimatedSectionHtml(kind) {
     var proj = kind === "income" ? incomeProjection() : netWorthProjection();
     if (!proj) return "";
@@ -16105,8 +16138,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="est-row"><span>Salary</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.salary) + "</span>"; }).join("") + "</div>" +
         (proj.rows[0].bonus > 0 ? '<div class="est-row"><span>Bonus</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.bonus) + "</span>"; }).join("") + "</div>" : "") +
         (proj.rows[0].match > 0 ? '<div class="est-row"><span>401k match</span>' + proj.rows.map(function (r) { return '<span class="mono">' + moneyWhole(r.match) + "</span>"; }).join("") + "</div>" : "") + "</div>" +
-        projInputHtml("raise", "Raise per year", a.raisePct) +
-        '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + (proj.manualSalary ? " Manual" : " stub") + " salary, bonus and 401k match. Variable pay isn’t projected. Estimate, not a guarantee.") + "</p>";
+        incomeGrowthHtml(proj, a) +
+        '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + (proj.manualSalary ? " Manual" : " stub") + " salary, bonus and 401k match, growing " +
+          (proj.useHist ? (proj.rate * 100).toFixed(1) + "% a year (your income CAGR)" : Math.round(proj.rate * 100) + "% a year (manual raise)") + ". Variable pay isn’t projected.\n\n" + ESTIMATE_DISCLAIMER) + "</p>";
     } else {
       var H = proj.hist;
       html += '<div class="est-seg-row"><span class="est-seg-label">Growth source</span><div class="sd-seg" role="group" aria-label="Growth source">' +
@@ -16119,7 +16153,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           : "") +
         '<p class="caption quiet">Estimate, not a guarantee. ' + helpQ("Starts from your " + proj.base + " net worth of " + moneyWhole(proj.start) +
         (proj.contrib > 0 ? ", adds " + moneyWhole(proj.contrib) + " a year " + proj.source : ", with no yearly additions assumed") +
-        ", growing " + Math.round(proj.rate * 100) + "% a year (" + (proj.useHist ? "your history" : "manual") + "). Estimate, not a guarantee.") + "</p>";
+        ", growing " + Math.round(proj.rate * 100) + "% a year (" + (proj.useHist ? "your history" : "manual") + ").\n\n" + ESTIMATE_DISCLAIMER) + "</p>";
     }
     return html + "</section>";
   }
@@ -16128,12 +16162,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target && e.target.closest ? e.target.closest("button[data-proj-mode]") : null;
     if (!t || t.disabled) return;
     e.stopPropagation();
+    var incK = t.getAttribute("data-proj-kind") === "income";
     if (t.getAttribute("data-proj-mode") === "cagr" && t.getAttribute("data-ineligible")) {
-      showHelpPopup("CAGR needs 3 years with positive net worth. Until then your estimate stays on Manual.");
+      showHelpPopup(incK ? "CAGR needs 2 full years of Total income on your Income statement. Until then your income estimate uses your manual raise." : "CAGR needs 3 years with positive net worth. Until then your estimate stays on Manual.");
       return;
     }
     state.projection = state.projection || {};
-    state.projection.growthMode = t.getAttribute("data-proj-mode") === "cagr" ? "cagr" : "manual";
+    state.projection[incK ? "incomeMode" : "growthMode"] = t.getAttribute("data-proj-mode") === "cagr" ? "cagr" : "manual";
     saveState();
     render();
   }, true);
@@ -16624,6 +16659,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<li><strong>Vault documents</strong> — files you add and the details on each card.</li>" +
       "<li><strong>Settings</strong> — name, birthday, pay frequency, dark mode, plan, setup checklist.</li>" +
       "</ul>" +
+      '<p class="profile-section">Estimates</p>' +
+      "<p>" + ESTIMATE_DISCLAIMER + "</p>" +
       '<p class="profile-section">Tester data sharing</p>' +
       "<p>Testers share app data with their tester code to help find bugs and improve Paper Trail. Rates and changes (savings rate, average tax, year-over-year changes, plan vs. spent %), grade, streaks, feature use, and survey answers are always included. Dollar amounts and Vault details (document count and types) are included unless you turn them off. Tester sharing doesn’t include merchant names, transaction notes, account numbers, or file contents.</p>" +
       "<p>" + (TESTER_ENDPOINT ? "Sharing is connected." : "Not connected yet: nothing has left this device. Shares wait on this device until it connects.") + "</p>" +
@@ -16846,7 +16883,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.110";
+  var APP_VERSION = "37.5.59.111";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
