@@ -4974,3 +4974,16 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 
 /* v37.5.59.101: YoY under OCF / OCF rate in the income grid */
 .sg-grid td .annual-yoy{display:block;font-size:.72em;line-height:1.2;margin-top:2px;white-space:nowrap}
+/* v37.5.59.103: Planned/Spent/Remaining stays centered even with the + button. */
+.screen.has-fab .mode-toggle{margin-left:16px;margin-right:16px}
+.income-fold{margin:4px 16px 12px;border:1px solid var(--rule);border-radius:10px;background:rgba(127,127,127,.06)}
+.income-fold-head{display:flex;width:100%;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 14px;border:0;background:transparent;color:var(--ink);font:inherit;font-size:16px;text-align:left;cursor:pointer}
+.income-fold-chev{display:inline-block;width:1em;color:var(--muted)}
+.income-fold.open{padding-bottom:6px}
+.income-fold.open .section-label{margin-top:0}
+.income-fold .income-row-wrap,.income-fold .income-add{margin-left:0;margin-right:0}
+.dash-taxes .field{margin:8px 0}
+.stmt-detail-toggle{display:flex;justify-content:center;margin:10px 16px 4px}
+.stmt-detail-toggle button{border:1px solid var(--rule);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 16px;font:inherit;font-size:14px;cursor:pointer}
+.sg-grid.sg-slim tbody tr:not(.sg-keep){display:none}
+.sg-grid.sg-slim .sg-sub th,.sg-grid.sg-slim .sg-sub td{border-top:0}

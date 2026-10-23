@@ -4215,24 +4215,32 @@
       onboardChecklistHtml() +
       backupNudgeHtml() +
       fooBudgetStripHtml(month) +
-      '<p class="section-label">Income · take-home paychecks ' + helpQ("What lands in your account after tax. Gross pay lives on your Income statement.") + '</p>';
-    (month.incomes || []).forEach(function (item) {
-      var got = receivedFor(month, item.id);
-      html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + item.id + '">' +
-        '<div class="row"><div><div class="name">' + esc(item.name || "Paycheck 1") +
-        '</div><span class="caption income-received">Received ' + money(got) + " of " + money(item.amount) + "</span>" +
-        "</div><span class='mono moss' role='button' tabindex='0' data-act='edit-income' data-focus='amount' data-id='" + item.id + "' aria-label='Edit " + esc(item.name || "Paycheck 1") + " amount'>" + money(item.amount) + "</span></div></button>" +
-        docCueHtml("income") + "</div>";
-    });
-    html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
-    (function () { var v = leftToBudgetText(totals.leftover); html += '<p class="income-left inline" id="budget-income-left"><span>' + v.label + '</span> <strong class="mono ' + v.cls + '">' + v.val + "</strong></p>"; })();
+      "";
+    /* v37.5.59.103: income folds to one line (open state saved); no Received X of Y; hero shows the selected view's total. */
+    var incOpen = !!state.budgetIncomeOpen;
+    html += '<div class="income-fold' + (incOpen ? " open" : "") + '">' +
+      '<button class="income-fold-head" type="button" data-act="toggle-budget-income" aria-expanded="' + incOpen + '">' +
+      '<span class="income-fold-label"><span class="income-fold-chev" aria-hidden="true">' + (incOpen ? "▾" : "▸") + "</span> Income</span>" +
+      '<span class="mono moss">' + money(totals.income) + "</span></button>";
+    if (incOpen) {
+      html += '<p class="section-label">Take-home paychecks ' + helpQ("What lands in your account after tax. Gross pay lives on your Income statement.") + "</p>";
+      (month.incomes || []).forEach(function (item) {
+        html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + item.id + '">' +
+          '<div class="row"><div><div class="name">' + esc(item.name || "Paycheck 1") + "</div></div>" +
+          "<span class='mono moss' role='button' tabindex='0' data-act='edit-income' data-focus='amount' data-id='" + item.id + "' aria-label='Edit " + esc(item.name || "Paycheck 1") + " amount'>" + money(item.amount) + "</span></div></button>" +
+          docCueHtml("income") + "</div>";
+      });
+      html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
+    }
+    html += "</div>";
+    var hMode = envelopeMode(), hKicker = headline, hAmt = totals.leftover, hTone = tone(totals.leftover);
+    if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
+    else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
     html +=
-      '<section class="hero">' +
-      "<div><p class='kicker'>" + headline + "</p>" +
-      '<p class="hero-amount ' + tone(totals.leftover) + '">' + money(totals.leftover) + "</p>" +
-      '<p class="sub">Take-home planned ' + money(totals.income) + "  ·  Assigned " + money(totals.assigned) + "</p>" +
-      '<p class="sub">Take-home received ' + money(totals.received) + "  ·  Spent " + money(totals.spent) + "</p></div>" +
-      (totals.stamped ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
+      '<section class="hero budget-hero" data-mode="' + hMode + '">' +
+      "<div><p class='kicker'>" + hKicker + "</p>" +
+      '<p class="hero-amount ' + hTone + '" id="budget-hero-amount">' + money(hAmt) + "</p></div>" +
+      (totals.stamped && hMode === "planned" ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
       "</section>" +
       modeToggleHtml() +
       '<p class="section-label">Envelopes ' + helpQ("Tap a line’s name or assigned amount to change it. Stamp rule: income > 0 and leftover exactly $0. On an empty month, copy last month’s assigned dollars and paychecks. Start next month is the guided ritual. Spending never copies.") + '</p>';
@@ -5102,6 +5110,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         dashTaxRowsHtml(ty) + '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' +
         '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
     }
+    // v37.5.59.103: Taxes (Filing status + HSA coverage moved here from the statements; same settings).
+    html += dashTaxesHtml();
     // 8 v37.5.59.68: Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
     html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml();
     var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
@@ -5118,6 +5128,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += backupNudgeHtml();
     return html + "</div>";
   }
+  function dashTaxesHtml() {
+    var filing = annualFilingStatus(ensureAnnualStatement());
+    var y = new Date().getFullYear();
+    var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
+    return '<p class="section-label dash-taxes-label" id="dash-taxes-label">Taxes</p>' +
+      '<section class="dash-card dash-taxes" id="dash-taxes">' +
+      '<label class="field annual-filing">Filing status ' + helpQ("Used for the tax estimates and brackets on your Income statement.") + '<select data-act="annual-filing">' +
+      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
+      '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
+      '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option></select></label>" +
+      hsaCoverageFieldHtml(y) +
+      '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Tax docs checklist · ' + ty + " (" + done + " of " + TL.rows.length + ") ›</button></div>" +
+      "</section>";
+  }
+
   function renderDashboard() {
     return statsSegmentHtml("dash") + dashboardHtml();
   }
@@ -9928,18 +9953,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  function hsaCoverageFieldHtml(year) {
+    var cov = hsaCoverageOf();
+    var html = '<label class="field annual-hsa-coverage">HSA coverage' +
+        '<select data-act="annual-hsa-coverage">' +
+        '<option value="self"' + (cov === "self" ? " selected" : "") + ">Self-only (" + moneyWhole(gm().pretaxLimitsFor(year, { hsaCoverage: "self" }) ? gm().pretaxLimitsFor(year, { hsaCoverage: "self" }).hsa : 0) + " limit)</option>" +
+        '<option value="family"' + (cov === "family" ? " selected" : "") + ">Family (" + moneyWhole(gm().pretaxLimitsFor(year, { hsaCoverage: "family" }) ? gm().pretaxLimitsFor(year, { hsaCoverage: "family" }).hsa : 0) + " limit)</option>" +
+        "</select></label>";
+    return html;
+  }
+
   function annualStubBasisHtml(year) {
     var basis = payStubBasisFor(year);
     if (!basis) return "";
     var cov = hsaCoverageOf();
     var html = "";
-    if (basis.total.hsa > 0 || basis.total.erHsa > 0) {
-      html += '<label class="field annual-hsa-coverage">HSA coverage' +
-        '<select data-act="annual-hsa-coverage">' +
-        '<option value="self"' + (cov === "self" ? " selected" : "") + ">Self-only (" + moneyWhole(gm().pretaxLimitsFor(year, { hsaCoverage: "self" }) ? gm().pretaxLimitsFor(year, { hsaCoverage: "self" }).hsa : 0) + " limit)</option>" +
-        '<option value="family"' + (cov === "family" ? " selected" : "") + ">Family (" + moneyWhole(gm().pretaxLimitsFor(year, { hsaCoverage: "family" }) ? gm().pretaxLimitsFor(year, { hsaCoverage: "family" }).hsa : 0) + " limit)</option>" +
-        "</select></label>";
-    }
+    /* v37.5.59.103: HSA coverage moved to Dashboard › Taxes. */
     var bm = bonusMonthOf();
     html += '<label class="field annual-bonus-month">Bonus pays in' +
       '<select data-act="annual-bonus-month"><option value=""' + (bm ? "" : " selected") + ">Not set</option>";
@@ -10007,6 +10036,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<td class="' + cls + '" role="button" tabindex="0" data-sg="' + kind + '" data-key="' + esc(key) + '" data-year="' + year +
       '" data-v="' + (value == null ? "" : value) + '" data-label="' + esc(opts.label || key) + '" aria-label="Edit ' + esc(opts.label || key) + " " + year + '">' +
       txt + (opts.typed ? '<i class="sg-typed">typed</i>' : "") + (opts.goal || "") + "</td>";
+  }
+  /* v37.5.59.103: statements open on headlines only; the toggle (saved) shows every row. */
+  function stmtFull(k) { return !!(state.stmtFull && state.stmtFull[k]); }
+  function stmtDetailToggleHtml(k) {
+    var on = stmtFull(k);
+    return '<div class="stmt-detail-toggle"><button type="button" data-act="stmt-detail-toggle" data-k="' + k + '" aria-pressed="' + on + '">' +
+      (on ? "Show headlines only" : "Show full detail") + "</button></div>";
   }
   function sgRow(name, years, cellFn, rowCls, nameHtml) {
     return '<tr class="' + (rowCls || "") + '"><th scope="row" class="sg-name">' + (nameHtml || esc(name)) + '</th><td class="sg-add"></td>' +
@@ -10183,7 +10219,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
     html += vehicleDupHtml(lastFilled) +
-      '<div class="sg-wrap" data-sgk="nw"><table class="sg-grid">' + sgHead("nw", yearsG, sel, "add-prior-year", canAdd, "Year-end") + "<tbody>";
+      '<div class="sg-wrap" data-sgk="nw"><table class="sg-grid' + (stmtFull("nw") ? "" : " sg-slim") + '">' + sgHead("nw", yearsG, sel, "add-prior-year", canAdd, "Year-end") + "<tbody>";
     if (assets.length) {
       html += sgGroup("Assets", yearsG);
       var lastSec = -1;
@@ -10192,17 +10228,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (sec !== lastSec) { html += '<tr class="sg-subgrp"><th scope="row" class="sg-name">' + NW_ASSET_SECTIONS[sec] + '</th><td class="sg-add"></td>' + yearsG.map(function () { return "<td></td>"; }).join("") + "</tr>"; lastSec = sec; }
         html += lineRow(l);
       });
-      html += sgRow("Total assets", yearsG, gcol("_assets", "Total assets", function (y) { var v = worthBlank(y) ? null : worthTotals(y).assets; return sgCell("nw", "", y, v, { calc: true, on: y === sel }); }), "sg-sub");
+      html += sgRow("Total assets", yearsG, gcol("_assets", "Total assets", function (y) { var v = worthBlank(y) ? null : worthTotals(y).assets; return sgCell("nw", "", y, v, { calc: true, on: y === sel }); }), "sg-sub sg-keep");
     }
     if (liabs.length) {
       html += sgGroup("Liabilities", yearsG);
       liabs.forEach(function (l) { html += lineRow(l); });
-      html += sgRow("Total liabilities", yearsG, gcol("_liabs", "Total liabilities", function (y) { var v = worthBlank(y) ? null : worthTotals(y).liabilities; return sgCell("nw", "", y, v, { calc: true, on: y === sel }); }), "sg-sub");
+      html += sgRow("Total liabilities", yearsG, gcol("_liabs", "Total liabilities", function (y) { var v = worthBlank(y) ? null : worthTotals(y).liabilities; return sgCell("nw", "", y, v, { calc: true, on: y === sel }); }), "sg-sub sg-keep");
     }
     html += sgRow("Net worth", yearsG, gcol("_net", "Net worth", function (y) {
       var v = worthBlank(y) ? null : worthTotals(y).equity;
       return sgCell("nw", "", y, v, { calc: true, on: y === sel, cls: v != null && v < 0 ? "neg" : "" });
-    }), "sg-total");
+    }), "sg-total sg-keep");
     html += sgRow("Change", yearsG, nocol(function (y) {
       if (worthBlank(y)) return sgCell("nw", "", y, null, { calc: true, on: y === sel });
       var prev = filled.filter(function (p) { return p < y; }).pop();
@@ -10211,7 +10247,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var t = p > 0 ? ((c - p) >= 0 ? "+" : "−") + pctWhole(Math.abs((c - p) / p)) : signedWhole(Math.round(c - p));
       return sgCell("nw", "", y, c - p, { calc: true, text: t, on: y === sel, cls: c - p < 0 ? "neg" : "" });
     }), "sg-ratio", 'Change ' + helpQ("Change = (this year − the prior filled year) ÷ the prior year. Shown in dollars when the prior year was $0 or less. Blank years are skipped."));
-    html += "</tbody></table></div>" + sgBar() +
+    html += "</tbody></table></div>" + stmtDetailToggleHtml("nw") + sgBar() +
       '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button>' +
 "</div>" +
@@ -10412,19 +10448,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<div class="sg-pass">' + statsSegmentHtml("statement") +
       '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.") + "</div>" +
       payFreqMismatchHtml() + annualStubBasisHtml(sel) +
-      '<div class="sg-wrap" data-sgk="is"><table class="sg-grid">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
+      '<div class="sg-wrap" data-sgk="is"><table class="sg-grid' + (stmtFull("is") ? "" : " sg-slim") + '">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
     html += sgRow("Salary", years, edit("salary", "Salary", function (d) { return d.inc.salary; }, function (d) { return d.stub && d.T.salary; }));
     html += sgRow("Bonus", years, edit("bonus", "Bonus", function (d) { return d.inc.bonus; }, function (d) { return d.stub && d.T.bonus; }));
     html += sgRow("Side gig", years, edit("sideGig", "Side gig", function (d) { return d.row.sideGig; }));
     html += sgRow("Other", years, edit("other", "Other income", function (d) { return d.row.other; }));
     html += sgRow("Employer 401k", years, edit("match", "Employer 401k", function (d) { return d.inc.match; }, function (d) { return d.stub && d.T.match; }));
-    html += sgRow("Total income", years, calc(function (d) { return d.inc.total; }), "sg-sub", "Total income " + helpQ("Total income = salary + bonus + side gig + other + employer 401k. In a year with a pay stub, salary and bonus come from the stub (year-to-date plus the checks still ahead) unless you typed your own."));
+    html += sgRow("Total income", years, calc(function (d) { return d.inc.total; }), "sg-sub sg-keep", "Total income " + helpQ("Total income = salary + bonus + side gig + other + employer 401k. In a year with a pay stub, salary and bonus come from the stub (year-to-date plus the checks still ahead) unless you typed your own."));
     html += sgGroup("Taxes", years);
     [["taxFederal", "Federal"], ["taxState", "State"], ["taxFica", "FICA"], ["taxOther", "Other"]].forEach(function (t) {
       html += sgRow(t[1], years, edit(t[0], t[1] + " tax", function (d) { return d.row[t[0]] != null ? d.row[t[0]] : (d.est && d.est[t[0]] != null ? d.est[t[0]] : null); },
         function (d) { return d.row[t[0]] != null && d.est && d.est[t[0]] != null; }));
     });
-    html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here."));
+    html += sgRow("Total taxes", years, calc(function (d) { return d.taxes; }), "sg-sub sg-keep", "Total taxes " + helpQ("Total taxes = federal + state + FICA + other. A blank line uses the pay-stub estimate when there is one. Older years with only a single typed tax total show that total here."));
     html += sgGroup("Deductions", years);
     html += sgRow("401k (pre-tax)", years, edit("dedRetire", "401k (pre-tax)", function (d) { return d.row.dedRetire; }));
     html += sgRow("Health", years, edit("dedHealth", "Health insurance", function (d) { return d.row.dedHealth; }));
@@ -10482,7 +10518,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           "sg-subline", '<span class="sg-sub-name">' + esc(c) + "</span>");
       });
     }
-    html += sgRow("Saved", years, calc(function (d) { return d.saved; }), "", "Saved " + helpQ("Saved = what you put in savings envelopes on Budget that year (months after today are left out). Years with no budget use your statement: total income − taxes − operating expenses."));
+    html += sgRow("Saved", years, calc(function (d) { return d.saved; }), "sg-keep", "Saved " + helpQ("Saved = what you put in savings envelopes on Budget that year (months after today are left out). Years with no budget use your statement: total income − taxes − operating expenses."));
     /* v37.5.59.101 (owner): Savings rate numerator = retirement contributions only, by Net worth group (Retirement):
      * each account's Added that year (withdrawals subtract) + employer match / base on those accounts.
      * Denominator unchanged: Take-home. Old (≤ .100): Saved (budget savings lines) ÷ Take-home, or OCF ÷ Total income
@@ -10502,16 +10538,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += sgRow("Savings rate", years, function (y) {
       var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
       return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
-    }, "sg-ratio is-sav-row", "Savings rate " + helpQ(SAV_RATE_HELP));
+    }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(SAV_RATE_HELP));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     var filing = annualFilingStatus(book);
-    html += "</tbody></table></div>" + sgBar() +
+    html += "</tbody></table></div>" + stmtDetailToggleHtml("is") + sgBar() +
       '<section class="card sg-stub"><p class="pay-card-title">Pay stub &amp; pay details</p><p class="caption">Import a pay stub and this year fills in from it. Typed cells win. Salary can follow the stub or be set by hand (Stub / Manual) in Pay details.</p>' +
       '<button class="planner-apply" type="button" data-act="open-income-statement">Pay details</button></section>' +
-      '<label class="field annual-filing">Filing status<select data-act="annual-filing">' +
-      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
-      '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
-      '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option></select></label></div>";
+      "</div>"; /* v37.5.59.103: Filing status moved to Dashboard › Taxes. */
     return html;
   }
 
@@ -10898,12 +10931,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="stmt-foot stmt-details-high"><button class="text-btn details-btn" type="button" data-act="open-income-statement">Details</button>' + helpQ("Details: type your pay, add pay stubs, deductions and taxes. Year table: tap a year to edit. Older years sit off to the left. Taxes can expand into federal, state, FICA, and other.") + '</div>' +
       payFreqMismatchHtml() +
       estimatedSectionHtml("income") +
-      '<label class="field annual-filing">Filing status' +
-      '<select data-act="annual-filing">' +
-      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
-      '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
-      '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option>" +
-      "</select></label>" +
       annualStubBasisHtml(highlight) +
       annualSyncNoteHtml(highlight) +
       '<div class="annual-scroll"><table class="annual-table"><thead><tr>' +
@@ -16387,7 +16414,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.102";
+  var APP_VERSION = "37.5.59.103";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19839,6 +19866,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ritual = { step: 0, destKey: "" };
       saveState();
       closeModal();
+      render();
+    } else if (act === "stmt-detail-toggle") {
+      var sk = actEl.getAttribute("data-k") === "nw" ? "nw" : "is";
+      if (!state.stmtFull || typeof state.stmtFull !== "object") state.stmtFull = {};
+      state.stmtFull[sk] = !state.stmtFull[sk];
+      saveState();
+      render();
+    } else if (act === "toggle-budget-income") {
+      state.budgetIncomeOpen = !state.budgetIncomeOpen;
+      saveState();
       render();
     } else if (act === "envelope-mode") {
       state.envelopeMode = actEl.getAttribute("data-mode") || "remaining";
