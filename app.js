@@ -8513,21 +8513,66 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (n.length < 4) return null;
     return lines.filter(function (l) { var m = nwNorm(l.name); return m.length >= 4 && (m.indexOf(n) === 0 || n.indexOf(m) === 0); })[0] || null;
   }
-  function isRetireBudgetLine(catName, lineName) {
-    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(String(lineName || ""))) return false;
-    var acct = budgetLineNwAccount(lineName);
-    if (acct) {
-      if (is401k(acct) || nwLeftOut(acct)) return false;
-      if (acct.group === "retirement") return true;
-      return isHsaLine(acct) && (acct.group === "taxable" || acct.group === "investment");
-    }
-    return gm().isRetirementLineByName(catName, lineName);
+  /* v37.5.59.104 (owner): forgiving rule. A line counts if its name says Roth / IRA / HSA / health savings / retire
+   * (any category, any linked group), OR it's linked/name-matched to a Net worth account in the Retirement group or one
+   * whose own name says so. A link can only add, never remove. 401k/403b/457 lines never count (the stub carries them).
+   * Brokerage / cash / house fund don't count (retirement-only). 529 is education money: not counted. */
+  /* v37.5.59.104 (owner, revised): Savings lines ROUTE to a Net worth account via "Feeds account" (state.lineFeeds,
+   * keyed by the line's normalized name so the link follows the line into every month). Linked: the account's group
+   * decides — Retirement counts, anything else doesn't (name ignored). Unlinked: the name rule (Roth / IRA / HSA /
+   * retire) until linked. 401k-type lines and 401k accounts never count (the pay stub carries 401k). */
+  function lineFeedAccount(lineName) {
+    var id = state.lineFeeds && state.lineFeeds[nwNorm(lineName)];
+    if (!id) return null;
+    return ((state.worth && state.worth.lines) || []).filter(function (l) { return l.id === id && l.kind !== "liability"; })[0] || null;
   }
+  function nwGroupTitle(g) { var f = GROUPS.filter(function (x) { return x.id === g; })[0]; return f ? f.title : (g === "investment" ? "Investments" : String(g || "")); }
+  function retireLineVerdict(catName, lineName) {
+    var nm = String(lineName || "");
+    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(nm)) return { counts: false, linked: false, why: "401k-type line; your pay stub carries 401k" };
+    var acct = lineFeedAccount(lineName);
+    if (acct) {
+      var tag = "feeds “" + acct.name + "” (" + nwGroupTitle(acct.group) + ")";
+      if (nwLeftOut(acct)) return { counts: false, linked: true, why: tag + " — left out of net worth" };
+      if (is401k(acct)) return { counts: false, linked: true, why: tag + " — 401k counts from your pay stub" };
+      if (acct.group === "retirement") return { counts: true, linked: true, why: tag };
+      return { counts: false, linked: true, why: tag + " — not Retirement" };
+    }
+    if (gm().isRetirementName(nm)) return { counts: true, linked: false, why: "not linked — counted by name" };
+    return { counts: false, linked: false, why: "not linked — skipped" };
+  }
+  function feedsAccountFieldHtml(lineName) {
+    var cur = state.lineFeeds && lineName ? state.lineFeeds[nwNorm(lineName)] || "" : "";
+    var accts = ((state.worth && state.worth.lines) || []).filter(function (l) { return l.kind !== "liability" && l.group !== "debt" && !l.vehicle && l.group !== "vehicles"; });
+    return '<label class="field feeds-account">Feeds account ' + helpQ("Pick the Net worth account this line pays into. An account in the Retirement group counts toward your savings rate; any other group doesn’t. Not linked: a line named Roth, IRA, HSA or retirement still counts until you link it.") +
+      '<select name="feedsAccount"><option value="">Not linked</option>' +
+      accts.map(function (l) { return '<option value="' + esc(l.id) + '"' + (l.id === cur ? " selected" : "") + ">" + esc(l.name) + " · " + esc(nwGroupTitle(l.group)) + "</option>"; }).join("") +
+      "</select></label>";
+  }
+  function setLineFeed(lineName, id, priorName) {
+    if (!state.lineFeeds || typeof state.lineFeeds !== "object") state.lineFeeds = {};
+    if (priorName && nwNorm(priorName) !== nwNorm(lineName)) delete state.lineFeeds[nwNorm(priorName)];
+    if (id) state.lineFeeds[nwNorm(lineName)] = id; else delete state.lineFeeds[nwNorm(lineName)];
+  }
+  function isRetireBudgetLine(catName, lineName) { return retireLineVerdict(catName, lineName).counts; }
   function retireEnvTotal(categories) { return gm().retirementEnvelopeTotal(categories, isRetireBudgetLine); }
-  function hsaCountsForTrue() {
-    return ((state.worth && state.worth.lines) || []).some(function (l) {
-      return l.kind !== "liability" && !nwLeftOut(l) && isHsaLine(l) && (l.group === "retirement" || l.group === "taxable" || l.group === "investment");
+  /* v37.5.59.104: stub HSA always counts (no Net worth account needed). Kept as a hook. */
+  function hsaCountsForTrue() { return true; }
+  /* Lines with money this month: counted vs skipped (savings-type lines and anything assigned that looks like saving). */
+  function retireLinesReport(month) {
+    var counted = [], skipped = [];
+    (month.categories || []).forEach(function (cat) {
+      var ls = cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
+      ls.forEach(function (l) {
+        var a = Math.max(0, roundCents(Number(l.assigned) || 0));
+        if (!(a > 0)) return;
+        var v = retireLineVerdict(cat.name, l.name);
+        if (v.counts) counted.push({ name: l.name, cat: cat.name, amount: a, why: v.why });
+        else if (v.linked || /^savings$/i.test(cat.name) || gm().isSavingsEnvelope(cat.name, l.name) || /401|403|457|529|invest|brokerage|saving|fund/i.test(String(l.name) + " " + cat.name))
+          skipped.push({ name: l.name, cat: cat.name, amount: a, why: v.why });
+      });
     });
+    return { counted: counted, skipped: skipped };
   }
   function monthSavingsRates(month) {
     month = month || ensureMonth(state.year, state.month);
@@ -8568,17 +8613,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return b ? b.short : "";
   }
 
-  var SAVINGS_RATE_CARD_HELP = "Both rates count only retirement money.\n\n" +
-    "Basic = this month's retirement budget lines ÷ take-home.\n" +
-    "True = retirement budget lines + your 401k + employer 401k (match + base) + HSA ÷ gross pay, from your confirmed pay stub. HSA counts only if your HSA account on the Net worth page is in the Retirement or Investments group.\n\n" +
-    "A retirement budget line is one that funds a Retirement account on your Net worth page: linked through a Dashboard goal, or with the same name (for example a Roth line and a Roth IRA account). A line with no matching account counts if it's a savings line named Roth, IRA or retirement.\n\n" +
-    "House fund, emergency fund and other cash savings lines don't count here; they still show in Saved and Op. cash flow on the Income statement. 401k budget lines never count (the pay stub carries 401k).";
+  var SAVINGS_RATE_CARD_HELP = "Both rates count only retirement money.\n" +
+    "Basic = retirement budget lines ÷ take-home. True = retirement budget lines + 401k + employer 401k + HSA (you + employer) ÷ gross pay, from your confirmed pay stub (Premium).\n\n" +
+    "Savings lines route to Net worth accounts: on a Savings line, pick Feeds account. If it feeds an account in the Retirement group it counts; any other group doesn't (the name is ignored). A line that isn't linked counts if its name says Roth, IRA, HSA or retirement, until you link it. " +
+    "House fund, emergency fund, brokerage and cash savings don't count; they still show in Saved and Op. cash flow. 401k budget lines never count (the pay stub carries 401k). 529 plans are education savings and don't count.";
+  function savingsRateCardHelp(month) {
+    var rep = retireLinesReport(month), t = "";
+    t += "Counted this month:\n" + (rep.counted.length ? rep.counted.map(function (x) { return "• " + x.name + " (" + x.cat + ") " + money(x.amount) + " — " + x.why; }).join("\n") : "• Nothing yet") + "\n";
+    if (rep.skipped.length) t += "\nNot counted:\n" + rep.skipped.map(function (x) { return "• " + x.name + " (" + x.cat + ") " + money(x.amount) + " — " + x.why; }).join("\n") + "\n";
+    t += "\nTrue also adds your 401k, employer 401k and HSA (you + employer) from your confirmed pay stub, no Net worth account needed.\n\n";
+    return t + SAVINGS_RATE_CARD_HELP;
+  }
   function savingsRateCardHtml(context) {
     var r = monthSavingsRates();
     var fmt = gm().formatSavingsRate;
     var label = MONTH_NAMES[r.month.month - 1] + " " + r.month.year;
     var html = '<section class="card savings-rates" data-context="' + esc(context || "") + '">' +
-      '<p class="kicker">Savings rate · ' + esc(label) + " " + helpQ(SAVINGS_RATE_CARD_HELP) + "</p>" +
+      '<p class="kicker">Savings rate · ' + esc(label) + " " + helpQ(savingsRateCardHelp(r.month)) + "</p>" +
       '<div class="rate-row basic"><span>Basic savings rate</span><strong class="mono' +
       (r.basic.rate != null ? " moss" : "") + '">' + fmt(r.basic.rate) + "</strong></div>";
     if (r.basic.rate == null) {
@@ -8623,8 +8674,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (t.state === "locked") {
       html += '<p class="kicker">Premium</p><div class="rate-row"><span>True savings rate</span><strong class="mono muted">🔒</strong></div>' +
         '<p class="caption">' + (confirmedPayStubSnapshot()
-          ? "Your pay stub is confirmed. Premium unlocks True savings rate — retirement budget lines + 401k + employer match + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay."
-          : "Confirm a pay stub on Premium to see your true savings rate — retirement budget lines + 401k + employer match + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay.") + "</p>" +
+          ? "Your pay stub is confirmed. Premium unlocks True savings rate — retirement budget lines + 401k + employer match + HSA (you + employer) ÷ gross pay."
+          : "Confirm a pay stub on Premium to see your true savings rate — retirement budget lines + 401k + employer match + HSA (you + employer) ÷ gross pay.") + "</p>" +
         '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock True savings rate</button>';
     } else {
       html += '<div class="rate-row"><span>True savings rate</span><strong class="mono muted">—</strong></div>' +
@@ -9658,7 +9709,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var when = span ? " (" + span + ")" : "";
     if (ytd.kind === "true") {
       return "So far this year" + when +
-        ". True savings rate: retirement budget lines + employee 401k + employer 401k (match + any base contribution) + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay, from this year’s budgets and each month’s own paychecks (" +
+        ". True savings rate: retirement budget lines + employee 401k + employer 401k (match + any base contribution) + HSA (you + employer) ÷ gross pay, from this year’s budgets and each month’s own paychecks (" +
         (stubBasisShort(currentYearMonth().year) || "confirmed pay stubs") + "). Not the yearly column.";
     }
     if (ytd.kind === "basic") {
@@ -10183,7 +10234,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         : '<button type="button" class="sg-line" data-act="nw-acct-sheet" data-id="' + esc(l.id) + '">' + esc(l.name) + warn + "</button>") + "</span>";
       /* v37.5.59.87 (owner): name opens a simple account sheet (name, group, Delete); only › opens the dropdown. */
       var out = sgRow(l.name, yearsG, gcol(l.id, l.name, function (y) {
-        var blank = worthBlank(y);
+        var blank = worthBlank(y) || !l.amounts || l.amounts[y] == null || l.amounts[y] === ""; // v37.5.59.104: never-typed year shows —
         return sgCell("nw", l.id, y, blank ? null : lineAmount(l, y), { label: l.name, on: y === sel, cls: nwLeftOut(l) ? "left-out" : "" });
       }), nwLeftOut(l) ? "sg-left-out" : "", nameBtn);
       if (!open) return out;
@@ -10392,8 +10443,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. " +
     "401k is already in it once: your pre-tax 401k and employer 401k are part of Total income and never subtracted, so they aren't added back again. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
     "The small figure under each year is the change versus the prior year. Whole dollars.";
-  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\nRetirement contributions = 401k (pre-tax) + Employer 401k from this statement, plus the Added amounts that year on your other Net worth accounts in the Retirement group (IRA, Roth, HSA if you put it there) and any employer money on them. 401k accounts' Added on the Net worth page is skipped so 401k counts once. A withdrawal entered as a negative Added subtracts.\n\n" +
-    "Only the group counts, not the name. Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow instead. Enter Added on the Net worth page (tap › on the account).";
+  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\n" +
+    "Retirement contributions = 401k (pre-tax) + Employer 401k from this statement + HSA from your pay stubs (you + employer) + the Added amounts that year on Net worth accounts in the Retirement group or named Roth, IRA, HSA or retirement (any group), plus employer money on them. " +
+    "401k accounts' Added is skipped so 401k counts once; HSA accounts' Added is skipped when the pay stubs already show HSA. A withdrawal entered as a negative Added subtracts.\n\n" +
+    "Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow. Enter Added on the Net worth page (tap › on the account). The list above shows the selected year.";
   var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income.";
   /* v37.5.59.101 (owner): Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
    * as Saved: gm().isSavingsEnvelope), per calendar year, months after today left out. Read-only; expands by category. */
@@ -10523,22 +10576,44 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
      * each account's Added that year (withdrawals subtract) + employer match / base on those accounts.
      * Denominator unchanged: Take-home. Old (≤ .100): Saved (budget savings lines) ÷ Take-home, or OCF ÷ Total income
      * for years with no budget. */
-    function retireContrib(y) {
-      var sum = 0, any = false;
+    /* v37.5.59.104 (owner): + accounts named Roth / IRA / HSA / retirement in any group, + pay-stub HSA (you + employer).
+     * HSA counts once: when the stubs show HSA for the year, HSA accounts' Added is skipped. */
+    function stubHsaYear(y) {
+      var b = payStubBasisFor(y);
+      if (!b || !b.total) return 0;
+      return roundCents((Number(b.total.hsa) || 0) + (Number(b.total.erHsa) || 0));
+    }
+    function retireParts(y) {
+      var parts = [], skipped = [], any = false;
+      var k4 = stmt401k(y);
+      if (k4.you) { parts.push(["401k (pre-tax), this statement", k4.you]); any = true; }
+      if (k4.er) { parts.push(["Employer 401k, this statement", k4.er]); any = true; }
+      var hs = stubHsaYear(y);
+      if (hs) { parts.push(["HSA from pay stubs (you + employer)", hs]); any = true; }
       ((state.worth && state.worth.lines) || []).forEach(function (l) {
-        if (l.kind === "liability" || l.group !== "retirement" || nwLeftOut(l) || is401k(l)) return; // 401k from the statement below
+        if (l.kind === "liability" || l.vehicle) return;
         var a = l.additions && l.additions[y] != null && l.additions[y] !== "" ? Number(l.additions[y]) : null;
         var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
-        if (a != null || e) { any = true; sum += (a || 0) + e; }
+        if (a == null && !e) return;
+        var amt = (a || 0) + e;
+        if (nwLeftOut(l)) { amt && skipped.push([l.name, amt, "left out of net worth"]); return; }
+        if (is401k(l)) { amt && skipped.push([l.name, amt, "401k counts once, from this statement"]); return; }
+        var byName = gm().isRetirementName(l.name);
+        if (l.group !== "retirement" && !byName) { amt && skipped.push([l.name, amt, "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
+        if (hs && isHsaLine(l)) { amt && skipped.push([l.name, amt, "HSA already counted from pay stubs"]); return; }
+        parts.push([l.name + " Added" + (e ? " + employer" : ""), amt]); any = true;
       });
-      var k4 = stmt401k(y);
-      if (k4.you || k4.er) { any = true; sum += k4.you + k4.er; }
-      return any ? sum : null;
+      var sum = 0; parts.forEach(function (p) { sum += p[1]; });
+      return { total: any ? roundCents(sum) : null, parts: parts, skipped: skipped };
     }
+    function retireContrib(y) { return retireParts(y).total; }
+    var savRP = retireParts(sel);
+    var savHelp = sel + " counted:\n" + (savRP.parts.length ? savRP.parts.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing yet") +
+      (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + "\n\n" + SAV_RATE_HELP;
     html += sgRow("Savings rate", years, function (y) {
       var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
       return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
-    }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(SAV_RATE_HELP));
+    }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(savHelp));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     var filing = annualFilingStatus(book);
     html += "</tbody></table></div>" + stmtDetailToggleHtml("is") + sgBar() +
@@ -13242,7 +13317,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var label = MONTH_NAMES[r.month.month - 1] + " " + r.month.year;
     if (t.state === "ok") {
       return '<p class="caption">True savings rate (' + esc(label) + "): " + gm().formatSavingsRate(t.rate) +
-        " — retirement budget lines + 401k + employer 401k + HSA (only if its Net worth account is in Retirement or Investments) ÷ gross pay, from your confirmed pay stubs. Details on Insights.</p>";
+        " — retirement budget lines + 401k + employer 401k + HSA (you + employer) ÷ gross pay, from your confirmed pay stubs. Details on Insights.</p>";
     }
     if (t.state === "locked") {
       return '<p class="caption">True savings rate is a Premium feature' + (confirmedPayStubSnapshot() || confirmedPayStubs().length ? " — your pay stub is already confirmed." : " and needs a confirmed pay stub.") + "</p>";
@@ -16414,7 +16489,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.103";
+  var APP_VERSION = "37.5.59.104";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -20132,6 +20207,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         addFields += field("Balance", "loanBalance", "0", "number") +
           '<p class="caption">Payment is this month’s assigned amount. Balance is what you still owe — it also appears on the net worth statement.</p>';
       }
+      if (addCat && /^savings$/i.test(addCat.name)) addFields += feedsAccountFieldHtml("");
       openSheet("New line",
         addFields +
         '<input type="hidden" name="categoryId" value="' + esc(actEl.getAttribute("data-id")) + '">',
@@ -20151,6 +20227,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           debtTypeSelect("loanDebtType", found.line.loanDebtType || "", found.line.name) +
           '<p class="caption">Assigned is this month’s payment. Balance, APR, min, and type persist on the line. In the spirit of Money Guy’s Financial Order of Operations — estimates, not advice.</p>';
       }
+      if (found.cat && /^savings$/i.test(found.cat.name)) lineFields += feedsAccountFieldHtml(found.line.name);
       openSheet((found.cat ? found.cat.name + " · " : "") + found.line.name,
         lineFields +
         lineSpendList(month, found.line.id) +
@@ -20250,17 +20327,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         render();
       }
     } else if (act === "add-nw-account") {
+      /* v37.5.59.104 (owner): name + group only, same as the Account edit sheet. No per-year amount: balances are typed by
+       * tapping the account's cell in a year on the grid. A new account starts blank (—) in every year, not $0. */
       openSheet("Add account",
         field("Name", "name", "") +
         '<label class="field">Group<select name="group">' +
-        '<option value="cash">Cash</option>' +
-        '<option value="retirement">Retirement</option>' +
-        '<option value="taxable">Investments (taxable)</option>' +
-        '<option value="realEstate">Property</option>' +
-        '<option value="lifestyle">Other</option>' +
-        "</select></label>" +
-        field(String(state.worthYear) + " amount", "amount", "0", "number") +
-        '<p class="caption">Adds an account on this year’s statement. You can rename it later.</p>',
+        [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, Roth, HSA)"],
+          ["realEstate", "Property · home / real estate"], ["lifestyle", "Property · other"]].map(function (o) {
+          return '<option value="' + o[0] + '">' + o[1] + "</option>";
+        }).join("") + "</select></label>" +
+        '<p class="caption">Type balances by tapping this account’s cell in a year on the grid.</p>',
         "save-nw-account");
     } else if (act === "add-nw-loan") {
       openSheet("Add loan",
@@ -20481,6 +20557,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           loanDebtType: ""
         };
         parent.lines.push(createdLine);
+        if (Object.prototype.hasOwnProperty.call(data, "feedsAccount")) setLineFeed(createdLine.name, data.feedsAccount || "");
         reindexLines(parent);
         if (/^debt$/i.test(parent.name)) syncBudgetLoanToNetWorth(createdLine);
       }
@@ -20496,6 +20573,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         editFound.line.name = (data.name || "").replace(/^\s+|\s+$/g, "") || editFound.line.name;
         editFound.line.assigned = Number(data.assigned) || 0;
         delete editFound.line.autoCopy;
+        if (Object.prototype.hasOwnProperty.call(data, "feedsAccount")) setLineFeed(editFound.line.name, data.feedsAccount || "", priorDebtName);
         if (editFound.cat && /^debt$/i.test(editFound.cat.name)) {
           editFound.line.loanBalance = Number(data.loanBalance) || 0;
           editFound.line.loanApr = Number(data.loanApr) || 0;
@@ -20734,13 +20812,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           acctGroup !== "realEstate" && acctGroup !== "lifestyle") {
         acctGroup = "cash";
       }
-      var acctAmounts = {};
+      var acctAmounts = {}; // v37.5.59.104: blank in every year (no $0 placeholders)
       var acctAdditions = {};
-      (state.worth.years || []).forEach(function (year) {
-        acctAmounts[year] = 0;
-        acctAdditions[year] = 0;
-      });
-      acctAmounts[state.worthYear] = Number(data.amount) || 0;
       state.worth.lines.push({
         id: nextId(),
         name: acctName,

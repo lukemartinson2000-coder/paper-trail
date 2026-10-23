@@ -4940,11 +4940,15 @@
    * caller's linkage test (budget line ↔ Net worth account in the Retirement group) when one is given; otherwise
    * the savings-line test filtered to retirement names (Roth, IRA, retirement). House fund / cash savings lines no
    * longer count. 401k/403b/457 budget lines stay out (payroll deferrals come from the pay stub on True). */
-  var RETIRE_LINE_RE = /\broth\b|roth|\bira\b|retire/i;
+  /* v37.5.59.104 (owner): Roth / IRA / HSA / retire always count by name, any category or group. 529 is education, not retirement: no. */
+  var RETIRE_LINE_RE = /roth|\bira\b|\bhsa\b|health\s*savings|retire/i;
+  function isRetirementName(name) {
+    var n = String(name || "");
+    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(n)) return false;
+    return RETIRE_LINE_RE.test(n);
+  }
   function isRetirementLineByName(categoryName, lineName) {
-    var line = String(lineName || "").replace(/^\s+|\s+$/g, "");
-    if (/\b401\s*\(?k\)?|\b403\s*\(?b\)?|\b457\b/i.test(line)) return false;
-    return isSavingsEnvelope(categoryName, lineName) && RETIRE_LINE_RE.test(line);
+    return isRetirementName(String(lineName || "").replace(/^\s+|\s+$/g, ""));
   }
   function retirementEnvelopeTotal(categories, isRetire) {
     var test = typeof isRetire === "function" ? isRetire : isRetirementLineByName;
@@ -5053,7 +5057,7 @@
         { id: "savings", label: "Retirement budget lines", amount: sav0, missing: false },
         { id: "employee401k", label: "Employee 401k", amount: ledgerCents(sm.employee401k || 0), missing: false },
         { id: "employerMatch", label: "Employer match", amount: ledgerCents(sm.employer401k || 0), missing: false },
-        { id: "hsa", label: "HSA", amount: ledgerCents(sm.hsa || 0), missing: false }
+        { id: "hsa", label: Number(sm.employerHsa) > 0 ? "HSA (you + employer)" : "HSA", amount: ledgerCents((Number(sm.hsa) || 0) + (Number(sm.employerHsa) || 0)), missing: false }
       ];
       // v37.5.59.4: employer 401k base (non-elective, e.g. DN401NC) is employer money saved for you.
       if (Number(sm.employer401kBase) > 0) out.rows.splice(3, 0, { id: "employerBase", label: "Employer 401k base", amount: ledgerCents(sm.employer401kBase), missing: false });
@@ -5081,6 +5085,8 @@
     var e401 = monthly(snap.employee401k);
     var match = monthly(snap.employer401k);
     var hsa = monthly(snap.hsa);
+    var erHsaM = monthly(snap.employerHsa); // v37.5.59.104: employer HSA counts too
+    if (erHsaM) hsa = ledgerCents((hsa || 0) + erHsaM);
     var grossM = ledgerCents(gross * perMonth);
     out.rows = [
       { id: "savings", label: "Retirement budget lines", amount: savings, missing: false },
@@ -5225,7 +5231,7 @@
       ms.forEach(function (m) {
         if (m.takeHome == null) tot.hasTakeHome = false; else tot.takeHome += Number(m.takeHome) || 0;
         tot.gross += Number(m.gross) || 0; tot.e401 += Number(m.employee401k) || 0;
-        tot.er += Number(m.employer401k) || 0; tot.hsa += Number(m.hsa) || 0;
+        tot.er += Number(m.employer401k) || 0; tot.hsa += (Number(m.hsa) || 0) + (Number(m.employerHsa) || 0);
         tot.erBase += Number(m.employer401kBase) || 0;
       });
       var covered = ms.length, all = (opts.stubMonths || []).length;
@@ -5562,6 +5568,13 @@
     assert(hx.numerator === 150 && Math.abs(hx.rate - 0.075) < 1e-9, "excludeHsa drops HSA " + hx.numerator, errors);
     var hk = trueSavingsRate({ premium: true, snapshot: { gross: 2000, employee401k: 100, employer401k: 50, hsa: 40, confirmedAt: "x" }, paychecksPerYear: 12, savings: 0 });
     assert(hk.numerator === 190, "HSA counted by default " + hk.numerator, errors);
+    /* v37.5.59.104: forgiving names — any category; HSA lines; employer HSA on True; 529 / brokerage / 401k don't. */
+    var fcats = [{ name: "Investing", lines: [{ name: "Traditional IRA", assigned: 100 }, { name: "Brokerage", assigned: 300 }, { name: "529 plan", assigned: 50 }] },
+      { name: "Health", lines: [{ name: "HSA", assigned: 70 }] }, { name: "Retirement", lines: [{ name: "Roth", assigned: 200 }, { name: "403(b)", assigned: 999 }] }];
+    assert(retirementEnvelopeTotal(fcats).total === 370, "forgiving names IRA + HSA + Roth = 370 " + retirementEnvelopeTotal(fcats).total, errors);
+    assert(isRetirementName("Roth IRA - Fidelity") && isRetirementName("Health Savings Acct") && !isRetirementName("401k Roth") && !isRetirementName("NQ Brokerage"), "isRetirementName", errors);
+    var he = trueSavingsRate({ premium: true, snapshot: { gross: 2000, employee401k: 100, employer401k: 50, hsa: 40, employerHsa: 20, confirmedAt: "x" }, paychecksPerYear: 12, savings: 0 });
+    assert(he.numerator === 210, "employer HSA counts on True " + he.numerator, errors);
     var basic = basicSavingsRate({ savings: sv.total, takeHome: 5000 });
     assert(near(basic.rate, 0.21), "basic rate 21% " + basic.rate, errors);
     assert(basicSavingsRate({ savings: 100, takeHome: 0 }).rate === null, "basic rate ÷0 → null", errors);
@@ -7721,6 +7734,7 @@
     isSavingsEnvelope: isSavingsEnvelope,
     savingsEnvelopeTotal: savingsEnvelopeTotal,
     retirementEnvelopeTotal: retirementEnvelopeTotal,
+    isRetirementName: isRetirementName,
     isRetirementLineByName: isRetirementLineByName,
     basicSavingsRate: basicSavingsRate,
     trueSavingsRate: trueSavingsRate,
