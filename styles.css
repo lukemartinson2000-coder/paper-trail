@@ -4971,3 +4971,6 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
 .matters-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .matters-head .matters-step{flex:1 1 auto;text-align:right}
 .matters-sheet .scale-row{margin-top:8px}
+
+/* v37.5.59.101: YoY under OCF / OCF rate in the income grid */
+.sg-grid td .annual-yoy{display:block;font-size:.72em;line-height:1.2;margin-top:2px;white-space:nowrap}
