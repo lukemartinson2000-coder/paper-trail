@@ -9394,10 +9394,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* Blank taxes or operating expenses stay blank. Do not treat a missing line as $0. */
+  /* v37.5.59.101 (owner): Operating cash flow = Total income − Taxes − Spending + Investments.
+   * Spending = typed Op. expenses for the year when there is one, otherwise everything logged in Budget that year
+   * (all non-income transactions, net of refunds; months after today left out). Investments (the read-only
+   * Investments row) are added back so money moved into investments isn't an operating outflow. Money kept in
+   * checking / cash is part of OCF (it is never subtracted). Old (≤ .100): Total income − Taxes − typed Op. expenses. */
+  function budgetSpendYear(year) {
+    var today = dashIso(dashToday()), sum = 0, any = false, byCat = {};
+    Object.keys(state.months || {}).forEach(function (k) {
+      var m = state.months[k];
+      if (!m || Number(m.year) !== Number(year)) return;
+      var names = {};
+      (m.categories || []).forEach(function (c) { names[c.id] = c.name; (c.lines || []).forEach(function (l) { names[l.id] = c.name; }); });
+      (m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx)) return;
+        var d = txDateKey(tx.date);
+        if (!d || d > today) return;
+        gm().txLegBreakdown(tx).forEach(function (leg) { var n = Number(leg.net) || 0; if (n) { sum += n; any = true; } });
+      });
+    });
+    return any ? roundCents(sum) : null;
+  }
+  function annualSpending(row, year) {
+    if (row && row.opex != null) return { amount: row.opex, from: "typed" };
+    var b = year != null ? budgetSpendYear(year) : null;
+    return b == null ? null : { amount: b, from: "budget" };
+  }
   function annualOcf(row, total, year) {
     var taxes = annualTaxesAmount(row, year);
-    if (total == null || taxes == null || row.opex == null) return null;
-    return roundCents(total - taxes - row.opex);
+    var sp = annualSpending(row, year);
+    if (total == null || taxes == null || sp == null) return null;
+    var inv = year != null ? (incomeInvestParts(year).total || 0) : 0;
+    return roundCents(total - taxes - sp.amount + inv);
   }
 
   function annualAvgTax(taxes, total) {
@@ -9653,13 +9681,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return "Operating expenses are what you spent to live that year — everything except taxes and investments. Typed in on each year (not pulled from Budget). Investments are a record only and do not change operating cash flow.";
     }
     if (key === "ocf") {
-      var line = "Operating cash flow = Total income − Taxes − Operating expenses.";
+      var line = OCF_FORMULA;
       if (total == null) return line + " Fill in income lines for " + y + " first.";
-      if (taxes == null || opex == null) {
-        return line + " " + y + ": fill in " + missing.join(" and ") + " to see the number.";
+      var spI = annualSpending(row, Number(y)), invI = incomeInvestParts(Number(y)).total || 0;
+      if (taxes == null || spI == null) {
+        return line + " " + y + ": fill in " + (taxes == null ? "Taxes" : "") + (taxes == null && spI == null ? " and " : "") + (spI == null ? "spending (log it in Budget)" : "") + " to see the number.";
       }
       return line + " " + y + ": " + annualMoney(total) + " − " + annualMoney(taxes) +
-        " − " + annualMoney(opex) + " = " + annualMoney(ocf) + ".";
+        " − " + annualMoney(spI.amount) + (spI.from === "typed" ? " (typed)" : " (budget)") + " + " + annualMoney(invI) + " = " + annualMoney(ocf) + ".";
     }
     if (key === "avgTax") {
       var inc = metrics.income || annualIncomeParts(row, Number(y));
@@ -9706,7 +9735,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         "Typed salary is used only when a year has no stub with YTD.";
     }
     if (key === "savings") {
-      var savLine = "Savings rate = Operating cash flow ÷ Total income.";
+      var savLine = "OCF rate = Operating cash flow ÷ Total income.";
       if (total == null || total === 0) return savLine + " Fill in income for " + y + " first.";
       if (ocf == null) {
         return savLine + " " + y + ": fill in " + (missing.length ? missing.join(" and ") : "Taxes and Operating expenses") +
@@ -10234,18 +10263,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return any ? roundCents(net) : null;
   }
+  /* v37.5.59.101 (owner): which accounts count is decided ONLY by the Net worth group (retirement, taxable /
+   * brokerage, legacy "investment"). Cash, lifestyle / other, vehicles, property never count; no name words
+   * (HSA counts only when it sits in an investment group). There is no separate 401k group, so 401k accounts
+   * are still left out by name (is401k), because the 401k (pre-tax) and Employer 401k lines already count them. */
+  function nwInvestGroup(l) { return !!l && l.kind !== "liability" && (l.group === "retirement" || l.group === "taxable" || l.group === "investment"); }
   function incomeInvestParts(year) {
-    var parts = [], counted = {};
+    var parts = [], addedThisYear = {}, byId = {};
     ((state.worth && state.worth.lines) || []).forEach(function (l) {
-      if (!nwIsInvest(l) || nwLeftOut(l) || is401k(l)) return;
-      counted[l.id] = 1;
+      byId[l.id] = l;
+      if (!nwInvestGroup(l) || nwLeftOut(l) || is401k(l)) return;
       var a = l.additions ? l.additions[year] : null;
-      if (a != null && a !== "" && Number(a)) parts.push({ name: l.name, src: "nw", amount: Number(a) });
+      if (a != null && a !== "" && Number(a)) { parts.push({ name: l.name, src: "nw", amount: Number(a) }); addedThisYear[l.id] = 1; }
     });
     var seen = {};
     (dashState().purchases || []).forEach(function (p) {
       if (!p || !p.envelope || seen[p.envelope]) return;
-      if ((p.source === "nw" || p.source === "both") && counted[p.nwLineId]) return;
+      /* v37.5.59.101: a goal fund counts only if it has no Net worth account, or its account is in an investment
+       * group. If that account already has an Added amount this year, the account's number is used (not both). */
+      var linked = (p.source === "nw" || p.source === "both") && p.nwLineId ? byId[p.nwLineId] : null;
+      if (linked && (!nwInvestGroup(linked) || is401k(linked) || addedThisYear[linked.id])) return;
       seen[p.envelope] = 1;
       var v = goalFundYearNet(p.envelope, year);
       if (v) parts.push({ name: p.envelope, src: "budget", amount: v });
@@ -10255,10 +10292,44 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { total: total == null ? null : Math.round(total), parts: parts };
   }
   var INCOME_INVEST_HELP = "Investments = money you put into investment accounts that year, minus money you took out. It's read-only here.\n\n" +
-    "It adds up two things:\n• The Added amounts on your Net worth investment accounts (Roth, brokerage, HSA and other accounts in the retirement, taxable or investment groups). A withdrawal entered as a negative Added subtracts.\n" +
-    "• Your budget goal funds (like a house fund): what you logged into the fund's budget line that year minus what you took out.\n\n" +
+    "It adds up two things:\n• The Added amounts on your Net worth investment accounts (accounts in the Retirement or Investments · brokerage group on the Net worth page; the group decides, not the name). A withdrawal entered as a negative Added subtracts.\n" +
+    "• Your budget goal funds (like a house fund): what you logged into the fund's budget line that year minus what you took out. A fund tied to a Cash or Property account doesn't count.\n\n" +
     "401k accounts are left out because the 401k (pre-tax) and Employer 401k lines already count them. A goal linked to an investment account already counted here isn't added again.\n\n" +
     "To change it, edit Added on the Net worth page (tap › on the account) or log money in your Budget. Tap Investments to see each account.";
+  var OCF_FORMULA = "Operating cash flow = Total income − Taxes − Spending + Investments.";
+  var OCF_HELP = OCF_FORMULA + "\n\nSpending = everything you logged in Budget that year (refunds taken off; months after today left out). A year where you typed Op. expenses uses that number instead.\n\n" +
+    "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
+    "The small figure under each year is the change versus the prior year. Whole dollars.";
+  var SAV_RATE_HELP = "Savings rate = retirement contributions ÷ Take-home.\n\nRetirement contributions = the Added amounts that year on your Net worth accounts in the Retirement group (401k, IRA, Roth, HSA if you put it there), plus employer match and base on those accounts. A withdrawal entered as a negative Added subtracts.\n\n" +
+    "Only the group counts, not the name. Brokerage, cash and budget savings (like a house fund) aren't in it; they show up in Investments and Op. cash flow instead. Enter Added on the Net worth page (tap › on the account).";
+  var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income. The small figure is the change versus the prior year, in percentage points.";
+  /* v37.5.59.101 (owner): Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
+   * as Saved: gm().isSavingsEnvelope), per calendar year, months after today left out. Read-only; expands by category. */
+  var isDiscOpen = false;
+  function discretionaryYear(year) {
+    var t = new Date(), sum = 0, any = false, cats = {};
+    var GM = gm();
+    Object.keys(state.months || {}).forEach(function (k) {
+      var rec = state.months[k];
+      if (!rec || Number(rec.year) !== Number(year)) return;
+      if (Number(year) === t.getFullYear() && Number(rec.month) > t.getMonth() + 1) return;
+      (rec.categories || []).forEach(function (cat) {
+        var ls = cat && cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
+        ls.forEach(function (l) {
+          if (GM.isSavingsEnvelope(cat.name, l.name)) return;
+          var a = Math.max(0, Number(l.assigned) || 0);
+          if (!(a > 0)) return;
+          sum += a; any = true;
+          var cn = String(cat.name || "Other");
+          cats[cn] = (cats[cn] || 0) + a;
+        });
+      });
+    });
+    return any ? { total: Math.round(sum), cats: cats } : null;
+  }
+  var DISC_HELP = "Discretionary = everything you budgeted that year on lines that don't count as savings, added up month by month (months after today left out). " +
+    "Savings lines are left out the same way Saved counts them: the Savings category or line, Roth, and house fund lines.\n\n" +
+    "It comes from your Budget and is read-only here; change it by editing your budget. Tap Discretionary to see each category.";
   function renderIncomeGrid(book, years) {
     var cy = new Date().getFullYear();
     var sel = years.indexOf(Number(state.incomeYear)) >= 0 ? Number(state.incomeYear) : (years.indexOf(cy) >= 0 ? cy : years[years.length - 1]);
@@ -10273,7 +10344,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var saved = sgBudgetSaved(y), savedFrom = "budget";
       var m = annualMetrics(row, y);
       if (saved == null && m.ocf != null) { saved = m.ocf; savedFrom = "statement"; }
-      D[y] = { row: row, inc: inc, est: est, T: T, taxes: taxes, ded: ded, takeHome: takeHome, saved: saved, savedFrom: savedFrom, avgTax: m.avgTax, legacyRate: m.savings, stub: inc.source === "stubs" };
+      D[y] = { row: row, inc: inc, est: est, T: T, taxes: taxes, ded: ded, takeHome: takeHome, saved: saved, savedFrom: savedFrom, avgTax: m.avgTax, legacyRate: m.savings, ocfNew: m.ocf, stub: inc.source === "stubs" };
     });
     function edit(key, label, valFn, typedFn) {
       return function (y) { var d = D[y]; return sgCell("is", key, y, valFn(d), { label: label, on: y === sel, typed: typedFn ? typedFn(d) : false }); };
@@ -10325,9 +10396,55 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }, "sg-subline", '<span class="sg-sub-name">' + esc(nm) + (src === "budget" ? ' <i class="caption">budget</i>' : "") + "</span>");
       });
     }
+    function yoyMoney(y, fn) {
+      var i = years.indexOf(y); if (i <= 0) return "";
+      var c = fn(y), pv = fn(years[i - 1]);
+      return c == null || pv == null ? "" : annualYoYHtml("ocf", Math.round(c), Math.round(pv));
+    }
+    function ocfOf(y) { return D[y].ocfNew; }
+    function ocfRateOf(y) { var t = D[y].inc.total; return D[y].ocfNew == null || !(t > 0) ? null : D[y].ocfNew / t; }
+    html += sgRow("Op. cash flow", years, function (y) {
+      var v = ocfOf(y); var negv = v != null && v < 0;
+      return sgCell("is", "", y, v == null ? null : Math.round(v), { calc: true, on: y === sel, cls: negv ? "neg" : "",
+        text: (v == null ? "—" : (negv ? "−" + moneyWhole(Math.abs(v)) : moneyWhole(v))) + yoyMoney(y, ocfOf) });
+    }, "sg-sub is-ocf-row", "Op. cash flow " + helpQ(OCF_HELP));
+    html += sgRow("OCF rate", years, function (y) {
+      var v = ocfRateOf(y), i = years.indexOf(y), pv = i > 0 ? ocfRateOf(years[i - 1]) : null;
+      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) + (v != null && pv != null ? annualYoYHtml("savings", v, pv) : "") });
+    }, "sg-ratio", "OCF rate " + helpQ(OCF_RATE_HELP));
+    var discP = {};
+    years.forEach(function (y) { discP[y] = discretionaryYear(y); });
+    html += sgRow("Discretionary", years, function (y) { var d = discP[y]; return sgCell("is", "", y, d ? d.total : null, { calc: true, on: y === sel, text: d ? moneyWhole(d.total) : "—" }); }, "is-disc-row",
+      '<span class="sg-name-in"><button type="button" class="sg-chev' + (isDiscOpen ? " open" : "") + '" data-act="is-disc-toggle" aria-expanded="' + isDiscOpen + '" aria-label="' + (isDiscOpen ? "Hide" : "Show") + ' each category">›</button>' +
+      '<button type="button" class="sg-line" data-act="is-disc-toggle">Discretionary</button></span> ' + helpQ(DISC_HELP));
+    if (isDiscOpen) {
+      var cn = [];
+      years.forEach(function (y) { if (discP[y]) Object.keys(discP[y].cats).forEach(function (c) { if (cn.indexOf(c) < 0) cn.push(c); }); });
+      if (!cn.length) html += sgRow("", years, function (y) { return sgCell("is", "", y, null, { calc: true, on: y === sel }); }, "sg-subline", '<span class="sg-sub-name">Nothing budgeted yet</span>');
+      cn.forEach(function (c) {
+        html += sgRow(c, years, function (y) { var v = discP[y] && discP[y].cats[c]; return sgCell("is", "", y, v ? Math.round(v) : null, { calc: true, on: y === sel, text: v ? moneyWhole(Math.round(v)) : "—" }); },
+          "sg-subline", '<span class="sg-sub-name">' + esc(c) + "</span>");
+      });
+    }
     html += sgRow("Saved", years, calc(function (d) { return d.saved; }), "", "Saved " + helpQ("Saved = what you put in savings envelopes on Budget that year (months after today are left out). Years with no budget use your statement: total income − taxes − operating expenses."));
-    html += sgRow("Savings rate", years, calc(function (d) { return d.saved != null && d.takeHome > 0 ? d.saved / d.takeHome : (d.savedFrom === "statement" ? d.legacyRate : null); }, pct), "sg-ratio",
-      "Savings rate " + helpQ("Savings rate = Saved ÷ Take-home. For years without a budget it’s operating cash flow ÷ total income, as before."));
+    /* v37.5.59.101 (owner): Savings rate numerator = retirement contributions only, by Net worth group (Retirement):
+     * each account's Added that year (withdrawals subtract) + employer match / base on those accounts.
+     * Denominator unchanged: Take-home. Old (≤ .100): Saved (budget savings lines) ÷ Take-home, or OCF ÷ Total income
+     * for years with no budget. */
+    function retireContrib(y) {
+      var sum = 0, any = false;
+      ((state.worth && state.worth.lines) || []).forEach(function (l) {
+        if (l.kind === "liability" || l.group !== "retirement" || nwLeftOut(l)) return;
+        var a = l.additions && l.additions[y] != null && l.additions[y] !== "" ? Number(l.additions[y]) : null;
+        var e = lineEmployerMatch(l, y) + lineEmployerBase(l, y);
+        if (a != null || e) { any = true; sum += (a || 0) + e; }
+      });
+      return any ? sum : null;
+    }
+    html += sgRow("Savings rate", years, function (y) {
+      var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
+      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
+    }, "sg-ratio is-sav-row", "Savings rate " + helpQ(SAV_RATE_HELP));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     var filing = annualFilingStatus(book);
     html += "</tbody></table></div>" + sgBar() +
@@ -16212,7 +16329,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.100";
+  var APP_VERSION = "37.5.59.101";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -19796,6 +19913,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       closeModal();
       render();
       openAnnualYear(clrYear);
+    } else if (act === "is-disc-toggle") {
+      isDiscOpen = !isDiscOpen;
+      render();
     } else if (act === "is-inv-toggle") {
       isInvOpen = !isInvOpen;
       render();
