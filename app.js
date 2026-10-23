@@ -3299,39 +3299,66 @@
    * sheet closes or visibility resume). The app has already rendered under the overlay, so data load is not delayed.
    * Plane appears, flies one loop-de-loop, zooms up and away while the screen fades/slides in. Tap skips.
    * Reduced motion: a short fade. ?nosplash=1 skips (QA). */
-  /* v37.5.59.119: samples the splash flight (every ~16ms) into keyframes. move = translate + rotate (heading from the
-   * path tangent, unwrapped so it never jumps); look = scale + opacity. Exposed on window for QA sampling. */
-  function launchSplashPath(T, vh) {
-    var R = 110, t0 = 340, t1 = 1880, t2 = 2620;
-    var P = [[0, 0], [120, 0], [190, -vh * 0.22], [175, -vh * 0.72]]; /* P0→P1 is the loop's exit heading (rightward). */
-    function sineIO(u) { return 0.5 - 0.5 * Math.cos(Math.PI * u); }
-    function bez(u, i) { var a = 1 - u; return a * a * a * P[0][i] + 3 * a * a * u * P[1][i] + 3 * a * u * u * P[2][i] + u * u * u * P[3][i]; }
-    function dbez(u, i) { var a = 1 - u; return 3 * a * a * (P[1][i] - P[0][i]) + 6 * a * u * (P[2][i] - P[1][i]) + 3 * u * u * (P[3][i] - P[2][i]); }
-    var move = [], look = [], pts = [], prev = 0, n = Math.round(T / 16);
-    for (var k = 0; k <= n; k++) {
-      var t = T * k / n, x = 0, y = 0, hd = 0, sc = 1, op = 1;
-      if (t <= t0) {
-        var ua = t / t0; sc = 0.5 + 0.5 * (1 - Math.pow(1 - ua, 3)); op = Math.min(1, ua * 1.6);
-      } else if (t <= t1) {
-        var th = 2 * Math.PI * sineIO((t - t0) / (t1 - t0));
-        x = R * Math.sin(th); y = -R + R * Math.cos(th); hd = -th * 180 / Math.PI;
-      } else {
-        var ue = Math.min(1, (t - t2 > 0 ? 1 : (t - t1) / (t2 - t1)));
-        var u = ue * ue * (3 - 2 * ue); /* smoothstep: eases out of the loop and into the climb */
-        u = 0.15 * ue + 0.85 * u; /* keep a little speed at the hand-off so it never stalls */
-        x = bez(u, 0); y = bez(u, 1);
-        var dx = dbez(Math.max(u, 0.001), 0), dy = dbez(Math.max(u, 0.001), 1);
-        hd = Math.atan2(dy, dx) * 180 / Math.PI - 360;
-        sc = 1 + 1.2 * u * u; op = ue < 0.8 ? 1 : Math.max(0, 1 - (ue - 0.8) / 0.2);
+  /* v37.5.59.120: the splash flight as one arc-length path. Entry: a Bézier from off-screen top-left down and to the
+   * right, landing on the loop's bottom heading right · one full 360° loop (radius 110) · a Bézier climb leaving on the
+   * same heading. Speed is constant through entry + loop (no stall at the bottom) and ramps smoothly up during the climb.
+   * Keyframes every ~16ms; nose = path tangent (unwrapped). dots = trail dots at fixed arc-length spacing. */
+  function launchSplashPath(T, vh, vw) {
+    vw = vw || 390;
+    var R = 110, SPACING = 17, MOVE_END = T - 280, K = 2.4;
+    function bezPts(P, n, out) {
+      for (var i = 1; i <= n; i++) {
+        var u = i / n, a = 1 - u;
+        out.push([a * a * a * P[0][0] + 3 * a * a * u * P[1][0] + 3 * a * u * u * P[2][0] + u * u * u * P[3][0],
+          a * a * a * P[0][1] + 3 * a * a * u * P[1][1] + 3 * a * u * u * P[2][1] + u * u * u * P[3][1]]);
       }
-      while (hd - prev > 180) hd -= 360;
-      while (hd - prev < -180) hd += 360;
+    }
+    var sx = -vw / 2 - 70, sy = -vh / 2 + 10;
+    var pts = [[sx, sy]];
+    bezPts([[sx, sy], [sx + 120, sy + 150], [-170, 0], [0, 0]], 400, pts);
+    var entryEnd = pts.length - 1;
+    for (var i = 1; i <= 720; i++) { var th = 2 * Math.PI * i / 720; pts.push([R * Math.sin(th), -R + R * Math.cos(th)]); }
+    var loopEnd = pts.length - 1;
+    bezPts([[0, 0], [130, 0], [200, -vh * 0.22], [180, -vh * 0.75]], 500, pts);
+    var cum = [0];
+    for (var j = 1; j < pts.length; j++) cum.push(cum[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
+    var L1 = cum[loopEnd], L2 = cum[pts.length - 1] - L1;
+    var v = (L1 + 2 * L2 / (1 + K)) / MOVE_END, t1 = L1 / v, tc = MOVE_END - t1;
+    function sAt(t) {
+      if (t <= t1) return v * t;
+      var u = Math.min(t - t1, tc);
+      return L1 + v * u + (K - 1) * v * u * u / (2 * tc);
+    }
+    function tAt(s) { /* inverse of sAt */
+      if (s <= L1) return s / v;
+      var a = (K - 1) * v / (2 * tc), b = v, c = L1 - s;
+      return t1 + (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a);
+    }
+    var seg = 0;
+    function at(s) {
+      if (s < cum[seg]) seg = 0;
+      while (seg < pts.length - 2 && cum[seg + 1] < s) seg++;
+      var a = pts[seg], b = pts[seg + 1], f = (s - cum[seg]) / ((cum[seg + 1] - cum[seg]) || 1);
+      return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, hd: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI };
+    }
+    var move = [], look = [], prev = null, n = Math.round(T / 16);
+    for (var k = 0; k <= n; k++) {
+      var t = T * k / n, s = sAt(t), p = at(Math.min(s, cum[pts.length - 1] - 0.01));
+      var cp = s <= L1 ? 0 : (s - L1) / L2, sc = 1 + 1.2 * cp * cp, op = cp < 0.8 ? 1 : Math.max(0, 1 - (cp - 0.8) / 0.2);
+      var hd = p.hd;
+      if (prev != null) { while (hd - prev > 180) hd -= 360; while (hd - prev < -180) hd += 360; }
       prev = hd;
-      if (t > t0 && t <= t2) pts.push({ t: t, x: x, y: y, hd: hd, sc: sc });
-      move.push({ offset: k / n, transform: "translate(" + x.toFixed(2) + "px," + y.toFixed(2) + "px) rotate(" + (45 + hd).toFixed(2) + "deg)" });
+      move.push({ offset: k / n, transform: "translate(" + p.x.toFixed(2) + "px," + p.y.toFixed(2) + "px) rotate(" + (45 + hd).toFixed(2) + "deg)" });
       look.push({ offset: k / n, opacity: +op.toFixed(3), transform: "scale(" + sc.toFixed(3) + ")" });
     }
-    return { move: move, look: look, pts: pts };
+    /* Dots every SPACING px of arc length; each appears once the tail (~34px behind the nose centre) has passed it. */
+    var dots = [], total = cum[pts.length - 1];
+    seg = 0;
+    for (var d = SPACING; d < total - 40; d += SPACING) {
+      var q = at(d), tt = tAt(Math.min(total, d + 34 * (d > L1 ? 1 + 1.2 * Math.pow((d - L1) / L2, 2) : 1)));
+      dots.push({ x: q.x, y: q.y, s: d, t: Math.min(tt, MOVE_END) });
+    }
+    return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: v };
   }
   window.__ptSplashPath = launchSplashPath;
 
@@ -3362,20 +3389,18 @@
     if (typeof ov.animate !== "function") { setTimeout(finish, 300); return; }
     var plane = ov.querySelector(".ls-plane");
     var orbit = ov.querySelector(".ls-orbit");
-    var T = reduce ? 320 : 2800;
+    var T = reduce ? 320 : 3000;
     if (reduce) {
       plane.style.opacity = "1";
       anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
     } else {
-      /* v37.5.59.119: one sampled flight path, nose = path tangent everywhere (no nested rotations, no snaps).
-       * 0–0.34s appear · 0.34–1.88s full 360° loop (radius 110, sine ease-in-out) · 1.88–2.62s a cubic Bézier that
-       * leaves the loop on its own heading (rightward) and curves gently upward and away · Budget crossfades 1.5–2.8s. */
-      var keys = launchSplashPath(T, window.innerHeight || 700);
+      /* v37.5.59.120: enters from the top-left, steady speed through the loop, climbs away; trail of round dots at even
+       * arc-length spacing that stays until the crossfade into Budget. */
+      var vw = window.innerWidth || 390, vh2 = window.innerHeight || 700, NS = "http://www.w3.org/2000/svg";
+      var keys = launchSplashPath(T, vh2, vw);
+      var xf = Math.max(0.5, Math.min(0.75, (keys.loopEndT + 250) / T)); /* crossfade starts just after the loop */
       anims.push(orbit.animate(keys.move, { duration: T, fill: "forwards" }));
       anims.push(plane.animate(keys.look, { duration: T, fill: "forwards" }));
-      /* v37.5.59.119: a dashed trail in its wake — short rounded dashes dropped behind the tail along the same
-       * path; each appears as the plane passes and fades over ~0.55s, so only a short tail is ever visible. */
-      var vw = window.innerWidth || 390, vh2 = window.innerHeight || 700, NS = "http://www.w3.org/2000/svg";
       var svg = document.createElementNS(NS, "svg");
       svg.setAttribute("class", "ls-trail");
       svg.setAttribute("width", vw); svg.setAttribute("height", vh2);
@@ -3383,29 +3408,27 @@
       g.setAttribute("transform", "translate(" + (vw / 2) + "," + (vh2 / 2) + ")");
       svg.appendChild(g);
       ov.insertBefore(svg, orbit);
-      keys.pts.forEach(function (pt, i) {
-        if (i % 4 !== 0 || pt.t < 420) return;
-        var r = pt.hd * Math.PI / 180, dx = Math.cos(r), dy = Math.sin(r);
-        var tail = 36 * pt.sc, len = 5 * pt.sc;
-        var cx = pt.x - dx * tail, cy = pt.y - dy * tail;
-        var ln = document.createElementNS(NS, "line");
-        ln.setAttribute("x1", (cx - dx * len).toFixed(1)); ln.setAttribute("y1", (cy - dy * len).toFixed(1));
-        ln.setAttribute("x2", (cx + dx * len).toFixed(1)); ln.setAttribute("y2", (cy + dy * len).toFixed(1));
-        ln.setAttribute("stroke-width", (3 * Math.min(pt.sc, 1.6)).toFixed(1));
-        g.appendChild(ln);
-        var a0 = pt.t / T, a1 = Math.min(0.999, (pt.t + 40) / T), a2 = Math.min(1, (pt.t + 560) / T);
-        anims.push(ln.animate([
-          { opacity: 0 }, { opacity: 0, offset: a0 }, { opacity: 0.75, offset: Math.max(a1, a0 + 0.0001), easing: "ease-in" }, { opacity: 0, offset: Math.max(a2, a1 + 0.0002) }, { opacity: 0 }
+      keys.dots.forEach(function (dt) {
+        var c = document.createElementNS(NS, "circle");
+        c.setAttribute("cx", dt.x.toFixed(1)); c.setAttribute("cy", dt.y.toFixed(1)); c.setAttribute("r", "2.6");
+        g.appendChild(c);
+        var a0 = Math.min(0.99, dt.t / T), a1 = Math.min(0.995, a0 + 60 / T);
+        anims.push(c.animate([
+          { opacity: 0 }, { opacity: 0, offset: a0 }, { opacity: 0.8, offset: a1 }, { opacity: 0.8 }
         ], { duration: T, fill: "forwards" }));
       });
+      /* The trail stays put; it leaves with the overlay's crossfade. */
+      anims.push(svg.animate([
+        { opacity: 1 }, { opacity: 1, offset: xf, easing: "cubic-bezier(.4,0,.2,1)" }, { opacity: 0 }
+      ], { duration: T, fill: "forwards" }));
       anims.push(ov.animate([
         { backgroundColor: "var(--paper)" },
-        { backgroundColor: "var(--paper)", offset: 0.54, easing: "cubic-bezier(.4,0,.2,1)" },
+        { backgroundColor: "var(--paper)", offset: xf, easing: "cubic-bezier(.4,0,.2,1)" },
         { backgroundColor: "rgba(0,0,0,0)" }
       ], { duration: T, fill: "forwards" }));
       anims.push(phone.animate([
         { opacity: 0, transform: "scale(0.98)" },
-        { opacity: 0, transform: "scale(0.98)", offset: 0.54, easing: "cubic-bezier(.4,0,.2,1)" },
+        { opacity: 0, transform: "scale(0.98)", offset: xf, easing: "cubic-bezier(.4,0,.2,1)" },
         { opacity: 1, transform: "none" }
       ], { duration: T, fill: "forwards" }));
     }
@@ -17315,7 +17338,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.119";
+  var APP_VERSION = "37.5.59.120";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
