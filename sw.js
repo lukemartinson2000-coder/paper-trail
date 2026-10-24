@@ -2,7 +2,7 @@
  * the home screen. index.html and app.js are network-first: with a connection, closing and reopening the app
  * always loads the newest version; offline, the last cached copy is used. Other files are versioned (?v=) and
  * served cache-first. Old version caches are deleted on activate. Data stays in localStorage, never in here. */
-var VERSION = "37.5.59.124";
+var VERSION = "37.5.59.125";
 var CACHE = "pt-shell-" + VERSION;
 var SHELL = [
   "./", "index.html", "manifest.webmanifest?v=27",

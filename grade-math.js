@@ -1344,7 +1344,7 @@
     assert(insuranceBillingNeedsPrompt({ vaultType: "insurance", premium: 165, premiumFrequency: "monthly", touchedFields: {} }) === false, "explicit monthly bill does not ask", errors);
     assert(normalizePlan("premium") === "premium", "premium plan", errors);
     assert(normalizePlan("") === "free", "missing plan is free", errors);
-    var peers = comparePeers({ ageYears: 30, zip: "94110", income: 87885, netWorth: 165726, debt: 0 });
+    var peers = comparePeers({ ageYears: 30, zip: "94110", income: 90000, netWorth: 165726, debt: 0 });
     assert(peers.ageBand.id === "under35", "age 30 is under 35", errors);
     assert(peers.geo && peers.geo.digit === 9, "94110 is Pacific", errors);
     assert(peers.peerIncome > 60700, "Pacific ZIP lifts income median vs national SCF", errors);
@@ -1422,12 +1422,12 @@
 
     assert(exactAgeLine(30) === "You're 30", "exact age line", errors);
     assert(exactAgeLine(null) === "", "missing age is not invented", errors);
-    var deckFree = compareDeck({ ageYears: 30, zip: "94110", income: 87885, netWorth: 165726, debt: 0, plan: "free" });
+    var deckFree = compareDeck({ ageYears: 30, zip: "94110", income: 90000, netWorth: 165726, debt: 0, plan: "free" });
     assert(deckFree.exactAge === "You're 30", "deck exact age", errors);
     assert(deckFree.ageBand.id === "under35", "finest SCF band for 30", errors);
     assert(deckFree.cards.length === 2, "free deck is 1-2 teasers", errors);
     assert(deckFree.cards[0].id === "income" && deckFree.cards[0].locked === false, "free first card is income", errors);
-    var deckPrem = compareDeck({ ageYears: 42, zip: "94110", income: 87885, netWorth: 165726, debt: 8000, plan: "premium" });
+    var deckPrem = compareDeck({ ageYears: 42, zip: "94110", income: 90000, netWorth: 165726, debt: 8000, plan: "premium" });
     assert(deckPrem.ageBand.id === "35-44", "age 42 is 35-44", errors);
     assert(deckPrem.cards.length === 3, "premium full compare deck", errors);
     assert(shouldAddVaultToNetWorth({ vaultType: "loan" }) === true, "null addToNetWorth defaults onto NW", errors);
@@ -3729,7 +3729,7 @@
 
   registerPayStubAdapter("generic-us", parseGenericUsPayStub);
 
-  /* v37.5.59.5: Workday payslip adapter ("Workday BIRT Report Engine" layout, e.g. ExampleCo). Two tables sit side
+  /* v37.5.59.5: Workday payslip adapter ("Workday BIRT Report Engine" layout). Two tables sit side
    * by side on each line (Earnings | Employee Taxes, Pre Tax | Post Tax, Employer Paid Benefits | Taxable Wages),
    * so each line is split into label + numbers segments. Current + YTD columns. Generic parsing mangled this layout. */
   function workdayNum(tok) {
@@ -5438,107 +5438,9 @@
 
 
   /* v37.5.59.3 pay-stub year basis: actual YTD + capped projection; no stub × checks. */
-  function runPayStubBasisTests(errors) {
-    var near = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.011; };
-    var L = pretaxLimitsFor(2026, {});
-    assert(L.k401 === 24500 && L.hsa === 4400 && L.fsa === 3400, "2026 limits 401k 24,500 / HSA 4,400 / FSA 3,400", errors);
-    assert(pretaxLimitsFor(2026, { hsaCoverage: "family" }).hsa === 8750, "HSA family 8,750", errors);
-    assert(pretaxLimitsFor(2026, { ageAtYearEnd: 52 }).k401 === 32500 && pretaxLimitsFor(2026, { ageAtYearEnd: 61 }).k401 === 35750, "401k catch-ups", errors);
-    assert(pretaxLimitsFor(2026, { ageAtYearEnd: 56 }).hsa === 5400, "HSA 55+ catch-up", errors);
-    var stubs = [{"employer":"Example Employer Inc","payPeriodStart":"2026-08-17","payPeriodEnd":"2026-08-30","payDate":"2026-09-04","gross":3380.7,"earnings":3381.90,"net":2340.52,"federalTax":377.73,"stateTax":172.0,"socialSecurity":205.94,"medicare":51.79,"fica":null,"otherTaxes":[{"name":"Family Leave - MNPFL","amount":4.9},{"name":"Medical Leave - MNPML","amount":11.09}],"employee401k":169.04,"employer401k":169.04,"hsa":null,"otherDeductions":[{"name":"Health Care Flexible Spending Account","amount":50.0,"preTax":true},{"name":"Vacation Buy","amount":14.79,"preTax":true},{"name":"Long Term Disability","amount":4.58,"preTax":false}],"fedTaxableWages":3152.6,"stateTaxableWages":3152.6,"ytd":{"gross":59252.7,"earnings":59324.10,"net":39827.36,"federalTax":6262.16,"stateTax":2837.0,"socialSecurity":3610.85,"medicare":844.48,"otherTaxes":261.0,"employee401k":4656.62,"employer401k":2962.64,"hsa":0,"fsa":900.0,"otherPreTax":247.58,"preTaxTotal":5741.21,"postTax":72.36,"fedTaxableWages":53582.89,"stateTaxableWages":53582.89},"confidence":1,"adapterId":"manual-example-workday"},{"employer":"Example Employer Inc","payPeriodStart":"2026-09-14","payPeriodEnd":"2026-09-27","payDate":"2026-10-02","gross":3380.7,"earnings":3963.15,"net":1815.37,"federalTax":397.25,"stateTax":176,"socialSecurity":211.44,"medicare":53.18,"fica":null,"otherTaxes":[{"name":"MNPFL","amount":5.75},{"name":"MNPML","amount":12.99}],"employee401k":169.04,"employer401k":169.04,"hsa":482.44,"otherDeductions":[{"name":"Medical","amount":52.5,"preTax":true},{"name":"Dental","amount":7.69,"preTax":true},{"name":"AD&D","amount":0.7},{"name":"Vacation Buy","amount":14.79,"preTax":true},{"name":"LTD (post-tax)","amount":4.58,"preTax":false}],"confidence":1,"adapterId":"manual-example-summary"}];
-    var b = payStubYearBasis(stubs, { year: 2026, frequency: "biweekly", hsaCoverage: "self" });
-    assert(b && b.hasYtd && b.anchorDate === "2026-09-04" && b.latestDate === "2026-10-02", "owner basis anchors on the Sep 4 YTD", errors);
-    assert(b.projected.length === 6 && b.estimated.length === 1 && b.estimated[0].date === "2026-09-18", "6 projected checks + Sep 18 estimated", errors);
-    assert(b.short === "Actual through Oct 2 (1 check without a stub estimated) + projected 6 checks", "basis short copy: " + b.short, errors);
-    assert(near(b.pretax.total, 11510.85) && near(b.pretax.e401, 6008.92) && near(b.pretax.hsa, 4150) && near(b.pretax.fsa, 900) && near(b.pretax.otherPre, 866.06),
-      "owner 2026 pre-tax 11,510.85 " + JSON.stringify(b.pretax), errors);
-    // v37.5.59.5: the Oct 2 stub's one-off $625 of non-cash taxable earnings is counted once, not on 7 more checks.
-    assert(near(b.fedTaxableWages, 81128.69) && near(b.total.earnings, 93505.95) && near(b.grossPay.imputed, 711.75), "fed taxable wages 81,128.69 (earnings 93,505.95) " + b.fedTaxableWages + " / " + b.total.earnings, errors);
-    assert(b.notes.indexOf("one-off-imputed") >= 0 && /counted once, on that check/.test(b.long), "one-off imputed earnings explained", errors);
-    assert(near(b.taxes.fed, 10150.71) && near(b.taxes.state, 4245) && near(b.taxes.fica, 7034.91) && near(b.taxes.otherTax, 430.52), "taxes YTD + projected " + JSON.stringify(b.taxes), errors);
-    assert(b.unflagged.join() === "AD&D" && /not counted: AD&D/.test(b.long), "unmarked deduction listed, not counted", errors);
-    var oct = payStubBasisMonth(b, 10);
-    assert(near(oct.gross, 10905.60) && near(oct.hsa, 1556.25) && oct.checks === 3, "October = Oct 2 stub + 2 projected checks", errors);
-    // Front-loaded HSA stops at the limit.
-    var front = JSON.parse(JSON.stringify(stubs));
-    front[1].hsa = 1000;
-    var bf = payStubYearBasis(front, { year: 2026, frequency: "biweekly", hsaCoverage: "self" });
-    assert(near(bf.pretax.hsa, 4400) && bf.capped.hsa > 0 && /HSA stops at the 2026 self-only limit \$4,400\.00 \(IRS Rev\. Proc\. 2025-19\)/.test(bf.long),
-      "front-loaded HSA capped at 4,400 " + bf.pretax.hsa, errors);
-    var bfam = payStubYearBasis(front, { year: 2026, frequency: "biweekly", hsaCoverage: "family" });
-    assert(near(bfam.pretax.hsa, 8000), "family limit not hit at 8 × 1,000 " + bfam.pretax.hsa, errors);
-    // 401k stops at the deferral limit after YTD.
-    var hi = JSON.parse(JSON.stringify(stubs));
-    hi[0].ytd.employee401k = 24000;
-    var bh = payStubYearBasis(hi, { year: 2026, frequency: "biweekly" });
-    assert(near(bh.pretax.e401, 24500) && bh.capped.e401 > 0, "401k stops once YTD + actual + projected reach 24,500 " + bh.pretax.e401, errors);
-    // No YTD anywhere → sum confirmed stubs, say earlier checks aren't counted.
-    var lone = payStubYearBasis([stubs[1]], { year: 2026, frequency: "biweekly" });
-    assert(!lone.hasYtd && /aren’t counted/.test(lone.long) && near(lone.pretax.hsa, 482.44 * 7), "no-YTD basis sums stubs + projection", errors);
-    assert(payStubYearBasis(stubs, { year: 2025 }) === null, "no 2025 stub → no basis (older years never reuse 2026 stubs)", errors);
-    // True from the month's own paychecks.
-    var tr = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: oct, savings: 1000 });
-    assert(tr.state === "ok" && near(tr.gross, 10905.60) && near(tr.numerator, 1000 + oct.employee401k + oct.employer401k + oct.hsa), "True uses October’s paychecks", errors);
-    var trNone = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: null, savings: 1000 });
-    assert(trNone.state === "needsStub" && trNone.noMonthStub, "no stub for the month → needsStub", errors);
-    // Compensation from the basis (no × 26 for deductions).
-    var applied = applyPayStubToCompensation({ paychecksPerYear: 26, preTax: [{ id: "401k", value: 0 }, { id: "hsa", value: 0 }, { id: "fsa", value: 0 }] }, stubs[1],
-      { stubs: [stubs[0]], frequency: "biweekly", paychecksPerYear: 26, hsaCoverage: "self", confirmedAt: "x" });
-    var hsaRow = applied.plan.preTax.filter(function (r) { return r.id === "hsa"; })[0];
-    assert(near(hsaRow.value, 4150) && near(applied.plan.baseSalary, 86298.61), "compensation HSA 4,150 (not 12,543.38), base = YTD + projected gross", errors);
-    runGrossBasisTests(errors, stubs, near);
-  }
-
-  /* v37.5.59.4: average tax / True / compare use one gross — YTD gross + checks since + projected BASE pay +
-   * a bonus only while its month is ahead. DN401NC = employer 401k base: not pay, not a deduction. */
-  function runGrossBasisTests(errors, stubs0, near) {
-    var st = JSON.parse(JSON.stringify(stubs0));
-    st[0].employer401kBase = 67.62; st[0].ytd.employer401kBase = 1185.15;
-    st[0].earningsLines = [
-      { name: "Holiday Pay", amount: 0, ytd: 2013.12 }, { name: "Vacation", amount: 0, ytd: 3245.77 },
-      { name: "Variable Scorecard", amount: 0, ytd: 3874 }, { name: "Misc Fee", amount: 0, ytd: 60 },
-      { name: "Group Term Life - Taxable", amount: 1.25, ytd: 16.75 }, { name: "Regular Earn", amount: 3380.7, ytd: 48176.68 },
-      { name: "Monthly Variable", amount: 0, ytd: 1943 }];
-    st[1].employer401kBase = 67.62;
-    var b = payStubYearBasis(st, { year: 2026, frequency: "biweekly", hsaCoverage: "self", bonusMonth: 2 });
-    assert(near(b.grossPay.ytdStub, 59252.72) && near(b.grossPay.afterYtd, 6761.47) && near(b.grossPay.projectedBase, 20284.42) &&
-      b.grossPay.projectedBonus === 0 && near(b.grossPay.total, 86298.61), "gross pay = YTD + since + projected base " + JSON.stringify(b.grossPay), errors);
-    assert(near(b.taxesActual, 15295.36) && near(b.taxesProjected, 5035.50) && near(b.taxes.total, 20330.86), "taxes actual + projected", errors);
-    assert(Math.abs(b.taxes.total / b.grossPay.total - 0.2356) < 0.0001, "average tax 23.6% on stub gross", errors);
-    assert(b.bonus.status === "paid" && /February bonus has already paid/.test(b.bonus.note) && /3,874/.test(b.bonus.note), "Feb bonus already in YTD — nothing projected", errors);
-    assert(near(b.grossPay.bonusTotal, 6255) && near(b.grossPay.basePay, 80481.46), "bonus/variable 6,255 split from base pay", errors);
-    assert(near(b.total.er401Base, 1726.12) && near(b.total.er401, 4314.93), "DN401NC base 1,726.12 tracked apart from match", errors);
-    assert(near(b.total.earnings, 93505.95) && near(b.pretax.total, 11510.85) && near(b.fedTaxableWages, 81128.69), "DN401NC changes neither earnings nor pre-tax deductions", errors);
-    var feb = payStubBasisMonth(b, 2), jan = payStubBasisMonth(b, 1);
-    assert(near(feb.gross - jan.gross, 3874), "YTD bonus sits in February, not spread " + feb.gross + " vs " + jan.gross, errors);
-    var oct = payStubBasisMonth(b, 10);
-    var tr = trueSavingsRate({ premium: true, snapshot: { gross: 1, confirmedAt: "x" }, useBasis: true, stubMonth: oct, savings: 2400 });
-    assert(tr.rows.some(function (r) { return r.id === "employerBase" && near(r.amount, 218.13); }) && near(tr.gross, 10905.60), "True adds employer 401k base " + JSON.stringify(tr.rows), errors);
-    var noMonth = payStubYearBasis(st, { year: 2026, frequency: "biweekly" });
-    assert(noMonth.bonus.status === "in-ytd" && noMonth.grossPay.projectedBonus === 0, "bonus found in YTD without a month → counted, not projected", errors);
-    var dec = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 12, bonusAmount: 5000 });
-    assert(dec.bonus.status === "projected" && dec.bonus.projectedDate === "2026-12-11" && near(dec.grossPay.total, 97794.20) &&
-      near(dec.taxes.total - b.taxes.total, 5000 * (0.22 + 0.0625 + 0.0765)) && /\+ Dec bonus$/.test(dec.short), "future-month bonus projected once with supplemental withholding", errors);
-    var decNo = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 12 });
-    assert(decNo.bonus.status === "no-amount" && decNo.grossPay.projectedBonus === 0, "bonus month without an amount → nothing invented", errors);
-    var pct = payStubYearBasis(st, { year: 2026, frequency: "biweekly", bonusMonth: 11, bonusTargetPercent: 10 });
-    assert(pct.bonus.status === "projected" && near(pct.bonus.projected, 8653.92), "target % × base pay " + pct.bonus.projected, errors);
-    // Latest stub carrying a bonus: it is actual once, never repeated in projected checks.
-    var withBonus = JSON.parse(JSON.stringify(st));
-    withBonus[1].gross = 3380.74 + 2000; withBonus[1].earnings = 3963.15 + 2000;
-    withBonus[1].earningsLines = [{ name: "Regular Earn", amount: 3380.74 }, { name: "Annual Bonus", amount: 2000 }];
-    var wb = payStubYearBasis(withBonus, { year: 2026, frequency: "biweekly" });
-    assert(near(wb.grossPay.projectedBase, 20284.42) && near(wb.grossPay.total, 86298.61 + 2000), "a bonus on the latest stub is not projected forward " + JSON.stringify(wb.grossPay), errors);
-    // Parser: DN401NC → employer401kBase, never the match or a deduction; bonus/variable earnings lines found.
-    var txt = "Pay Stub\nGross Pay 3,380.74 59,252.72\nNet Pay 2,340.52 39,827.36\nYTD\nFederal Tax 377.73 6,262.16\n" +
-      "Variable Scorecard 0 4,166.00\nMonthly Variable 0 2,089.00\n" +
-      "Employer 401k Match 169.04 2,962.64\nDN401NC - 401k Company Base Contribution 67.62 1,185.15\n";
-    var ps = parsePayStubText(txt);
-    assert(ps.employer401kBase === 67.62 && ps.employer401k === 169.04 && ps.ytd && ps.ytd.employer401kBase === 1185.15, "parser: DN401NC is employer 401k base " + JSON.stringify([ps.employer401kBase, ps.employer401k]), errors);
-    assert(!(ps.otherDeductions || []).some(function (d) { return /DN401NC|base/i.test(d.name); }), "parser: DN401NC never a deduction", errors);
-    assert((ps.earningsLines || []).length === 2 && earningsKind(ps.earningsLines[0]) === "bonus" && earningsKind(ps.earningsLines[1]) === "variable" &&
-      ps.earningsLines[0].ytd === 3874, "parser: bonus / variable earnings lines " + JSON.stringify(ps.earningsLines), errors);
-  }
+  /* Pay-stub fixture tests run privately (they use a real pay stub). */
+  function runPayStubBasisTests(errors) {}
+  function runGrossBasisTests(errors) {}
 
   function runLedgerTests(errors) {
     var near = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005; };
@@ -5654,8 +5556,8 @@
     assert(monthTakeHome(3200, allFull, twoChecks).source === "received", "all received → source received", errors);
     assert(near(monthMoneyIn(0, month, []), 2572.37), "nothing planned but income logged → Received", errors);
     // October 2026 import shape: 1 of 3 paychecks received → Basic stays on planned (42.1%)
-    var octIncomes = [{ id: "p1", amount: 1815.37 }, { id: "p2", amount: 1815.37 }, { id: "p3", amount: 1815.37 }];
-    var octTx = [{ id: "o1", type: "income", payee: "Paycheck 1", amount: 1815.37, incomeId: "p1" }];
+    var octIncomes = [{ id: "p1", amount: 1900.01 }, { id: "p2", amount: 1900.01 }, { id: "p3", amount: 1900.01 }];
+    var octTx = [{ id: "o1", type: "income", payee: "Paycheck 1", amount: 1900.01, incomeId: "p1" }];
     var octTh = monthTakeHome(5700.03, octTx, octIncomes);
     assert(octTh.source === "planned" && near(octTh.amount, 5700.03), "Oct: 1 of 3 received → planned 5,700.03", errors);
     assert(formatSavingsRate(basicSavingsRate({ savings: 2400, takeHome: octTh.amount }).rate) === "42.1%", "Oct Basic 42.1%", errors);
@@ -5663,7 +5565,7 @@
     assert(monthPeriod(2026, 9, "2026-10-07T12:00:00") === "past" && monthPeriod(2026, 10, "2026-10-07T12:00:00") === "current" &&
       monthPeriod(2026, 11, "2026-10-07T12:00:00") === "future", "monthPeriod past/current/future", errors);
     var pastPartial = monthTakeHome(5700.03, octTx, octIncomes, { period: "past" });
-    assert(pastPartial.source === "received" && near(pastPartial.amount, 1815.37), "past month: Received even if not every paycheck arrived", errors);
+    assert(pastPartial.source === "received" && near(pastPartial.amount, 1900.01), "past month: Received even if not every paycheck arrived", errors);
     var pastNone = monthTakeHome(5653.10, [], octIncomes, { period: "past" });
     assert(pastNone.source === "planned" && near(pastNone.amount, 5653.10) && pastNone.reason === "none-logged", "past month with no income logged → planned", errors);
     var pastOver = monthTakeHome(4039.15, [{ type: "income", amount: 6051.72, incomeId: "p1" }], octIncomes, { year: 2026, month: 4, today: "2026-10-07T12:00:00" });
@@ -5673,7 +5575,7 @@
     assert(/month ended/.test(monthBasisPhrase(pastPartial)), "basis phrase past month", errors);
     // v37.5.59.2: same rule names its basis + Insights precision on grade Spend / Wrapped savings
     assert(/planned take-home — 1 of 3 paychecks received so far/.test(monthBasisPhrase(octTh)), "grade basis phrase planned 1 of 3", errors);
-    var octAll = octTx.concat([{ id: "o2", type: "income", amount: 1815.37, incomeId: "p2" }, { id: "o3", type: "income", amount: 1815.37, incomeId: "p3" }]);
+    var octAll = octTx.concat([{ id: "o2", type: "income", amount: 1900.01, incomeId: "p2" }, { id: "o3", type: "income", amount: 1900.01, incomeId: "p3" }]);
     var octAllTh = monthTakeHome(5700.03, octAll, octIncomes);
     assert(/received take-home — all 3 paychecks in/.test(monthBasisPhrase(octAllTh)), "grade basis phrase received 3 of 3", errors);
     var gs = spendSection({ savingsRate: 0.4357, takeHomeBasis: octAllTh });

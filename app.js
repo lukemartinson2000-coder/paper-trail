@@ -54,15 +54,15 @@
   ];
   var NW_YEARS = [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
   var INCOME_YEARS = NW_YEARS.concat([2026]);
+  /* v37.5.59.125: demo-only figures — invented round numbers, not anyone's real history. */
   var NW_LINES = [
     { name: "Checking", kind: "asset", group: "cash", amounts: [800, 1000, 1200, 1500, 1500, 2000, 2000, 2500, 3000, 3500] },
     { name: "Savings", kind: "asset", group: "cash", amounts: [500, 1500, 2500, 3000, 4000, 5000, 6000, 8000, 10000, 12000] },
     { name: "Car", kind: "asset", group: "lifestyle", amounts: [6000, 5500, 5000, 4500, 4000, 12000, 11000, 10000, 9000, 8000] },
-    { name: "House Fund", kind: "asset", group: "lifestyle", amounts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     { name: "Brokerage", kind: "asset", group: "taxable", amounts: [0, 0, 1000, 2000, 4000, 6000, 7000, 9000, 12000, 15000] },
     { name: "Roth IRA", kind: "asset", group: "retirement", amounts: [0, 0, 0, 2000, 5000, 9000, 12000, 18000, 25000, 33000] },
     { name: "401k", kind: "asset", group: "retirement", amounts: [0, 0, 0, 0, 0, 2000, 6000, 11000, 18000, 26000] },
-    { name: "Home loan", kind: "asset", group: "realEstate", amounts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { name: "Home", kind: "asset", group: "realEstate", amounts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     { name: "Student Loan", kind: "liability", group: "debt", amounts: [0, 0, 0, 0, 20000, 18000, 15000, 12000, 8000, 4000] }
   ];
   var ROTH_ADDITIONS = {
@@ -75,7 +75,6 @@
     2025: 5000
   };
 
-  var OLD_SAMPLE_INCOMES = [28000, 32000, 36000, 42000, 45000, 52000, 58000, 64000, 68800, 72800, 0];
   var SAMPLE_INCOMES = [20000, 24000, 30000, 34000, 38000, 42000, 46000, 48000, 55000, 62000, 0];
   var PRETAX_SPECS = [
     { id: "medical", name: "Medical Insurance", method: "fixed" },
@@ -951,15 +950,8 @@
     if (!worth.notes) worth.notes = {};
     if (worth.blank) {
       // v37.5.15: books started from the welcome survey never get sample incomes back-filled.
-    } else if (incomesMatchSeries(worth.income, OLD_SAMPLE_INCOMES)) {
-      INCOME_YEARS.forEach(function (year, i) {
-        worth.income[year] = SAMPLE_INCOMES[i] || 0;
-      });
-    } else {
-      INCOME_YEARS.forEach(function (year, i) {
-        if (worth.income[year] == null) worth.income[year] = SAMPLE_INCOMES[i] || 0;
-      });
     }
+    /* v37.5.59.125 (privacy): saved books are never back-filled with sample incomes; empty years stay empty. */
     (worth.lines || []).forEach(function (line) {
       if (!line.employerMatch) line.employerMatch = {};
       if (!line.employerBase) line.employerBase = {};
@@ -1803,6 +1795,35 @@
       tx.objectStore(DOC_STORE).delete(id);
       tx.oncomplete = function () { (done || function () {})(null); };
       tx.onerror = function () { (done || function () {})(tx.error); };
+    });
+  }
+
+  /* v37.5.59.125 (QA M2): all of a restore's files in ONE IndexedDB transaction (all land or none do), and old
+   * files are only removed after the new books are saved — a reload mid-restore can't leave cards without files. */
+  function putDocBlobs(map, done) {
+    var ids = Object.keys(map);
+    if (!ids.length) return done(null);
+    openDocDb(function (err, db) {
+      if (err || !db) return done(err || new Error("idb"));
+      var tx = db.transaction(DOC_STORE, "readwrite");
+      var store = tx.objectStore(DOC_STORE);
+      ids.forEach(function (id) { store.put(map[id], id); });
+      tx.oncomplete = function () { done(null); };
+      tx.onerror = tx.onabort = function () { done(tx.error || new Error("put")); };
+    });
+  }
+  function pruneDocBlobs(keepIds, done) {
+    done = done || function () {};
+    var keep = {};
+    (keepIds || []).forEach(function (id) { keep[id] = true; });
+    openDocDb(function (err, db) {
+      if (err || !db) return done(err);
+      var tx = db.transaction(DOC_STORE, "readwrite");
+      var store = tx.objectStore(DOC_STORE);
+      var req = store.openCursor();
+      req.onsuccess = function () { var c = req.result; if (!c) return; if (!keep[c.key]) c.delete(); c.continue(); };
+      tx.oncomplete = function () { done(null); };
+      tx.onerror = function () { done(tx.error); };
     });
   }
 
@@ -3232,6 +3253,7 @@
   }
   function buildDemoState() {
     var s = freshState();
+    s.annualStatement = seedAnnualStatement();
     var cur = currentYearMonth();
     s.months = {};
     for (var k = 11; k >= 0; k--) {
@@ -3286,7 +3308,7 @@
       gradeSheet: "",
       months: months,
       worth: seedWorth(),
-      annualStatement: seedAnnualStatement(),
+      annualStatement: emptyAnnualStatement(),
       nightLedger: false,
       theme: "auto",
       compensation: defaultCompensation(),
@@ -3451,11 +3473,17 @@
   var loadFailure = null;
   function rawLooksLikeBooks(raw) {
     if (!raw || raw.length < 200) return false;
-    return /"transactions":\[\{/.test(raw) || /"lines":\[\{/.test(raw) || /"documents":\[\{/.test(raw) || /"years":\{"\d{4}"/.test(raw);
+    /* v37.5.59.125 (QA L1): pretty-printed JSON (spaces / newlines) counts too. */
+    return /"transactions"\s*:\s*\[\s*\{/.test(raw) || /"lines"\s*:\s*\[\s*\{/.test(raw) || /"documents"\s*:\s*\[\s*\{/.test(raw) || /"years"\s*:\s*\{\s*"\d{4}"/.test(raw);
   }
-  function keepRawBackup(raw, key) {
+  /* v37.5.59.125 (QA L-size): the in-localStorage copy is capped so it can't crowd out real saves; bigger books
+   * still get their copy in the IndexedDB snapshots. */
+  var RAW_BACKUP_MAX = 1500000;
+  function keepRawBackup(raw, key, force) {
     try {
       if (!rawLooksLikeBooks(raw)) return;
+      if (raw.length > RAW_BACKUP_MAX) { if (key === BACKUP_KEY) localStorage.removeItem(BACKUP_KEY); return; }
+      if (force) { localStorage.setItem(key, raw); return; }
       var have = localStorage.getItem(key);
       if (have === raw) return;
       /* Never replace a copy that holds books with a much smaller one (e.g. after a bad write). */
@@ -3473,9 +3501,16 @@
     return b;
   }
 
+  /* v37.5.59.125 (QA M1): two tabs. Every save bumps a revision; a tab only writes if nothing newer landed since it
+   * loaded, and a 'storage' event from another tab reloads this one's books. */
+  var REV_KEY = STORAGE_KEY + ".rev";
+  var loadedRev = 0;
+  function lsSetBooks(text) { localStorage.setItem(STORAGE_KEY, text); try { localStorage.setItem(REV_KEY, String(storedRev() + 1)); } catch (e) {} }
+  function storedRev() { try { return Number(localStorage.getItem(REV_KEY)) || 0; } catch (e) { return 0; } }
   function loadState() {
     var raw = null;
     loadFailure = null;
+    loadedRev = storedRev();
     try {
       raw = localStorage.getItem(STORAGE_KEY);
       // v37.5.15: no saved data → welcome survey on empty books (sample data is opt-in only).
@@ -3488,12 +3523,26 @@
       var repaired = false;
       Object.keys(parsed.months).forEach(function (key) {
         var m = parsed.months[key];
-        if (!m || typeof m !== "object") { delete parsed.months[key]; repaired = true; return; }
-        // v37.5.59.12 (QA L9): drop invalid month keys so they can't inflate Wrapped take-home.
+        /* v37.5.59.125 (QA M3): never drop a whole month for one bad field. A bad year/month is repaired from the
+         * key; a month that can't be placed is parked in monthsParked (kept, not counted) instead of deleted. */
+        if (!m || typeof m !== "object") {
+          if (m != null) { parsed.monthsParked = parsed.monthsParked || {}; parsed.monthsParked[key] = m; }
+          delete parsed.months[key]; repaired = true; return;
+        }
         var keyBits = /^(\d{4})-(\d{1,2})$/.exec(key);
-        var yNum = Number(m.year != null ? m.year : (keyBits && keyBits[1]));
-        var mNum = Number(m.month != null ? m.month : (keyBits && keyBits[2]));
-        if (!keyBits || !(yNum >= 2000 && yNum <= 2100) || !(mNum >= 1 && mNum <= 12)) {
+        var okY = function (v) { return v >= 2000 && v <= 2100; }, okM = function (v) { return v >= 1 && v <= 12; };
+        var kY = keyBits ? Number(keyBits[1]) : NaN, kM = keyBits ? Number(keyBits[2]) : NaN;
+        var yNum = Number(m.year), mNum = Number(m.month);
+        if (keyBits && okY(kY) && okM(kM)) {
+          if (yNum !== kY || mNum !== kM) { if (!(okY(yNum) && okM(mNum)) || m.year == null || m.month == null) repaired = true; }
+          yNum = kY; mNum = kM;
+        } else if (okY(yNum) && okM(mNum) && !parsed.months[ymKey(yNum, mNum)]) {
+          delete parsed.months[key];
+          parsed.months[ymKey(yNum, mNum)] = m;
+          repaired = true;
+        } else {
+          parsed.monthsParked = parsed.monthsParked || {};
+          parsed.monthsParked[key] = m;
           delete parsed.months[key];
           repaired = true;
           return;
@@ -3514,7 +3563,13 @@
             }
           });
         }
-        if (!Array.isArray(m.transactions)) { m.transactions = []; repaired = true; }
+        if (!Array.isArray(m.transactions)) {
+          /* An object of rows is turned back into a list; anything else is kept aside, not thrown away. */
+          if (m.transactions && typeof m.transactions === "object") m.transactions = Object.keys(m.transactions).map(function (k) { return m.transactions[k]; });
+          else { if (m.transactions != null) m._rawTransactions = m.transactions; m.transactions = []; }
+          repaired = true;
+        }
+        if (!Array.isArray(m.transactions)) m.transactions = [];
         else {
           var beforeT = m.transactions.length;
           m.transactions = m.transactions.filter(function (t) { return t && typeof t === "object"; });
@@ -3545,7 +3600,11 @@
         if (parsed.profile.documents.length !== beforeD) repaired = true;
       }
       if (repaired) {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed)); } catch (err) {}
+        /* v37.5.59.125 (QA M3): the original is kept first — rescue copy now, IndexedDB snapshot next — and the
+         * repair is not written back here; the next normal save writes it, after the snapshot exists. */
+        keepRawBackup(raw, RESCUE_KEY, true);
+        var rawCopy = raw;
+        try { setTimeout(function () { try { snapTake(rawCopy, "before repair"); } catch (e) {} }, 0); } catch (e) {}
       }
       if (parsed.tab === "income") parsed.tab = "budget";
       if (parsed.tab === "worth") {
@@ -3577,7 +3636,6 @@
       if (parsed.worthDetails == null) parsed.worthDetails = false;
       if (parsed.statementDetails == null) parsed.statementDetails = false;
       migrateWorthIncome(parsed.worth);
-      migrateSampleAnnualDefaults(parsed);
       migrateAddedSplit(parsed);
       ensureAnnualStatement(parsed);
       /* Defer incomeYear fix until state is assigned — yearIncomeFigure needs state. */
@@ -3677,6 +3735,14 @@
         paintSaveWarning();
         return false;
       }
+      if (storedRev() > loadedRev) {
+        /* Another tab saved newer books: never write this tab's older copy over them. */
+        saveBlocked = true;
+        saveBlockedDetail = "Your books changed in another tab — reloading the newest copy.";
+        paintSaveWarning();
+        try { setTimeout(function () { reloadFromOtherTab(true); }, 0); } catch (e) {}
+        return false;
+      }
       var payload = storagePayload();
       var text = JSON.stringify(payload);
       /* v37.5.59.121: never write empty books over stored books. Erase / leave-demo remove the key first, so they pass. */
@@ -3688,6 +3754,8 @@
       localStorage.setItem(STORAGE_KEY, text);
       var read = localStorage.getItem(STORAGE_KEY);
       if (read !== text) throw new Error("verify-mismatch");
+      loadedRev = storedRev() + 1;
+      try { localStorage.setItem(REV_KEY, String(loadedRev)); } catch (e) {}
       try { cloudNoteChange(); } catch (e) {}
       // Keep the banner while there is still no headroom (a same-size rewrite can succeed when full).
       if (saveBlocked && storageHasHeadroom()) {
@@ -3705,6 +3773,28 @@
       return false;
     }
   }
+
+  function reloadFromOtherTab(blocked) {
+    try {
+      var fresh = loadState();
+      if (!fresh || loadFailure) return;
+      state = fresh;
+      try { ensureMonth(state.year, state.month); } catch (e) {}
+      closeModal && (function () { try { closeModal(); } catch (e) {} })();
+      saveBlocked = false; saveBlockedDetail = "";
+      paintSaveWarning();
+      render();
+      if (blocked) showToast("Your books changed in another tab — showing the newest. Please redo your last change.", 6000);
+      else showToast("Updated from another tab", 2500);
+    } catch (e) {}
+  }
+  try {
+    window.addEventListener("storage", function (e) {
+      if (e.key === REV_KEY || e.key === STORAGE_KEY || e.key === null) {
+        if (storedRev() > loadedRev || e.key === null) reloadFromOtherTab(false);
+      }
+    });
+  } catch (e) {}
 
   function monthRecord() {
     return state.months[ymKey(state.year, state.month)];
@@ -8419,7 +8509,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<label class="check"><input type="checkbox" data-act="foo-check" data-field="prepayLowInterest"' +
       (foo.prepayLowInterest ? " checked" : "") + "> Prepaying low-interest debt</label>" +
       (cheapBody
-        ? cheapBody + '<p class="caption">Cheap debt waits here. Mortgage / Home loan never sits on Step 3. In the spirit of Money Guy’s Financial Order of Operations — estimates, not advice.</p>'
+        ? cheapBody + '<p class="caption">Cheap debt waits here. A mortgage never sits on Step 3. In the spirit of Money Guy’s Financial Order of Operations — estimates, not advice.</p>'
         : '<p class="caption">Extra to cheap debt only after the rest of the order of operations.</p>'),
       statuses[9]);
 
@@ -9282,38 +9372,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return renderAnnualStatement();
   }
 
-  /* Whole dollars from the Finances IS! tab. Blank cells stay null. Bonus is null every year.
-     401k deferral is not folded into salary or total. */
-  /* v37.5.57: owner's historical income statement. Used for demo seed + one-time
-   * migration for existing devices that never persisted annualStatement. Fresh
-   * users get emptyAnnualStatement() instead. */
-  function sampleAnnualStatementSeed() {
-    function row(salary, sideGig, other, match, taxes, opex, investments) {
-      return {
-        salary: salary,
-        bonus: null,
-        sideGig: sideGig,
-        other: other,
-        match: match,
-        taxes: taxes,
-        opex: opex,
-        investments: investments
-      };
+  /* v37.5.59.125: demo-only income statement — invented round numbers, no real person's figures. */
+  function demoAnnualStatement() {
+    function row(salary, sideGig, taxes, opex, investments) {
+      return { salary: salary, bonus: null, sideGig: sideGig, other: null, match: null, taxes: taxes, opex: opex, investments: investments };
     }
     return {
       filingStatus: "single",
       years: {
-        "2016": row(18000, null, null, null, 0, 12000, 1000),
-        "2017": row(20000, null, null, null, 0, 13000, 1500),
-        "2018": row(24000, null, null, null, 0, 15000, 2000),
-        "2019": row(28000, null, null, null, 0, 17000, 2500),
-        "2020": row(32000, null, null, null, 0, 19000, 3000),
-        "2021": row(36000, 1000, null, null, 0, 21000, 3500),
-        "2022": row(40000, 1500, null, null, 0, 23000, 4000),
-        "2023": row(44000, 2000, null, 300, 6000, 26000, 4500),
-        "2024": row(50000, 2500, 500, 400, 7500, 29000, 5000),
-        "2025": row(56000, 3000, 600, 500, 9000, 32000, 6000),
-        "2026": row(60000, null, null, null, null, null, null)
+        "2023": row(48000, 2000, 7000, 30000, 4000),
+        "2024": row(55000, 3000, 8500, 34000, 6000),
+        "2025": row(62000, 2500, 10000, 37000, 8000)
       }
     };
   }
@@ -9322,9 +9391,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { filingStatus: "single", years: {} };
   }
 
-  /* Kept as an alias for call sites that still say seed; demo/fresh restore use owner's book. */
   function seedAnnualStatement() {
-    return sampleAnnualStatementSeed();
+    return demoAnnualStatement();
   }
 
   var ANNUAL_FIELDS = ["salary", "bonus", "sideGig", "other", "match", "taxes", "opex", "investments"];
@@ -9385,24 +9453,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (parsed.profile && (parsed.profile.name || (parsed.profile.documents || []).length)) return true;
     if (parsed.onboarding && parsed.onboarding.status === "done" && !parsed.onboarding.demo) return true;
     return false;
-  }
-
-  /* One-time: devices that never persisted annualStatement still get owner's history. */
-  function migrateSampleAnnualDefaults(parsed) {
-    if (!parsed || typeof parsed !== "object") return;
-    if (parsed._sampleAnnualMigrated) return;
-    if (annualStatementHasYears(parsed.annualStatement)) {
-      parsed._sampleAnnualMigrated = true;
-      return;
-    }
-    if (!hasOtherSavedBooks(parsed)) {
-      if (!parsed.annualStatement) parsed.annualStatement = emptyAnnualStatement();
-      return;
-    }
-    parsed.annualStatement = sampleAnnualStatementSeed();
-    parsed.compensation = migrateCompensation(parsed.compensation || defaultCompensation());
-    if (!(Number(parsed.compensation.baseSalary) > 0)) parsed.compensation.baseSalary = 87885;
-    parsed._sampleAnnualMigrated = true;
   }
 
   function annualNumber(value) {
@@ -15442,7 +15492,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     s.annualStatement = emptyAnnualStatement();
     s.compensation = defaultCompensation();
     s.compensation.baseSalary = 0;
-    s._sampleAnnualMigrated = true;
     s.onboarding = {
       status: "survey",
       screen: "welcome",
@@ -16199,6 +16248,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div id="recover-snaps" class="snap-list"></div>' +
       (loadFailure.snapsOnly ? "" : '<p class="welcome-note">Reason: ' + esc(loadFailure.why) + '</p>') +
       '<button class="primary onboard-primary" type="button" data-act="recover-retry">Try again</button>' +
+      (loadFailure.surveyStuck ? '<button class="primary onboard-primary" type="button" data-act="recover-open-books">Open my books</button>' : "") +
       '<button class="text-btn" type="button" data-act="recover-save">Save a copy of my data file</button>' +
       (loadFailure.snapsOnly ? '<button class="text-btn" type="button" data-act="recover-fresh">Start fresh instead</button>' : "") + "</div>";
     fillSnapList("recover-snaps");
@@ -16309,7 +16359,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!window.confirm("Restore the backup from " + snapWhen(s.at) + "?\n\nIt has " + (s.tx || 0) + " transactions. What's on this device now is saved as another backup first, so you can undo this.")) return;
       var cur = null; try { cur = localStorage.getItem(STORAGE_KEY); } catch (e) {}
       snapTake(cur, "before restore", function () {
-        try { localStorage.setItem(STORAGE_KEY, s.raw); }
+        try { lsSetBooks(s.raw); }
         catch (err) { showToast("Not enough room in this browser's storage to restore. Try Download instead.", 6000); return; }
         try { localStorage.removeItem("PaperTrail.loadError"); } catch (e) {}
         location.reload();
@@ -16460,7 +16510,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!row || !row.payload) throw new Error("That cloud version couldn't be read.");
       var cur = null; try { cur = localStorage.getItem(STORAGE_KEY); } catch (e) {}
       return new Promise(function (resolve) { snapTake(cur, "before cloud restore", resolve); }).then(function () {
-        try { localStorage.setItem(STORAGE_KEY, row.payload); } catch (e) { throw new Error("Not enough room on this device to restore."); }
+        try { lsSetBooks(row.payload); } catch (e) { throw new Error("Not enough room on this device to restore."); }
         cloudSync({ lastId: row.id, lastHash: cloudHash(row.payload) });
         if (!quiet) showToast("Using the cloud copy…", 2000);
         setTimeout(function () { location.reload(); }, quiet ? 50 : 600);
@@ -16659,6 +16709,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (cloudSignedIn() && !loadFailure) cloudSyncNow("open");
   }
 
+  /* v37.5.59.125: only real books (transactions, more than one month, or Vault items) trip the guard — the blank
+   * books the survey itself saves (default envelopes, a typed name) must not, e.g. right after Leave demo. */
+  function surveyWouldHideBooks(stored) {
+    if (!rawLooksLikeBooks(stored)) return false;
+    var p; try { p = JSON.parse(stored); } catch (e) { return true; }
+    if (!p || typeof p !== "object") return true;
+    var months = p.months || {}, keys = Object.keys(months);
+    if (keys.length > 1) return true;
+    if (keys.some(function (k) { return months[k] && Array.isArray(months[k].transactions) && months[k].transactions.length; })) return true;
+    if (p.profile && Array.isArray(p.profile.documents) && p.profile.documents.length) return true;
+    return false;
+  }
   function renderOnboarding() {
     var phone = document.getElementById("phone");
     if (!phone) return;
@@ -16668,7 +16730,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* v37.5.59.121: the new-user survey never opens over saved books. */
     if (ob && ob.status === "survey" && !ob.retake) {
       var stored = null; try { stored = localStorage.getItem(STORAGE_KEY); } catch (e) {}
-      if (stored && rawLooksLikeBooks(stored)) { loadFailure = { why: "survey over saved books", bytes: stored.length, at: new Date().toISOString() }; keepRawBackup(stored, RESCUE_KEY); renderRecoveryScreen(phone, host); return; }
+      if (stored && surveyWouldHideBooks(stored)) { loadFailure = { why: "survey over saved books", bytes: stored.length, at: new Date().toISOString(), surveyStuck: true }; keepRawBackup(stored, RESCUE_KEY); renderRecoveryScreen(phone, host); return; }
     }
     if (!ob || ob.status !== "survey") {
       if (host) host.remove();
@@ -17514,6 +17576,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       renderOnboarding();
     } else if (act === "recover-retry") {
       location.reload();
+    } else if (act === "recover-open-books") {
+      /* v37.5.59.125 (QA L2): the books loaded fine; only the survey flag was stuck. Close the survey, keep everything. */
+      loadFailure = null;
+      if (state.onboarding) { state.onboarding.status = "done"; state.onboarding.screen = ""; }
+      saveState();
+      render();
     } else if (act === "recover-fresh") {
       loadFailure = null; render();
     } else if (act === "snap-restore") {
@@ -17631,6 +17699,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "ob-leave-demo") {
       if (!window.confirm("Erase the demo and start your own budget?\n\nEvery sample number (and anything you changed while exploring) is removed from this device. This can’t be undone.")) return;
       try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
+      eraseLocalCopies();
       clearDocDb();
       state = blankState();
       state.onboarding.screen = "name";
@@ -17697,10 +17766,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
   }
 
+  /* v37.5.59.125 (QA M4): Erase / Leave demo remove every copy on this device — the .backup / .rescue copies, the
+   * load-error note and the automatic IndexedDB backups — and, when signed in, offer to delete the cloud copies too. */
+  function eraseLocalCopies() {
+    [BACKUP_KEY, RESCUE_KEY, "PaperTrail.loadError"].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+    try {
+      if (window.indexedDB) {
+        var req = indexedDB.open(SNAP_DB, 1);
+        req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains("snaps")) req.result.createObjectStore("snaps", { keyPath: "id", autoIncrement: true }); };
+        req.onsuccess = function () { try { var tx = req.result.transaction("snaps", "readwrite"); tx.objectStore("snaps").clear(); } catch (e) {} };
+      }
+    } catch (e) {}
+  }
+  function eraseCloudCopiesAsk() {
+    try {
+      if (!cloudSignedIn()) return;
+      var sess = cloudSession();
+      if (window.confirm("Also delete the backups of your books in your Paper Trail account?\n\nOK deletes them from the cloud. Cancel keeps them there and pauses cloud backup on this device, so they aren’t restored here.")) {
+        cloudFetch("/rest/v1/book_versions?user_id=eq." + encodeURIComponent(sess.user.id), { method: "DELETE" }, true)
+          .then(function () { cloudSync({ lastId: null, lastHash: "", lastAt: "" }); showToast("Cloud backups deleted", 3000); })
+          .catch(function () { cloudSync({ paused: true }); showToast("Couldn’t delete the cloud backups — cloud backup is paused. Try again from Profile › Account.", 6000); });
+      } else {
+        cloudSync({ paused: true, lastId: null, lastHash: "" });
+      }
+    } catch (e) {}
+  }
+
   function eraseAllData() {
     if (!window.confirm("Erase all my data?\n\nThis permanently deletes every budget month, transaction, income record, Net Worth year, Vault document, and setting on this device. It can’t be recovered — make a Full backup first (Profile › Data) if you might want it back.")) return;
     try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
     try { localStorage.removeItem(TESTER_QUEUE_KEY); } catch (err) {}
+    eraseLocalCopies();
+    eraseCloudCopiesAsk();
     clearDocDb();
     state = blankState();
     envelopeEditMode = false;
@@ -17885,7 +17982,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.124";
+  var APP_VERSION = "37.5.59.125";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18379,10 +18476,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     // v37.5.59.12: only the real write decides quota — no hard byte gate (Vault blobs go to IDB).
     try {
-      localStorage.setItem(STORAGE_KEY, text);
+      lsSetBooks(text);
       if (localStorage.getItem(STORAGE_KEY) !== text) throw new Error("verify-mismatch");
     } catch (err) {
-      try { if (prevRaw != null) localStorage.setItem(STORAGE_KEY, prevRaw); } catch (e2) {}
+      try { if (prevRaw != null) lsSetBooks(prevRaw); } catch (e2) {}
       pendingRestore = null; closeModal();
       setDataStatus("Backup too large for this browser's storage. Nothing was changed.", true);
       showToast("Backup too large — nothing was changed", 5000);
@@ -18398,7 +18495,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       Object.keys(loaded.months).forEach(function (k) { gotTx += ((loaded.months[k] && loaded.months[k].transactions) || []).length; });
       if (hadTx && gotTx === 0) throw new Error("load-wiped");
     } catch (err) {
-      try { if (prevRaw != null) localStorage.setItem(STORAGE_KEY, prevRaw); else localStorage.removeItem(STORAGE_KEY); } catch (e2) {}
+      try { if (prevRaw != null) lsSetBooks(prevRaw); else localStorage.removeItem(STORAGE_KEY); } catch (e2) {}
       pendingRestore = null; closeModal();
       setDataStatus("Can't restore: backup failed a safety check. Nothing was changed.", true);
       showToast("Can't restore — nothing was changed", 5000);
@@ -18406,32 +18503,28 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var files = backup.documents || {};
     var docs = (st.profile && Array.isArray(st.profile.documents)) ? st.profile.documents : [];
-    clearDocDb(function () {
-      var i = 0;
-      function next() {
-        if (i >= docs.length) return finish();
-        var doc = docs[i++];
-        var url = files[doc.id];
-        if (!url) {
-          if (doc.hasBlob) doc.hasBlob = false;
-          return next();
-        }
-        var blob = dataUrlToBlob(url);
-        if (!blob) { doc.hasBlob = false; return next(); }
-        putDocBlob(doc.id, blob, function (err) {
-          if (err) { doc.hasBlob = false; doc.dataUrl = url; }
-          else { doc.hasBlob = true; delete doc.dataUrl; }
-          next();
-        });
+    var blobMap = {};
+    docs.forEach(function (doc) {
+      var url = files[doc.id];
+      var blob = url ? dataUrlToBlob(url) : null;
+      if (blob) { blobMap[doc.id] = blob; doc.hasBlob = true; delete doc.dataUrl; }
+      else if (doc.hasBlob) doc.hasBlob = false;
+    });
+    /* v37.5.59.125 (QA M2): new files first (one atomic transaction), then the books, then old files are pruned. */
+    putDocBlobs(blobMap, function (putErr) {
+      if (putErr) {
+        docs.forEach(function (doc) { if (blobMap[doc.id] && files[doc.id]) { doc.hasBlob = false; doc.dataUrl = files[doc.id]; } });
       }
+      finish();
       function finish() {
         // Rewrite state once more so hasBlob flags match what landed in IDB.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
+          lsSetBooks(JSON.stringify(st));
         } catch (err) {
           // State already written above; IDB may be partial — keep cards, drop missing blobs.
         }
         state = loadState();
+        pruneDocBlobs(((state.profile && state.profile.documents) || []).map(function (d) { return d.id; }));
         ensureMonth(state.year, state.month);
         migrateProfileDocBlobs();
         envelopeEditMode = false;
@@ -18449,7 +18542,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         render();
         showToast("Restored from backup · " + check.summary.months + " months · " + check.summary.transactions + " transactions", 5000);
       }
-      next();
     });
   }
 
