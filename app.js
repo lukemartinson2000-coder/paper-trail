@@ -16664,7 +16664,31 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "acct-set-password") {
       var np = (document.getElementById("acct-pass") || {}).value || "";
       if (np.length < 8) return acctErr("Use at least 8 characters.");
-      return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true).then(function () { showToast("Password updated", 3000); return afterSignIn(); }).catch(function (e) { acctErr(e.message); });
+      /* v37.5.59.126: with two-step sign-in on, Supabase only lets an aal2 session change the password, and a
+       * reset link signs in at aal1 — so ask for the authenticator code, step up, then save. */
+      var rcode = acctVal("acct-code").replace(/\D/g, "");
+      var stepUp = rcode.length >= 6
+        ? cloudRefreshUser().then(function (u) {
+            var f = ((u && u.factors) || []).filter(function (x) { return x.status === "verified" && x.factor_type === "totp"; })[0];
+            if (!f) return null;
+            return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
+              return cloudFetch("/auth/v1/factors/" + f.id + "/verify", { method: "POST", body: { challenge_id: ch.id, code: rcode } }, true)
+                .then(function (j) { cloudSaveSession(j); }, function () { var e = new Error("That code didn’t work. Try the newest one."); e.badCode = true; throw e; });
+            });
+          })
+        : Promise.resolve();
+      return stepUp.then(function () { return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true); })
+        .then(function () { showToast("Password updated", 3000); return afterSignIn(); })
+        .catch(function (e) {
+          if (!e.badCode && /aal2/i.test(e.message || "")) {
+            if (!document.getElementById("acct-code")) {
+              var pf = document.getElementById("acct-pass"), lab = pf && pf.closest("label");
+              if (lab) lab.insertAdjacentHTML("afterend", '<label class="field"><span>6-digit code from your authenticator app</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>');
+            }
+            return acctErr("Two-step sign-in is on: enter the code from your authenticator app, then Save password.");
+          }
+          acctErr(e.message);
+        });
     }
     if (act === "acct-signout") {
       cloudFetch("/auth/v1/logout", { method: "POST" }, true).catch(function () {});
