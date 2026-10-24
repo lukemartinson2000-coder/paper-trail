@@ -5132,3 +5132,14 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
 .snap-row .snap-meta .caption { margin: 0; }
 .snap-row .text-btn { padding: 4px 6px; }
 .recover-inner .snap-list { text-align: left; }
+
+/* v37.5.59.124: Account + cloud backup */
+.profile-account { margin: 8px 0 18px; }
+.profile-account button { margin: 4px 6px 4px 0; }
+.acct-sheet .field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.acct-sheet .field input { font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line, rgba(0,0,0,0.15)); background: var(--paper, #fff); color: inherit; }
+.acct-actions { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.acct-err { min-height: 1.2em; color: var(--warn, #b44); }
+.acct-qr { display: flex; justify-content: center; margin: 8px 0; }
+.acct-qr img { width: 180px; height: 180px; background: #fff; padding: 8px; border-radius: 10px; }
+.acct-sheet code { user-select: all; word-break: break-all; }

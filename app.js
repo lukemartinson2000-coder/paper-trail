@@ -3688,6 +3688,7 @@
       localStorage.setItem(STORAGE_KEY, text);
       var read = localStorage.getItem(STORAGE_KEY);
       if (read !== text) throw new Error("verify-mismatch");
+      try { cloudNoteChange(); } catch (e) {}
       // Keep the banner while there is still no headroom (a same-size rewrite can succeed when full).
       if (saveBlocked && storageHasHeadroom()) {
         saveBlocked = false;
@@ -15354,7 +15355,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="matters-btn profile-door" type="button" data-act="open-matters">What matters / Go deeper</button>' +
       '<p class="caption">Insights stays the grade. This is the door into the survey.</p>' +
       profileSharingHtml() +
-      profileDataHtml() +
+      profileAccountHtml() + profileDataHtml() +
       '<button class="data-btn about-door" type="button" data-act="open-about"><strong>About &amp; Privacy</strong><span class="caption">Backups · what’s stored · tester sharing · version ' + esc(APP_VERSION) + '</span></button>' +
       '<div class="profile-danger" id="profile-danger">' +
       '<p class="caption">Danger zone</p>' +
@@ -16074,6 +16075,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       } else if (!hasRealData()) {
         html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>';
       }
+      if (cloudCfg() && screen === "welcome" && !cloudSignedIn()) html += '<button class="text-btn" type="button" data-act="acct-open-signin">I have an account · Sign in</button>';
       html += "</div>";
     } else if (screen === "name") {
       html += "<h2>First name</h2>" +
@@ -16322,6 +16324,339 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       a.download = "paper-trail-auto-backup-" + new Date(s.at).toISOString().slice(0, 10) + ".json";
       document.body.appendChild(a); a.click(); a.remove();
     });
+  }
+
+  /* ======================= v37.5.59.124: Account + automatic cloud backup (Supabase) =======================
+   * Off unless cloud-config.js sets window.PT_CLOUD = { url, anonKey }. Signed out, the app is local-only as before.
+   * Signed in: the saved books (with every Vault item's details, never the files) are uploaded as a new version on open
+   * and a few seconds after each change. The server keeps the last 10 versions per account; row-level security lets an
+   * account read only its own rows. If the newest cloud version came from another device and differs from this one,
+   * the app asks which to keep — it never replaces either side on its own. Only the public anon key lives in code. */
+  var CLOUD_SESSION_KEY = "PaperTrail.cloud.session", CLOUD_SYNC_KEY = "PaperTrail.cloud.sync";
+  var cloudTimer = null, cloudBusy = false, cloudConflict = null, cloudStatus = "";
+  function cloudCfg() {
+    var c = window.PT_CLOUD;
+    return c && typeof c.url === "string" && /^https?:\/\//.test(c.url) && typeof c.anonKey === "string" && c.anonKey.length > 20 ? c : null;
+  }
+  function cloudJson(key, val) {
+    try {
+      if (val === undefined) return JSON.parse(localStorage.getItem(key) || "null");
+      if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(val));
+    } catch (e) { return null; }
+  }
+  function cloudSync(patch) {
+    var s = cloudJson(CLOUD_SYNC_KEY) || {};
+    if (!s.deviceId) s.deviceId = "dev-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    if (patch) { Object.keys(patch).forEach(function (k) { s[k] = patch[k]; }); }
+    cloudJson(CLOUD_SYNC_KEY, s);
+    return s;
+  }
+  function cloudSession() { return cloudJson(CLOUD_SESSION_KEY); }
+  function cloudSignedIn() { var s = cloudSession(); return !!(cloudCfg() && s && s.access_token && s.user); }
+  function cloudHash(text) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
+    return text.length + "-" + h.toString(16);
+  }
+  function cloudFetch(path, opts, auth) {
+    var cfg = cloudCfg();
+    if (!cfg) return Promise.reject(new Error("Accounts aren't set up yet."));
+    opts = opts || {};
+    var headers = { "apikey": cfg.anonKey, "Content-Type": "application/json" };
+    Object.keys(opts.headers || {}).forEach(function (k) { headers[k] = opts.headers[k]; });
+    var go = function (token) {
+      headers.Authorization = "Bearer " + (token || cfg.anonKey);
+      return fetch(cfg.url.replace(/\/$/, "") + path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+        .then(function (res) {
+          return res.text().then(function (t) {
+            var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
+            if (!res.ok) {
+              var msg = (j && (j.msg || j.message || j.error_description || j.error)) || ("Request failed (" + res.status + ")");
+              var err = new Error(msg); err.status = res.status; throw err;
+            }
+            return j;
+          });
+        });
+    };
+    if (!auth) return go(null);
+    return cloudFreshToken().then(go);
+  }
+  function cloudSaveSession(j) {
+    if (!j || !j.access_token) return null;
+    var s = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600), user: j.user || (cloudSession() || {}).user };
+    cloudJson(CLOUD_SESSION_KEY, s);
+    return s;
+  }
+  function cloudFreshToken() {
+    var s = cloudSession();
+    if (!s || !s.access_token) return Promise.reject(new Error("Signed out"));
+    if ((s.expires_at || 0) - Date.now() / 1000 > 90) return Promise.resolve(s.access_token);
+    return cloudFetch("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: s.refresh_token } })
+      .then(function (j) { return cloudSaveSession(j).access_token; })
+      .catch(function (e) { if (e.status === 400 || e.status === 401) { cloudJson(CLOUD_SESSION_KEY, null); } throw e; });
+  }
+  function cloudAal() {
+    var s = cloudSession(); if (!s) return "";
+    try { return JSON.parse(atob(s.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).aal || "aal1"; } catch (e) { return "aal1"; }
+  }
+  function cloudFactors() { var s = cloudSession(); return ((s && s.user && s.user.factors) || []).filter(function (f) { return f.status === "verified"; }); }
+  function cloudRefreshUser() {
+    return cloudFetch("/auth/v1/user", {}, true).then(function (u) { var s = cloudSession(); if (s) { s.user = u; cloudJson(CLOUD_SESSION_KEY, s); } return u; });
+  }
+
+  /* --- payload: saved books minus any inline file data --- */
+  function cloudPayload() {
+    var raw = null; try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    if (!raw || !rawLooksLikeBooks(raw)) return null;
+    var p; try { p = JSON.parse(raw); } catch (e) { return null; }
+    if (p.onboarding && p.onboarding.demo) return null; /* never back up the demo */
+    if (p.profile && Array.isArray(p.profile.documents)) {
+      p.profile.documents = p.profile.documents.map(function (d) { var c = {}; Object.keys(d).forEach(function (k) { if (k !== "dataUrl") c[k] = d[k]; }); c.hasBlob = false; return c; });
+    }
+    /* Belt and braces: no file contents anywhere in the payload. */
+    var text = JSON.stringify(p, function (k, v) { return (k === "dataUrl" || k === "blob") ? undefined : v; });
+    return { text: text, hash: cloudHash(text), tx: rawTxCount(text) };
+  }
+  function cloudLatest() {
+    return cloudFetch("/rest/v1/book_versions?select=id,device_id,created_at,app_version,tx_count,bytes,hash&order=id.desc&limit=1", {}, true)
+      .then(function (rows) { return (rows && rows[0]) || null; });
+  }
+  function cloudGet(id) {
+    return cloudFetch("/rest/v1/book_versions?select=id,payload,created_at,device_id&id=eq." + Number(id), {}, true).then(function (rows) { return (rows && rows[0]) || null; });
+  }
+  function cloudUpload(pl) {
+    var sync = cloudSync();
+    return cloudFetch("/rest/v1/book_versions", { method: "POST", headers: { Prefer: "return=representation" },
+      body: { device_id: sync.deviceId, app_version: APP_VERSION, bytes: pl.text.length, tx_count: pl.tx, hash: pl.hash, payload: pl.text } }, true)
+      .then(function (rows) { var r = rows && rows[0]; cloudSync({ lastId: r ? r.id : null, lastHash: pl.hash, lastAt: Date.now() }); cloudStatus = "Backed up " + new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); return r; });
+  }
+  /* The one sync step: compare with the newest cloud version, then upload, adopt, or ask. */
+  function cloudSyncNow(reason) {
+    if (!cloudSignedIn() || cloudBusy || cloudConflict) return Promise.resolve();
+    var sync = cloudSync();
+    if (sync.paused) return Promise.resolve();
+    cloudBusy = true;
+    var pl = cloudPayload();
+    return cloudLatest().then(function (latest) {
+      if (!latest) { if (pl) return cloudUpload(pl); return null; }
+      if (pl && latest.hash === pl.hash) { cloudSync({ lastId: latest.id, lastHash: pl.hash }); cloudStatus = "Up to date"; return null; }
+      if (latest.id === sync.lastId || (latest.device_id === sync.deviceId && sync.lastId != null && latest.id <= sync.lastId)) {
+        return pl ? cloudUpload(pl) : null; /* cloud hasn't moved since our last sync: this device is newer */
+      }
+      /* The cloud has a version this device hasn't seen. */
+      if (!pl) return cloudAdopt(latest.id, true);
+      cloudConflict = latest; showCloudConflict(latest);
+      return null;
+    }).catch(function (e) { cloudStatus = "Backup paused: " + e.message; })
+      .then(function () { cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = cloudStatus; });
+  }
+  function cloudNoteChange() {
+    if (!cloudSignedIn()) return;
+    clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(function () { cloudSyncNow("change"); }, 4000);
+  }
+  function cloudAdopt(id, quiet) {
+    return cloudGet(id).then(function (row) {
+      if (!row || !row.payload) throw new Error("That cloud version couldn't be read.");
+      var cur = null; try { cur = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+      return new Promise(function (resolve) { snapTake(cur, "before cloud restore", resolve); }).then(function () {
+        try { localStorage.setItem(STORAGE_KEY, row.payload); } catch (e) { throw new Error("Not enough room on this device to restore."); }
+        cloudSync({ lastId: row.id, lastHash: cloudHash(row.payload) });
+        if (!quiet) showToast("Using the cloud copy…", 2000);
+        setTimeout(function () { location.reload(); }, quiet ? 50 : 600);
+      });
+    });
+  }
+  function showCloudConflict(latest) {
+    var pl = cloudPayload();
+    openCloudSheet("Two versions of your books",
+      '<p>Your account has a newer version from another device (' + esc(new Date(latest.created_at).toLocaleString()) + ', ' + (latest.tx_count || 0) + ' transactions). ' +
+      'This device has ' + (pl ? pl.tx : 0) + ' transactions. Which one should you keep?</p>' +
+      '<p class="caption">Nothing has been replaced. Whichever you don’t pick is still saved: the cloud keeps recent versions, and this device keeps an automatic backup.</p>' +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-use-cloud">Use the cloud version</button>' +
+      '<button type="button" data-act="acct-keep-local">Keep this device’s version</button>' +
+      '<button class="text-btn" type="button" data-act="acct-decide-later">Decide later</button></div>');
+  }
+  function openCloudSheet(title, html) {
+    captureModalReturnScreenTop();
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet acct-sheet"><div class="sheet-top"><h3>' + esc(title) + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      html + '<p class="caption acct-err" id="acct-err" aria-live="polite"></p></div>';
+    armSheetA11y(modal);
+  }
+  function acctErr(msg) { var el = document.getElementById("acct-err"); if (el) el.textContent = msg || ""; }
+  function acctVal(id) { var el = document.getElementById(id); return el ? String(el.value || "").trim() : ""; }
+
+  function profileAccountHtml() {
+    if (!cloudCfg()) return "";
+    var s = cloudSession(), sync = cloudSync();
+    if (!cloudSignedIn()) {
+      return '<div class="profile-account" id="profile-account"><p class="profile-section">Account</p>' +
+        '<p class="caption">Optional. Sign in to back up your books to your account automatically and get them back on a new phone. Without an account, everything stays on this device only.</p>' +
+        '<button class="primary" type="button" data-act="acct-open-signin">Sign in</button> <button type="button" data-act="acct-open-signup">Create account</button></div>';
+    }
+    var f = cloudFactors();
+    return '<div class="profile-account" id="profile-account"><p class="profile-section">Account</p>' +
+      '<p><strong>' + esc((s.user && s.user.email) || "") + '</strong></p>' +
+      '<p class="caption" id="acct-status">' + esc(sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."))) + '</p>' +
+      (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Back up now</button>') +
+      ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
+      '<p class="profile-section">Two-step sign-in</p>' +
+      (f.length ? '<p class="caption">On · ' + esc(f.map(function (x) { return x.factor_type === "phone" ? "text message" + (x.phone ? " to ••" + String(x.phone).slice(-2) : "") : "authenticator app"; }).join(", ")) + '</p>' +
+          '<button class="text-btn" type="button" data-act="acct-mfa-remove" data-id="' + esc(f[0].id) + '">Turn off</button>'
+        : '<p class="caption">Off. Adding a second step makes it much harder for someone with your password to get in.</p><button type="button" data-act="acct-mfa-start">Set up two-step sign-in</button>') +
+      '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up.</p>' +
+      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button></div>';
+  }
+  function openSignIn(mode) {
+    var up = mode === "signup";
+    openCloudSheet(up ? "Create account" : "Sign in",
+      '<label class="field"><span>Email</span><input id="acct-email" type="email" autocomplete="email" inputmode="email"></label>' +
+      '<label class="field"><span>Password</span><input id="acct-pass" type="password" autocomplete="' + (up ? "new-password" : "current-password") + '"></label>' +
+      (up ? '<p class="caption">At least 8 characters.</p>' : '') +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="' + (up ? "acct-signup" : "acct-signin") + '">' + (up ? "Create account" : "Sign in") + '</button>' +
+      (up ? '<button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>'
+          : '<button class="text-btn" type="button" data-act="acct-forgot">Forgot password?</button><button class="text-btn" type="button" data-act="acct-open-signup">Create account</button>') + '</div>');
+  }
+  function afterSignIn() {
+    return cloudRefreshUser().catch(function () {}).then(function () {
+      var f = cloudFactors();
+      if (f.length && cloudAal() !== "aal2") return openMfaChallenge(f[0]);
+      return firstSync();
+    });
+  }
+  function firstSync() {
+    var pl = cloudPayload();
+    return cloudLatest().then(function (latest) {
+      if (!latest && pl) {
+        openCloudSheet("Back up this device?",
+          '<p>Upload the books on this device (' + pl.tx + ' transactions) to your account? After that, changes are backed up automatically.</p>' +
+          '<div class="acct-actions"><button class="primary" type="button" data-act="acct-first-yes">Back up now</button><button class="text-btn" type="button" data-act="acct-first-no">Not now</button></div>');
+        return;
+      }
+      closeModal(); render();
+      if (!cloudFactors().length && !cloudSync().mfaNudged) { cloudSync({ mfaNudged: Date.now() }); setTimeout(openMfaNudge, 400); }
+      return cloudSyncNow("signin");
+    });
+  }
+  function openMfaNudge() {
+    openCloudSheet("Add two-step sign-in?",
+      '<p>Optional, and recommended. When you sign in on a new device, you’ll also enter a code. You can set it up later in Profile › Account.</p>' +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-start">Set it up</button><button class="text-btn" type="button" data-act="close-modal">Not now</button></div>');
+  }
+  function openMfaStart() {
+    var phoneOk = !!(cloudCfg() && cloudCfg().phoneMfa);
+    openCloudSheet("Two-step sign-in",
+      (phoneOk ? '<label class="field"><span>Phone number for text codes</span><input id="acct-phone" type="tel" autocomplete="tel" placeholder="+1 555 555 0100"></label>' +
+        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-phone">Text me a code</button></div><p class="caption">Or use an authenticator app instead:</p>' : '') +
+      '<div class="acct-actions"><button ' + (phoneOk ? "" : 'class="primary" ') + 'type="button" data-act="acct-mfa-totp">Use an authenticator app</button></div>' +
+      (phoneOk ? "" : '<p class="caption">Text-message codes aren’t available yet. An authenticator app (like Google Authenticator or 1Password) works without a phone signal.</p>'));
+  }
+  function mfaEnroll(type) {
+    var body = { factor_type: type, friendly_name: type === "phone" ? "Phone" : "Authenticator " + new Date().toISOString().slice(0, 10) };
+    if (type === "phone") { body.phone = acctVal("acct-phone").replace(/[^\d+]/g, ""); if (!/^\+?\d{10,15}$/.test(body.phone)) return acctErr("Enter the phone number with country code, like +1 612 555 0100."); if (body.phone[0] !== "+") body.phone = "+1" + body.phone; }
+    cloudFetch("/auth/v1/factors", { method: "POST", body: body }, true).then(function (f) {
+      return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
+        openCloudSheet(type === "phone" ? "Enter the code we texted" : "Scan with your authenticator app",
+          (type === "totp" && f.totp ? '<div class="acct-qr">' + (f.totp.qr_code && /^data:image\//.test(f.totp.qr_code) ? '<img alt="QR code" src="' + esc(f.totp.qr_code) + '">' : "") + '</div><p class="caption">Or enter this key: <code>' + esc(f.totp.secret || "") + '</code></p>' : '') +
+          '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
+          '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-verify" data-id="' + esc(f.id) + '" data-ch="' + esc(ch.id) + '">Turn on</button></div>');
+      });
+    }).catch(function (e) { acctErr(e.message); });
+  }
+  function openMfaChallenge(f) {
+    return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
+      openCloudSheet("Enter your code",
+        '<p class="caption">' + (f.factor_type === "phone" ? "We texted a code to your phone." : "Open your authenticator app.") + '</p>' +
+        '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
+        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-login" data-id="' + esc(f.id) + '" data-ch="' + esc(ch.id) + '">Continue</button></div>');
+    }).catch(function (e) { acctErr(e.message); });
+  }
+  function openCloudVersions() {
+    openCloudSheet("Cloud versions", '<div id="acct-versions" class="snap-list"><p class="caption quiet">Loading…</p></div>');
+    cloudFetch("/rest/v1/book_versions?select=id,device_id,created_at,app_version,tx_count,bytes&order=id.desc&limit=10", {}, true).then(function (rows) {
+      var host = document.getElementById("acct-versions"); if (!host) return;
+      var me = cloudSync().deviceId;
+      host.innerHTML = (rows || []).length ? rows.map(function (r) {
+        return '<div class="snap-row"><div class="snap-meta"><strong>' + esc(snapWhen(Date.parse(r.created_at))) + '</strong><span class="caption">' + (r.device_id === me ? "this device" : "another device") +
+          " · " + (r.tx_count || 0) + " transactions · " + Math.max(1, Math.round((r.bytes || 0) / 1024)) + ' KB</span></div><button class="text-btn" type="button" data-act="acct-restore-version" data-id="' + r.id + '">Restore</button></div>';
+      }).join("") : '<p class="caption">No cloud versions yet.</p>';
+    }).catch(function (e) { acctErr(e.message); });
+  }
+  function handleCloudAct(act, el) {
+    if (act === "acct-open-signin") return openSignIn("signin");
+    if (act === "acct-open-signup") return openSignIn("signup");
+    if (act === "acct-signin" || act === "acct-signup") {
+      var email = acctVal("acct-email"), pass = (document.getElementById("acct-pass") || {}).value || "";
+      if (!/^\S+@\S+\.\S+$/.test(email)) return acctErr("Enter your email address.");
+      if (pass.length < (act === "acct-signup" ? 8 : 1)) return acctErr(act === "acct-signup" ? "Use at least 8 characters." : "Enter your password.");
+      acctErr("…");
+      var p = act === "acct-signup"
+        ? cloudFetch("/auth/v1/signup", { method: "POST", body: { email: email, password: pass } })
+        : cloudFetch("/auth/v1/token?grant_type=password", { method: "POST", body: { email: email, password: pass } });
+      return p.then(function (j) {
+        if (j && j.access_token) { cloudSaveSession(j); return afterSignIn(); }
+        openCloudSheet("Check your email", '<p>We sent a confirmation link to <strong>' + esc(email) + '</strong>. Open it, then come back and sign in.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+      }).catch(function (e) { acctErr(/invalid/i.test(e.message) ? "That email and password don’t match." : e.message); });
+    }
+    if (act === "acct-forgot") {
+      var em = acctVal("acct-email");
+      if (!/^\S+@\S+\.\S+$/.test(em)) return acctErr("Enter your email above first.");
+      return cloudFetch("/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", body: { email: em } })
+        .then(function () { acctErr("If that email has an account, a reset link is on its way."); }).catch(function (e) { acctErr(e.message); });
+    }
+    if (act === "acct-set-password") {
+      var np = (document.getElementById("acct-pass") || {}).value || "";
+      if (np.length < 8) return acctErr("Use at least 8 characters.");
+      return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true).then(function () { showToast("Password updated", 3000); return afterSignIn(); }).catch(function (e) { acctErr(e.message); });
+    }
+    if (act === "acct-signout") {
+      cloudFetch("/auth/v1/logout", { method: "POST" }, true).catch(function () {});
+      cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
+      showToast("Signed out. Your books stay on this device.", 3500); render(); return;
+    }
+    if (act === "acct-first-yes") { cloudSync({ paused: false }); closeModal(); var pl = cloudPayload(); return (pl ? cloudUpload(pl) : Promise.resolve()).then(function () { render(); showToast("Backed up to your account", 3000); if (!cloudFactors().length && !cloudSync().mfaNudged) { cloudSync({ mfaNudged: Date.now() }); setTimeout(openMfaNudge, 400); } }).catch(function (e) { showToast(e.message, 4000); }); }
+    if (act === "acct-first-no") { cloudSync({ paused: true }); closeModal(); render(); return; }
+    if (act === "acct-resume") { cloudSync({ paused: false }); return firstSync(); }
+    if (act === "acct-sync-now") { return cloudSyncNow("manual").then(render); }
+    if (act === "acct-versions") return openCloudVersions();
+    if (act === "acct-restore-version") {
+      if (!window.confirm("Replace the books on this device with this cloud version?\n\nThis device’s current books are saved as an automatic backup first.")) return;
+      return cloudAdopt(el.getAttribute("data-id")).catch(function (e) { acctErr(e.message); });
+    }
+    if (act === "acct-use-cloud") { var c = cloudConflict; cloudConflict = null; return cloudAdopt(c.id).catch(function (e) { acctErr(e.message); }); }
+    if (act === "acct-keep-local") { cloudConflict = null; closeModal(); var pl2 = cloudPayload(); return (pl2 ? cloudUpload(pl2) : Promise.resolve()).then(function () { showToast("This device’s version is now the newest in your account", 3500); render(); }); }
+    if (act === "acct-decide-later") { closeModal(); cloudStatus = "Waiting for you to pick a version."; render(); return; }
+    if (act === "acct-mfa-start") return openMfaStart();
+    if (act === "acct-mfa-totp") return mfaEnroll("totp");
+    if (act === "acct-mfa-phone") return mfaEnroll("phone");
+    if (act === "acct-mfa-verify" || act === "acct-mfa-login") {
+      var code = acctVal("acct-code").replace(/\D/g, "");
+      if (code.length < 6) return acctErr("Enter the 6-digit code.");
+      return cloudFetch("/auth/v1/factors/" + el.getAttribute("data-id") + "/verify", { method: "POST", body: { challenge_id: el.getAttribute("data-ch"), code: code } }, true)
+        .then(function (j) { cloudSaveSession(j); return cloudRefreshUser(); })
+        .then(function () { if (act === "acct-mfa-verify") { closeModal(); showToast("Two-step sign-in is on", 3000); render(); } else return firstSync(); })
+        .catch(function () { acctErr("That code didn’t work. Try the newest one."); });
+    }
+    if (act === "acct-mfa-remove") {
+      if (!window.confirm("Turn off two-step sign-in?")) return;
+      return cloudFetch("/auth/v1/factors/" + el.getAttribute("data-id"), { method: "DELETE" }, true).then(cloudRefreshUser).then(render).catch(function (e) { showToast(e.message, 4000); });
+    }
+  }
+  /* Boot: password-reset link, then sync on open. */
+  function cloudBoot() {
+    if (!cloudCfg()) return;
+    var h = location.hash || "";
+    if (/type=recovery/.test(h) && /access_token=/.test(h)) {
+      var q = {}; h.replace(/^#/, "").split("&").forEach(function (kv) { var p = kv.split("="); q[p[0]] = decodeURIComponent(p[1] || ""); });
+      cloudSaveSession({ access_token: q.access_token, refresh_token: q.refresh_token, expires_in: Number(q.expires_in) || 3600 });
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      openCloudSheet("Set a new password", '<label class="field"><span>New password</span><input id="acct-pass" type="password" autocomplete="new-password"></label>' +
+        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-set-password">Save password</button></div>');
+      return;
+    }
+    if (cloudSignedIn() && !loadFailure) cloudSyncNow("open");
   }
 
   function renderOnboarding() {
@@ -17550,7 +17885,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.123";
+  var APP_VERSION = "37.5.59.124";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -20455,6 +20790,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var act = actEl.getAttribute("data-act");
     /* v37.5.57: feature usage counts for tester sharing (taps on buttons/switches only; nothing typed). */
     if (!(actEl.tagName === "INPUT" && actEl.type !== "checkbox") && actEl.tagName !== "SELECT" && actEl.tagName !== "TEXTAREA") countFeatureUse(act);
+    if (act.indexOf("acct-") === 0) { handleCloudAct(act, actEl); return; }
     if (act.indexOf("ob-") === 0 || act.indexOf("recover-") === 0 || act === "snap-restore" || act === "snap-download") { handleOnboardAct(act, actEl); return; }
     if (act === "tester-preview") { openTesterPreview(); return; }
     if (act === "tester-preview-back") { openProfileAt("profile-sharing"); return; }
@@ -22517,6 +22853,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   state = loadState();
   try { setTimeout(snapBoot, 1500); } catch (e) {}
+  try { setTimeout(cloudBoot, 1800); } catch (e) {}
   /* v37.5.59.92 (owner): every launch (cold start, PWA reopen, service-worker reload) opens on Budget. */
   state.tab = "budget";
   (function () {
