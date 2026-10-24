@@ -16415,7 +16415,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var headers = { "apikey": cfg.anonKey, "Content-Type": "application/json" };
     Object.keys(opts.headers || {}).forEach(function (k) { headers[k] = opts.headers[k]; });
     var go = function (token) {
-      headers.Authorization = "Bearer " + (token || cfg.anonKey);
+      /* v37.5.59.126: new-style sb_publishable_ keys are not JWTs; send them only as apikey and
+       * add Authorization only for a signed-in user's token (legacy JWT anon keys still work too). */
+      if (token) headers.Authorization = "Bearer " + token;
+      else if (/^eyJ/.test(cfg.anonKey)) headers.Authorization = "Bearer " + cfg.anonKey;
+      else delete headers.Authorization;
       return fetch(cfg.url.replace(/\/$/, "") + path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
         .then(function (res) {
           return res.text().then(function (t) {
@@ -17982,7 +17986,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.125";
+  var APP_VERSION = "37.5.59.126";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
