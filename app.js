@@ -16383,7 +16383,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * account read only its own rows. If the newest cloud version came from another device and differs from this one,
    * the app asks which to keep — it never replaces either side on its own. Only the public anon key lives in code. */
   var CLOUD_SESSION_KEY = "PaperTrail.cloud.session", CLOUD_SYNC_KEY = "PaperTrail.cloud.sync";
-  var cloudTimer = null, cloudBusy = false, cloudConflict = null, cloudStatus = "";
+  var cloudTimer = null, cloudBusy = false, cloudConflict = null, cloudStatus = "", cloudInflight = Promise.resolve();
   function cloudCfg() {
     var c = window.PT_CLOUD;
     return c && typeof c.url === "string" && /^https?:\/\//.test(c.url) && typeof c.anonKey === "string" && c.anonKey.length > 20 ? c : null;
@@ -16426,6 +16426,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
             if (!res.ok) {
               var msg = (j && (j.msg || j.message || j.error_description || j.error)) || ("Request failed (" + res.status + ")");
+              if (res.status === 429) msg = "Too many tries right now (the email limit is a few per hour). Wait a while, then try again.";
               var err = new Error(msg); err.status = res.status; throw err;
             }
             return j;
@@ -16491,7 +16492,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (sync.paused) return Promise.resolve();
     cloudBusy = true;
     var pl = cloudPayload();
-    return cloudLatest().then(function (latest) {
+    return cloudInflight = cloudLatest().then(function (latest) {
       if (!latest) { if (pl) return cloudUpload(pl); return null; }
       if (pl && latest.hash === pl.hash) { cloudSync({ lastId: latest.id, lastHash: pl.hash }); cloudStatus = "Up to date"; return null; }
       if (latest.id === sync.lastId || (latest.device_id === sync.deviceId && sync.lastId != null && latest.id <= sync.lastId)) {
@@ -17786,9 +17787,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     try {
       if (!cloudSignedIn()) return;
       var sess = cloudSession();
+      /* v37.5.59.126: stop backups first and wait out any upload already in flight (e.g. the open-time sync),
+       * so a backup that lands after the delete can't survive the erase. */
+      clearTimeout(cloudTimer);
+      var wasPaused = !!cloudSync().paused;
+      cloudSync({ paused: true });
       if (window.confirm("Also delete the backups of your books in your Paper Trail account?\n\nOK deletes them from the cloud. Cancel keeps them there and pauses cloud backup on this device, so they aren’t restored here.")) {
-        cloudFetch("/rest/v1/book_versions?user_id=eq." + encodeURIComponent(sess.user.id), { method: "DELETE" }, true)
-          .then(function () { cloudSync({ lastId: null, lastHash: "", lastAt: "" }); showToast("Cloud backups deleted", 3000); })
+        cloudInflight.catch(function () {}).then(function () {
+          return cloudFetch("/rest/v1/book_versions?user_id=eq." + encodeURIComponent(sess.user.id), { method: "DELETE" }, true);
+        })
+          .then(function () { cloudSync({ paused: wasPaused, lastId: null, lastHash: "", lastAt: "" }); showToast("Cloud backups deleted", 3000); })
           .catch(function () { cloudSync({ paused: true }); showToast("Couldn’t delete the cloud backups — cloud backup is paused. Try again from Profile › Account.", 6000); });
       } else {
         cloudSync({ paused: true, lastId: null, lastHash: "" });
