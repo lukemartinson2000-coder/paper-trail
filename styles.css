@@ -5225,3 +5225,5 @@ button.danger,.danger-btn{color:var(--danger);border-color:var(--danger)}
 .ed-item{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;width:100%;padding:10px 8px;border:0;border-bottom:1px solid var(--rule);background:none;font:15px var(--ui);color:var(--ink);text-align:left}
 .ed-item.on{background:var(--highlight)}
 .ed-check{color:var(--moss);font-weight:700}
+
+.ed-amt-ghost{opacity:.35}

@@ -10702,7 +10702,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="sg-actions"><button class="text-btn" type="button" data-act="add-nw-account">+ Add an account</button>' +
       '<button class="text-btn" type="button" data-act="add-nw-loan">+ Add a loan</button>' +
 "</div>" +
-      '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on Dashboard → Projections.</p></div>';
+      '<p class="caption quiet">Trend, 3-year estimates and the investable mix are on the Dashboard, under Projections.</p></div>';
     return html;
   }
   var NW_GOAL_LABELS = { _assets: "Total assets", _liabs: "Total liabilities", _net: "Net worth" };
@@ -11917,8 +11917,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return (r >= 0 ? "+" : "−") + pctWhole(Math.abs(r)) + tail;
   }
   function trendReadoutText(year, nw, inc) {
-    var yoy = nwYoyText(year), iy = nwYoyText(year, trendIncOf, false);
-    return year + " · Net worth " + moneyWhole(Math.round(nw)) + (yoy ? " (" + yoy + ")" : "") + "\nIncome " + moneyWhole(Math.round(inc)) + (iy ? " (" + iy + ")" : "");
+    var yoy = nwYoyText(year), noInc = !trendIncInfo(year).from && !(Number(inc) > 0);
+    var iy = noInc ? "" : nwYoyText(year, trendIncOf, false);
+    /* v37.5.60 (owner bug: "$0" in the trend): a year with nothing on the Income statement says so instead of "$0 (−100%)". */
+    return year + " · Net worth " + moneyWhole(Math.round(nw)) + (yoy ? " (" + yoy + ")" : "") + "\nIncome " +
+      (noInc ? "— not on your Income statement yet" : moneyWhole(Math.round(inc)) + (iy ? " (" + iy + ")" : ""));
   }
   /* v37.5.59.55: range chips (5Y / 10Y / All). The chips only narrow what's drawn; stored history is never cut. */
   var TREND_RANGES = [{ id: "5", n: 5, label: "5Y" }, { id: "10", n: 10, label: "10Y" }, { id: "all", n: 0, label: "All" }];
@@ -13311,7 +13314,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function edAmountText() {
     if (!edUi.amt) return "$0.00";
     var parts = edUi.amt.split(".");
-    return "$" + Number(parts[0] || 0).toLocaleString("en-US") + (parts.length > 1 ? "." + parts[1] : "");
+    var whole = "$" + Number(parts[0] || 0).toLocaleString("en-US");
+    var cents = parts.length > 1 ? parts[1].slice(0, 2) : null;
+    // v37.5.60: always show cents once the pad is closed ("$42.50"); while typing, show what was typed and grey placeholder zeros.
+    if (!edUi.pad) return esc(whole + "." + ((cents || "") + "00").slice(0, 2));
+    if (cents == null) return esc(whole);
+    return esc(whole + "." + cents) + (cents.length < 2 ? '<span class="ed-amt-ghost">' + "00".slice(cents.length) + "</span>" : "");
   }
   function renderEdAdd(month) {
     month = month || ensureMonth(state.year, state.month);
@@ -13322,7 +13330,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
       '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>' +
       '<div class="ed-card">' +
-      '<button type="button" class="ed-row ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad"><span class="lbl">Amount</span><span class="mono ed-amt-v">' + esc(edAmountText()) + "</span></button>" +
+      '<button type="button" class="ed-row ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad"><span class="lbl">Amount</span><span class="mono ed-amt-v">' + edAmountText() + "</span></button>" +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
       '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>';
     if (inc) {
