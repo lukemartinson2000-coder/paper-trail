@@ -43,6 +43,8 @@
     { id: "vehicles", title: "Vehicles" },
     { id: "taxable", title: "Investments (taxable)" },
     { id: "retirement", title: "Retirement" },
+    /* v37.5.60 (owner): after-tax retirement (Roth IRA) is its own group; counts everywhere Retirement does. */
+    { id: "retirementAfterTax", title: "Retirement (after-tax)" },
     { id: "realEstate", title: "Property" },
     { id: "debt", title: "Debt" }
   ];
@@ -60,7 +62,7 @@
     { name: "Savings", kind: "asset", group: "cash", amounts: [500, 1500, 2500, 3000, 4000, 5000, 6000, 8000, 10000, 12000] },
     { name: "Car", kind: "asset", group: "lifestyle", amounts: [6000, 5500, 5000, 4500, 4000, 12000, 11000, 10000, 9000, 8000] },
     { name: "Brokerage", kind: "asset", group: "taxable", amounts: [0, 0, 1000, 2000, 4000, 6000, 7000, 9000, 12000, 15000] },
-    { name: "Roth IRA", kind: "asset", group: "retirement", amounts: [0, 0, 0, 2000, 5000, 9000, 12000, 18000, 25000, 33000] },
+    { name: "Roth IRA", kind: "asset", group: "retirementAfterTax", amounts: [0, 0, 0, 2000, 5000, 9000, 12000, 18000, 25000, 33000] },
     { name: "401k", kind: "asset", group: "retirement", amounts: [0, 0, 0, 0, 0, 2000, 6000, 11000, 18000, 26000] },
     { name: "Home", kind: "asset", group: "realEstate", amounts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     { name: "Student Loan", kind: "liability", group: "debt", amounts: [0, 0, 0, 0, 20000, 18000, 15000, 12000, 8000, 4000] }
@@ -3120,7 +3122,7 @@
   var BS_ASSET_SECTIONS = [
     { id: "cash", title: "Cash", groups: ["cash"] },
     /* "investment" is Amber's brokerage group — same bucket as taxable, not a made-up account. */
-    { id: "investments", title: "Investments", groups: ["taxable", "retirement", "investment"] },
+    { id: "investments", title: "Investments", groups: ["taxable", "retirement", "retirementAfterTax", "investment"] },
     /* Cars and other lifestyle assets read as property, not investments (owner 2026-10-04). */
     { id: "property", title: "Property", groups: ["realEstate", "lifestyle", "vehicles"] }
   ];
@@ -3212,7 +3214,11 @@
       var a = DEMO_ASSIGN[c.name] || 0;
       c.assigned = a; if (c.lines[0]) c.lines[0].assigned = a; other += a;
     });
-    var sv = byName.Savings; sv.assigned = Math.max(0, take - other); if (sv.lines[0]) sv.lines[0].assigned = sv.assigned;
+    var sv = byName.Savings; sv.assigned = Math.max(0, take - other);
+    /* v37.5.60 (owner bug): the demo Weekend trip saves in its own line, not the whole Savings envelope. */
+    if (!sv.lines.some(function (l) { return l.name === "Weekend trip"; })) sv.lines.push(makeLines([{ name: "Weekend trip", assigned: 0 }])[0]); sv.lines[sv.lines.length - 1].sortOrder = sv.lines.length - 1;
+    var trip = sv.lines.filter(function (l) { return l.name === "Weekend trip"; })[0]; trip.assigned = 125;
+    if (sv.lines[0] && sv.lines[0] !== trip) sv.lines[0].assigned = Math.max(0, sv.assigned - 125);
     var tx = [];
     function add(cat, lineIdx, payee, amount, d) {
       var c = byName[cat]; if (!c || !(amount > 0)) return;
@@ -3274,7 +3280,7 @@
     }
     s.worthYear = cur.year;
     s.dashboard = { retire: { spend: 55000, ageNow: 34 }, purchases: [
-      { id: "demo-p1", name: "Weekend trip", date: (cur.year + 1) + "-05-15", cost: 1500, envelope: "Savings" },
+      { id: "demo-p1", name: "Weekend trip", date: (cur.year + 1) + "-05-15", cost: 1500, envelope: "Weekend trip" },
       { id: "demo-p2", name: "New laptop", date: (cur.year + 1) + "-02-01", cost: 1400 },
       { id: "demo-p3", name: "Next car", date: (cur.year + 3) + "-06-01", cost: 24000 }] };
     return s;
@@ -3666,6 +3672,13 @@
           if (!line || line.kind === "liability") return;
           if (String(line.name || "") === "Car" && line.group === "lifestyle") line.group = "realEstate";
         });
+        /* v37.5.60 (owner): Roth IRA moves into Retirement (after-tax), once; a later manual move sticks. */
+        if (!parsed.worth.afterTaxGroupV1) {
+          parsed.worth.lines.forEach(function (line) {
+            if (line && line.kind !== "liability" && line.group === "retirement" && /\broth\b/i.test(line.name || "") && !/401|403|457/.test(line.name || "")) line.group = "retirementAfterTax";
+          });
+          parsed.worth.afterTaxGroupV1 = true;
+        }
       }
       /* v37.5.59.116 (owner): every launch starts collapsed. Expanders are session-only: they persist while the
        * app is open and reset here on load. Real prefs (rate mode, growth source, envelope mode, ...) are untouched. */
@@ -4020,7 +4033,7 @@
   }
 
   function tracksContributions(line) {
-    return line.group === "retirement";
+    return isRetGroup(line.group);
   }
 
   function incomeGrowth(current, prior) {
@@ -4320,7 +4333,7 @@
       spend: '<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
       statement: '<path d="M7 4h8l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path><path d="M15 4v5h5"></path>',
       worth: '<path d="M5 8h14M5 16h14M8 5v14M16 5v14"></path>',
-      stats: '<path d="M5 8h14M5 16h14M8 5v14M16 5v14"></path>',
+      stats: '<path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-3H4zM14 7h6V4h-6z"></path>',
       insights: '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 4 12.7V17H8v-2.3A7 7 0 0 1 12 2z"></path>'
     };
     return '<svg viewBox="0 0 24 24">' + paths[name] + "</svg>";
@@ -4382,8 +4395,7 @@
     var tabs = [
       ["budget", "Budget"],
       ["spend", "Transactions"],
-      ["stats", "Stats"],
-      ["insights", "Insights"]
+      ["stats", "Dashboard"]
     ];
     var uncatN = 0;
     try { uncatN = uncategorizedTxs(ensureMonth(state.year, state.month)).length; } catch (e) {}
@@ -4717,6 +4729,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * new data lives in state.dashboard { retire, purchases, taxDocs, nwSnaps } and state.profile.retireAge,
    * so it rides in backups. Tester data gets counts only (see testerPayload). */
   var dashEstOpen = false;
+  var dashRetOpen = false; /* v37.5.60: Retirement details, session-only */
   function dashState() {
     var d = state.dashboard;
     if (!d || typeof d !== "object") d = state.dashboard = {};
@@ -4778,6 +4791,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var est = estimateCompensation(state.compensation || defaultCompensation());
     if (est && est.cashPay > 0) return { year: currentYearMonth().year, gross: est.cashPay, takeHome: est.takeHome, source: "What-if (no pay stub yet)", avgTax: est.effectiveTaxRate };
+    /* v37.5.60 (owner bug: empty Income in demo): no stub and no what-if, so project this year's Budget paychecks. */
+    var cym = currentYearMonth(), got = 0, n = 0;
+    for (var mo = 1; mo <= cym.month; mo++) {
+      var mr = state.months[ymKey(cym.year, mo)];
+      if (!mr) continue;
+      var inc = (mr.transactions || []).filter(isIncomeTx).reduce(function (s, tx) { return s + (Number(tx.amount) || 0); }, 0);
+      if (inc > 0) { got += inc; n++; }
+    }
+    if (got > 0 && n) return { year: cym.year, gross: null, takeHome: roundCents(got / n * 12), source: "This year’s Budget paychecks × 12", avgTax: null };
     return null;
   }
 
@@ -4825,7 +4847,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var bal = 0, adds = 0, any = false;
     (state.worth && state.worth.lines || []).forEach(function (line) {
       if (line.kind === "liability" || nwLeftOut(line) || line.vehicle) return;
-      if (line.group !== "retirement" && line.group !== "taxable") return;
+      if (!isRetGroup(line.group) && line.group !== "taxable") return;
       any = true;
       bal += lineAmount(line, y);
       adds += is401k(line) ? k401AcctYear(line, y).amount : lineAddition(line, y); // v37.5.59.107
@@ -5317,42 +5339,67 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         "</ol></section>" + backupNudgeHtml();
       return html + "</div>";
     }
+    /* v37.5.60 (owner): Insights merged in. Order: snapshot strip, grade, what to do next, net worth, this year,
+     * debt, reserves + tax-free room, wrapped, retirement, purchases, taxes, projections, one footer. Every card
+     * carries one plain-English line (.plain-line). */
+    var dMonth = ensureMonth(state.year, state.month), grade = null;
+    if (!booksEmpty()) { try { grade = window.GradeMath.evaluate(buildGradeInput(dMonth)); } catch (e) {} }
+    var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
+    var dm = null; try { dm = debtCalcModel(); } catch (e) {}
+    html += '<div class="dash-snap" id="dash-snap">' +
+      '<div><span class="lbl">Grade</span><b>' + (grade ? grade.score : "—") + "</b></div>" +
+      '<div><span class="lbl">Savings rate</span><b>' + (sr ? pctWhole(sr.basic.rate) : "—") + "</b></div>" +
+      '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel((dm.extra > 0 ? dm.withX : dm.base).months)) : "—") + "</b></div></div>";
+    if (grade) {
+      html += (isPremium() ? premiumGradeHeroHtml(grade) : gradeGlimpseHtml(grade)).replace("</section>", '<p class="plain-line">One number for how your money habits are set up. 100 is perfect.</p></section>');
+      html += nextActionHtml(grade);
+    }
     html += '<section class="dash-card dash-nw" id="dash-nw"><p class="dash-k">Net worth</p>';
     if (nw) {
       html += '<p class="dash-big mono">' + moneyWhole(nw.now) + "</p>" +
         (nw.change == null ? '<p class="caption">Change shows once there are 12 months of history.</p>'
           : '<p class="dash-chg ' + (nw.change >= 0 ? "moss" : "rust") + '">' + signedWhole(nw.change) + (nw.pct != null ? " (" + (nw.pct >= 0 ? "+" : "") + pctWhole(nw.pct) + ")" : "") +
             ' <span class="caption">' + esc(nw.label) + "</span></p>") +
+        '<p class="plain-line">Everything you own minus everything you owe.</p>' +
         '<button type="button" class="dash-go" data-act="stats-door" data-door="worth">Net worth ›</button>';
     } else html += '<p class="caption">Add your accounts to see net worth.</p><button type="button" class="dash-go" data-act="stats-door" data-door="worth">Start your net worth ›</button>';
     html += "</section>";
-    // 2
-    var inc = dashIncome();
-    html += '<section class="dash-card dash-inc" id="dash-inc"><p class="dash-k">Income ' + (inc ? inc.year : currentYearMonth().year) + " · estimated full year</p>";
-    if (inc) {
-      html += '<div class="dash-two"><div><span class="caption">Gross</span><strong class="mono">' + moneyWhole(inc.gross) + "</strong></div>" +
-        '<div><span class="caption">Take-home</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
-        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement). Take-home = gross − taxes − pre-tax deductions − post-tax per-check lines × checks in the year. With no pay stub, the typed what-if is used. Estimate, not a guarantee.") + "</p>";
-    } else html += '<p class="caption">Add a paycheck or a pay stub to estimate this year.</p>';
-    html += "</section>";
-    // 3 + 4
-    var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
+    // This year: income, savings rate and average tax in one tile.
+    var inc = dashIncome(), yr = inc ? inc.year : currentYearMonth().year;
     var avg = inc ? inc.avgTax : null;
-    html += '<div class="dash-pair"><section class="dash-card dash-sr" id="dash-sr"><p class="dash-k">Savings rate ' + helpQ(dashRateHelp(sr)) + "</p>" +
-      /* v37.5.59.112 (owner): tap Basic or True to pick the mode the retirement "Needed to stay on track" row follows. */
-      '<button type="button" class="dash-sr-pick' + (dashRateMode() === "basic" ? " on" : "") + '" data-dash="sr-mode" data-mode="basic" aria-pressed="' + (dashRateMode() === "basic") + '">' +
-      '<span class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</span><span class="caption">Basic</span></button>' +
-      '<button type="button" class="dash-sr-pick' + (dashRateMode() === "true" ? " on" : "") + '" data-dash="sr-mode" data-mode="true" aria-pressed="' + (dashRateMode() === "true") + '">' +
-      '<span class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</span><span class="caption">True' +
-      (sr && sr.trueRate && sr.trueRate.state === "locked" ? " · Premium" : "") + "</span></button></section>" +
-      '<section class="dash-card dash-tax" id="dash-avgtax"><p class="dash-k">Average tax</p><p class="dash-mid mono">' + pctWhole(avg) + "</p>" +
-      '<p class="caption">Taxes ÷ gross pay, ' + (inc ? inc.year : "") + "</p></section></div>";
+    var trueLocked = sr && sr.trueRate && sr.trueRate.state === "locked";
+    html += '<section class="dash-card dash-year" id="dash-year"><p class="dash-k">This year · ' + yr + "</p>";
+    if (inc) {
+      html += '<div class="dash-two"><div><span class="caption">Gross pay</span><strong class="mono">' + (inc.gross != null ? moneyWhole(inc.gross) : "—") + "</strong></div>" +
+        '<div><span class="caption">Take-home</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
+        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement). Take-home = gross − taxes − pre-tax deductions − post-tax per-check lines × checks in the year. With no pay stub, the typed what-if is used; with neither, this year’s Budget paychecks are projected to 12 months. Estimate, not a guarantee.") + "</p>";
+    } else html += '<p class="caption">Add a paycheck or a pay stub to estimate this year.</p>';
+    html += '<div class="dash-three"><button type="button" class="dash-sr-pick' + (dashRateMode() === "basic" ? " on" : "") + '" data-dash="sr-mode" data-mode="basic" aria-pressed="' + (dashRateMode() === "basic") + '">' +
+      '<span class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</span><span class="caption">Savings rate</span></button>' +
+      (trueLocked
+        ? '<button type="button" class="dash-sr-pick locked" data-act="set-plan" data-plan="premium"><span class="dash-sub">🔒</span><span class="caption">True rate · Premium</span></button>'
+        : '<button type="button" class="dash-sr-pick' + (dashRateMode() === "true" ? " on" : "") + '" data-dash="sr-mode" data-mode="true" aria-pressed="' + (dashRateMode() === "true") + '">' +
+          '<span class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</span><span class="caption">True rate</span></button>') +
+      '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".\n\n" + dashRateHelp(sr)) + "</span></div></div>" +
+      '<p class="plain-line">' + (sr && sr.basic && sr.basic.rate != null ? "You’re saving " + pctWhole(sr.basic.rate) + " of what you take home" + (avg != null ? ", and about " + pctWhole(avg) + " of your pay goes to taxes." : ".") : "Your savings rate shows once a paycheck is in.") + "</p></section>";
+    html += debtCardHtml();
+    html += dashReservesHtml(dMonth);
+    html += wrapEntryHtml(dMonth);
     // 5
     var R = dashRetirement(), I = R.I;
     html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
       "Nest egg needed = yearly spending × (1 + inflation)^years ÷ 4% (shown in today’s dollars too: spending ÷ 4%). " +
       "Projected nest egg = your retirement + taxable accounts now (no home or vehicles), growing at your return each year, plus this year’s contributions (you + employer + other additions) added every year and rising with inflation. " +
       "4% rule income = projected nest egg (today’s dollars) × 4%.\n\n" + ESTIMATE_DISCLAIMER) + "</p>";
+    /* v37.5.60 (owner): short by default (My number + where you stand); inputs and the rest behind Details. */
+    if (R.ready) {
+      html += '<div class="dash-rrow"><div class="dash-rrow-top"><span><strong>My number</strong></span><span class="mono dash-mynum-v">' + moneyWhole(R.myNumber) + "</span></div>" +
+        '<p class="caption">You have ' + moneyWhole(R.inv.balance) + " · on track needs " + moneyWhole(R.onTrackNeed) + " by Dec 31, " + R.onTrackYear + "</p></div>";
+      html += '<p class="plain-line">' + (R.status === "short" ? "At your current pace you’d fall short of what you need to retire at " + I.retireAge + "." : "At your current pace you’re on track to retire at " + I.retireAge + ".") + "</p>";
+    } else html += '<p class="plain-line">How much you need saved to retire, and whether you’re on pace.</p>';
+    html += '<button type="button" class="dash-go" data-dash="ret-toggle" aria-expanded="' + !!dashRetOpen + '">' + (dashRetOpen ? "Hide details ▴" : "Details ▾") + "</button>";
+    if (!dashRetOpen) { html += "</section>"; }
+    else {
     html += '<div class="dash-ins">' +
       (I.ageFromBirthday ? "" : '<label class="dash-in">Your age<input data-dashnum="ageNow" inputmode="numeric" type="text" value="' + esc(I.ageNow == null ? "" : String(I.ageNow)) + '" placeholder="Age"></label>') +
       '<label class="dash-in">Retire at<input data-dashnum="retireAge" inputmode="numeric" type="text" value="' + I.retireAge + '"></label>' +
@@ -5399,26 +5446,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         rrow("4% rule income", moneyWhole(R.incomeYear) + "/yr", moneyWhole(R.incomeMonth) + " a month, today’s dollars", "moss") +
         '<p class="caption">' + R.years + " years · starts from " + moneyWhole(R.inv.balance) + " invested" +
         (R.inv.contrib > 0 ? " + " + moneyWhole(R.inv.contrib) + "/yr from " + esc(R.inv.source) : " · no yearly contributions found") + ".</p>" +
-        '<p class="caption quiet est-disclaim">' + ESTIMATE_DISCLAIMER + "</p>";
+        "";
     }
     html += "</section>";
+    }
     // 6
     var rows = dashPurchaseRows();
     html += '<section class="dash-card dash-buys" id="dash-buys"><p class="dash-k">Upcoming purchases</p>';
     var upcoming = rows.filter(function (x) { return !x.past; });
     (upcoming.length ? upcoming : rows).slice(0, 3).forEach(function (x) { html += dashPurchaseRowHtml(x); });
     if (!rows.length) html += '<p class="caption">Plan a big buy: a date, the cost, and the envelope you’re saving in.</p>';
+    else html += '<p class="plain-line">Big things you’re saving for, and how far along each one is.</p>';
     html += '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="p-add">+ Add purchase</button>' +
       (rows.length > 3 ? '<button type="button" class="text-btn" data-dash="p-all">All ' + rows.length + " ›</button>" : "") + "</div></section>";
-    // 7 (Jan–Apr)
-    var tm = dashToday().getMonth() + 1;
-    if (tm <= 4) {
-      var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
-      html += '<section class="dash-card dash-taxdocs" id="dash-taxdocs"><p class="dash-k">Tax docs · ' + ty + ' <span class="dash-count">' + done + " of " + TL.rows.length + "</span></p>" +
-        dashTaxRowsHtml(ty) + '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' +
-        '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
-    }
-    // v37.5.59.103: Taxes (Filing status + HSA coverage moved here from the statements; same settings).
     html += dashTaxesHtml();
     // 8 v37.5.59.68: Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
     html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml();
@@ -5428,12 +5468,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<section class="dash-card dash-est' + (dashEstOpen ? " open" : "") + '" id="dash-est"><button type="button" class="dash-est-line" data-dash="est-toggle" aria-expanded="' + dashEstOpen + '">' +
         '<span>3-year estimate · ' + last.year + "</span><span class=\"mono\">" + (pw ? "Net worth " + moneyWhole(pw.rows[pw.rows.length - 1].total) : "Income " + moneyWhole(pi.rows[pi.rows.length - 1].total)) +
         ' <span class="chev" aria-hidden="true">' + (dashEstOpen ? "▴" : "▾") + "</span></span></button>" +
-        (dashEstOpen ? '<div class="dash-est-body">' + (pw ? '<p class="dash-k">Net worth</p>' + estimatedSectionHtml("worth") : "") + (pi ? '<p class="dash-k">Income</p>' + estimatedSectionHtml("income") : "") + "</div>" : "") +
+        (dashEstOpen ? '<div class="dash-est-body">' + (pw ? estimatedSectionHtml("worth") : estimatedSectionHtml("income")) + "</div>" : "") +
         "</section>";
     }
-    if (worthHasData()) { try { html += taxTriangleHtml({ paycheckStrip: false, context: "worth" }).replace('<p class="section-label">Tax triangle</p>', ""); } catch (e) {} }
+    if (isPremium() && worthHasData()) { try { html += taxTriangleHtml({ paycheckStrip: false, context: "worth" }).replace('<p class="section-label">Tax triangle</p>', ""); } catch (e) {} }
     // 9
     html += backupNudgeHtml();
+    html += '<p class="caption est-footer">Estimate, not advice.</p>';
     return html + "</div>";
   }
   /* v37.5.59.112 (owner): "Needed to stay on track" = the target (needed yearly saving ÷ yearly take-home, or ÷ yearly
@@ -5462,19 +5503,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cap = o.now == null ? "Add a paycheck to compare" : "You’re saving " + Math.round(o.now * 100) + "% now (this year so far, " + M + (o.fell ? " — True needs a pay stub" : "") + ")";
     return rrow("Needed to stay on track " + helpQ(help), val, cap, o.need != null && o.now != null && o.need <= o.now ? "moss" : "");
   }
+  /* v37.5.60 (owner): Taxes + Tax docs in one card (filing status and HSA moved to Profile). The checklist rows
+   * show inline Jan–Apr only, once. */
   function dashTaxesHtml() {
-    var filing = annualFilingStatus(ensureAnnualStatement());
-    var y = new Date().getFullYear();
     var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
-    return '<p class="section-label dash-taxes-label" id="dash-taxes-label">Taxes</p>' +
-      '<section class="dash-card dash-taxes" id="dash-taxes">' +
-      '<label class="field annual-filing">Filing status ' + helpQ("Used for the tax estimates and brackets on your Income statement.\n\n" + ESTIMATE_DISCLAIMER) + '<select data-act="annual-filing">' +
-      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
-      '<option value="mfj"' + (filing === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
-      '<option value="hoh"' + (filing === "hoh" ? " selected" : "") + ">Head of household</option></select></label>" +
-      hsaCoverageFieldHtml(y) +
-      '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Tax docs checklist · ' + ty + " (" + done + " of " + TL.rows.length + ") ›</button></div>" +
-      "</section>";
+    var season = dashToday().getMonth() + 1 <= 4;
+    return '<section class="dash-card dash-taxes" id="dash-taxes"><p class="dash-k">Taxes · ' + ty + ' <span class="dash-count">' + done + " of " + TL.rows.length + " docs</span></p>" +
+      (season ? dashTaxRowsHtml(ty) : "") +
+      '<p class="plain-line">' + (season ? "Tax season: tick off each form as it arrives." : "Your tax-document checklist for filing next spring.") + "</p>" +
+      '<div class="dash-buy-actions">' + (season ? '<button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' : "") +
+      '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
   }
 
   function renderDashboard() {
@@ -5512,6 +5550,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var k = t.getAttribute("data-dash"), d = dashState();
     e.preventDefault(); e.stopPropagation();
     if (k === "est-toggle") { dashEstOpen = !dashEstOpen; render(); }
+    else if (k === "ret-toggle") { dashRetOpen = !dashRetOpen; render(); }
     else if (k === "sr-mode") { d.rateMode = t.getAttribute("data-mode") === "true" ? "true" : "basic"; saveState(); render(); }
     else if (k === "p-add") { closeModal(); openDashPurchase("", "pName"); }
     else if (k === "p-all") openDashPurchaseList();
@@ -6552,34 +6591,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return !anyMonth && !worthHasData();
   }
 
-  function renderGradeLanding(month) {
-    var GM = window.GradeMath;
-    var grade = GM.evaluate(buildGradeInput(month));
-    var html = '<div class="nav-row"><h2>' + esc(profileMasthead() || "Insights") + "</h2></div>";
-    if (booksEmpty()) {
-      // v37.5.15 zero state: no grade (and no "Excellent") before there is anything to grade.
-      html += '<section class="card grade-empty empty-card"><p class="kicker">Paper Trail Grade</p>' +
-        '<p class="grade-number muted">—</p>' +
-        "<p>Your grade shows up once your first budget has numbers in it.</p>" +
-        '<button class="planner-apply" type="button" data-act="tab" data-tab="budget">Build my budget</button></section>' +
-        wrapEntryHtml(month) + savingsRateCardHtml("insights");
-      html += '<p class="empty">Estimates, not advice.</p>';
-      return html;
-    }
-    if (isPremium()) {
-      html += premiumGradeHeroHtml(grade) + wrapEntryHtml(month) + savingsRateCardHtml("insights") + streakChipHtml() +
-        compareSwipeHtml() + nextActionHtml(grade) +
-        debtPayoffInsightHtml(month) + fooRailHtml(grade, month) + premiumExtraHtml(month, grade);
-    } else {
-      html += gradeGlimpseHtml(grade) + wrapEntryHtml(month) + savingsRateCardHtml("insights") + streakChipHtml() +
-        compareSwipeHtml() + fooBasicsHtml(grade) +
-        debtPayoffInsightHtml(month) + insuranceTeaserHtml();
-    }
-    html += '<button class="matters-btn" type="button" data-act="open-matters">What matters to you</button>';
-    html += '<p class="empty">Estimates, not advice.</p>';
-    return html;
-  }
-
   function premiumGradeHeroHtml(grade) {
     var html = '<section class="card grade-hero">' +
       '<div class="grade-hero-top"><span class="kicker">Paper Trail Grade</span>' +
@@ -6593,63 +6604,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  /* v37.5.60 (owner): headline = the grade's next-dollar step, so this card always agrees with the grade. */
   function nextActionHtml(grade) {
-    var GM = window.GradeMath;
-    return '<section class="card insight-card">' +
+    var foo = grade.foo || {}, na = grade.nextAction || {};
+    var step = foo.currentStep, line = String(foo.nextDollarLine || "").replace(/^Next dollar\s*→\s*/, "");
+    var why = na.fooStep === step && na.why ? na.why : (step ? "This is step " + step + " of 9 in the order of operations. It’s where your next dollar does the most." : (na.why || ""));
+    return '<section class="card insight-card dash-next" id="dash-next">' +
       '<p class="kicker">What to do next</p>' +
-      "<h3>" + esc(grade.nextAction.title) + "</h3>" +
-      "<p>" + esc(grade.nextAction.why) + "</p></section>";
+      "<h3>" + esc(line ? "Next dollar → " + line : (na.title || "Keep going")) + "</h3>" +
+      "<p>" + esc(why) + "</p>" +
+      '<p class="plain-line">The single most useful thing to do with your next spare dollar.</p></section>';
   }
 
   /* v37.5.59.21: FOO card retired from Insights; body kept below for reference, never rendered. */
-  function fooRailHtml(grade, month) {
-    if (true) return "";
-    var html = '<section class="card foo-rail">';
-    html += '<p class="kicker" title="Often shortened to FOO">Financial order of operations</p><div class="foo-dots">';
-    grade.foo.steps.forEach(function (step) {
-      if (step.number === 1 && !fooStep1Shown()) return; /* v37.5.59.13: hidden until data exists */
-      html += '<span class="foo-dot ' + step.status + '" title="' + esc(step.name) + '"></span>';
-    });
-    html += "</div><p class='next-dollar'>" + esc(grade.foo.nextDollarLine) + "</p>";
-    var current = grade.foo.steps.filter(function (s) { return s.status === "current"; })[0];
-    if (current) {
-      html += '<div class="foo-current"><div class="foo-step-head"><strong>' + current.number +
-        ". " + esc(current.name) + "</strong>" + fooHelpButton(current.number) + "</div>" +
-        "<p>" + esc(current.definition) + "</p>";
-      if (grade.foo.question) {
-        html += "<p>" + esc(grade.foo.question.prompt) + "</p>";
-        if (grade.foo.question.field === "needsBirthday") {
-          html += '<button class="matters-btn" type="button" data-act="open-profile">Add birthday in Profile</button>';
-        } else {
-          html += '<div class="yn-row">' +
-            '<button type="button" data-act="foo-answer" data-field="' + esc(grade.foo.question.field) +
-            '" data-value="yes">Yes</button>' +
-            '<button type="button" data-act="foo-answer" data-field="' + esc(grade.foo.question.field) +
-            '" data-value="no">Not yet</button></div>';
-        }
-      }
-      if (current.number === 2) html += fooEmployerRatesHtml();
-      if (current.number === 1) html += highestDeductibleNoteHtml(migrateFoo(state.foo));
-      html += "</div>";
-    }
-    html += '<div class="foo-mini">';
-    grade.foo.steps.forEach(function (step) {
-      if (step.status === "current" || (step.number === 1 && !fooStep1Shown())) return;
-      html += '<div class="foo-mini-row"><span>' + step.number + ". " + esc(step.name) +
-        "</span>" +
-        (step.status === "done" ? fooDoneCluster(step.number) : "<span class='caption'>locked</span>") +
-        "</div>";
-      if (step.number === 1 && step.status === "done") html += highestDeductibleNoteHtml(migrateFoo(state.foo));
-      if (step.number === 2 && step.status === "done") html += fooEmployerRatesHtml();
-    });
-    html += "</div>";
-    html += '<button class="matters-btn" type="button" data-act="open-full-foo">Full order of operations</button>';
-    if (grade.foo.hit25Percent) {
-      html += '<p class="caption">25% of gross is already on track — maxing the employer plan is not nagged.</p>';
-    }
-    html += "</section>";
-    return html;
-  }
 
   function gradeGlimpseHtml(grade) {
     return '<section class="card grade-hero">' +
@@ -6658,18 +6625,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<div><strong>" + esc(grade.band.title) + "</strong>" +
       '<div class="caption">Glimpse · subscribe for full bars</div></div></div>' +
       "<p>" + esc(grade.diagnosis) + "</p>" +
-      '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock full Insights</button>' +
+      '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full grade</button>' +
       "</section>";
-  }
-
-  function fooBasicsHtml(grade) {
-    if (true) return "";
-    var current = grade.foo.steps.filter(function (s) { return s.status === "current"; })[0];
-    return '<section class="card foo-rail">' +
-      '<p class="kicker" title="Often shortened to FOO">Financial order of operations</p>' +
-      '<p class="next-dollar">' + esc(grade.foo.nextDollarLine) + "</p>" +
-      (current ? "<p>" + esc(current.definition) + "</p>" : "") +
-      '<button class="matters-btn" type="button" data-act="open-full-foo">Full order of operations</button></section>';
   }
 
   function monthTxList(month) {
@@ -6718,67 +6675,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  function compareSwipeHtml() {
-    var GM = window.GradeMath;
-    var peers = peerCompare();
-    var deck = GM.compareDeck
-      ? GM.compareDeck({
-        ageYears: GM.ageYears(birthdayISO()),
-        zip: state.compensation && state.compensation.zipCode,
-        income: peers.youIncome,
-        netWorth: peers.youNetWorth,
-        debt: peers.youDebt,
-        plan: isPremium() ? "premium" : "free"
-      })
-      : { cards: [], exactAge: peers.exactAgeLine || "", ageBand: peers.ageBand, geo: peers.geo, citation: peers.citation, needsBirthday: peers.needsBirthday, teaser: peers.teaser, premium: isPremium() };
-    var html = '<section class="card insight-card compare-deck-card">' +
-      '<p class="kicker">How you compare</p>';
+  /* v37.5.60 (owner): "How you compare" lives in the annual Wrapped as slides; it asks for a birthday there. */
+  function compareWrapSlides() {
+    var GM = window.GradeMath, peers = peerCompare();
+    if (!GM.compareDeck) return [];
+    var deck = GM.compareDeck({ ageYears: GM.ageYears(birthdayISO()), zip: state.compensation && state.compensation.zipCode,
+      income: peers.youIncome, netWorth: peers.youNetWorth, debt: peers.youDebt, plan: isPremium() ? "premium" : "free" });
     if (deck.needsBirthday) {
-      html += "<p>Add a birthday to see your age band. Age is never invented.</p>" +
-        '<button class="matters-btn" type="button" data-act="open-profile">Add birthday in Profile</button>';
-    } else {
-      html += "<p class='compare-age'>" + esc(deck.exactAge || peers.exactAgeLine || "") +
-        " · " + esc((deck.ageBand && deck.ageBand.label) || "") +
-        (deck.geo ? " · " + esc(deck.geo.label) : "") + "</p>" +
-        '<p class="caption">Finest published SCF / Census band — not a single-year percentile.</p>';
-      html += '<div class="compare-deck" tabindex="0">';
-      var incBasis = incomeCompareBasis();
-      (deck.cards || []).forEach(function (card) {
-        var isIncome = card.id === "income";
-        html += '<article class="compare-slide' + (card.locked || card.teaser ? " is-teaser" : "") + '"' +
-          (isIncome ? ' data-basis="' + esc(incBasis.kind) + '"' : "") + ">" +
-          "<h3>" + esc(isIncome ? (incBasis.kind === "take-home" ? "Income · take-home" : "Income · gross") : card.title) + "</h3>";
-        if (isIncome && !card.locked && !incBasis.comparable) {
-          /* v37.5.59: no gross figure → never set take-home against a gross median. */
-          html += (incBasis.amount > 0
-            ? '<div class="compare-slide-row"><span>' + esc(incBasis.youLabel) + '</span><span class="mono">' + money(incBasis.amount) + "</span></div>"
-            : "") +
-            '<p class="caption compare-basis">Medians are gross pay (before tax). Add gross pay to your Income statement to compare like with like.</p>';
-        } else if (card.locked) {
-          html += "<p>Subscribe for the rest of the deck.</p>";
-        } else if (card.teaser && !deck.premium) {
-          html += '<div class="compare-slide-row"><span>' + esc(isIncome ? incBasis.youLabel : "You") + '</span><span class="mono">' +
-            money(card.you) + "</span></div>" +
-            '<p class="caption">Median ' + esc((deck.ageBand && deck.ageBand.label) || "") +
-            " stays on Premium.</p>";
-        } else {
-          html += '<div class="compare-slide-row"><span>' + esc(isIncome ? incBasis.youLabel : "You") + '</span><span class="mono">' +
-            money(card.you) + "</span></div>" +
-            '<div class="compare-slide-row"><span>Median ' +
-            esc((deck.ageBand && deck.ageBand.label) || "") + (isIncome ? " · gross" : "") +
-            '</span><span class="mono">' + money(card.peer) + "</span></div>";
-          if (isIncome) html += '<p class="caption compare-basis">' + esc(incBasis.source) + ". Both gross (before tax). Budget paychecks are take-home, so they run lower.</p>";
-        }
-        html += "</article>";
-      });
-      html += "</div>";
-      if (!deck.premium) {
-        html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Subscribe for the full picture</button>';
-      }
+      return [{ id: "cmp-bday", kicker: "How you compare", title: "When’s your birthday?", sub: "We compare you with people your age. Age is never guessed, and it stays on this device.", askBirthday: true }];
     }
-    html += '<p class="caption">' + esc(deck.citation || peers.citation) + "</p></section>";
-    return html;
+    var band = (deck.ageBand && deck.ageBand.label) || "", incBasis = incomeCompareBasis();
+    return (deck.cards || []).map(function (card) {
+      var isIncome = card.id === "income", sl = { id: "cmp-" + card.id, kicker: "How you compare · " + band, title: card.title || "", help: deck.citation || peers.citation || "" };
+      if (card.locked) { sl.sub = "Subscribe to see how your " + String(card.title || "").toLowerCase() + " compares."; sl.locked = true; }
+      else if (isIncome && !incBasis.comparable) sl.sub = "Medians are gross pay. Add gross pay to your Income statement to compare like with like.";
+      else if (card.teaser && !deck.premium) sl.sub = "You: " + moneyWhole(card.you) + ". The median for " + band + " is on Premium.";
+      else sl.sub = "You: " + moneyWhole(card.you) + " · median for " + band + ": " + moneyWhole(card.peer) + (isIncome ? " (both before tax)" : "") + ".";
+      return sl;
+    });
   }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-cmp-bday]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    var v = (document.getElementById("cmp-bday-in") || {}).value || "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast("Pick your birthday first."); return; }
+    syncBirthday(v); saveState();
+    renderWrapped(monthRecord());
+  }, true);
+
 
   function loanSortSpec() {
     var GM = window.GradeMath;
@@ -6842,18 +6767,286 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return n;
   }
 
-  function debtPayoffInsightHtml(month) {
-    var loans = collectLoans(month);
-    if (!loans.length) return "";
-    var extra = payoffExtraAmount();
-    var html = '<section class="card insight-card" id="payoff-card"><p class="kicker">Payoff</p>' +
-      '<label class="field extra-field">Extra $ / mo' +
-      '<input class="cents-input" data-dollars="1" data-act="payoff-extra" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(moneyEntry(extra)) + '"></label>' +
-      '<div id="payoff-results">' + payoffResultsHtml(loans, extra) + "</div>" +
-      '<p class="caption">Estimate — not advice.</p></section>';
-    return html;
+  /* ===== v37.5.60 (owner): Debt calculator =====
+   * Loans come from the Debt envelope and Net worth liabilities (collectListedDebts). A balance you typed is kept as is;
+   * otherwise the Net worth year-end balance is reduced by this year's budget payments on a Debt line with the same name
+   * (per-loan "Ignore budget transactions" turns that off). Simulation: every loan gets its minimum, the extra pool goes
+   * to one loan at a time (avalanche = highest rate first, snowball = smallest balance first, or a picked loan first then
+   * avalanche), and a paid-off loan's minimum rolls into the pool. Interest = APR / 12 monthly. Estimate, not advice. */
+  function debtPlan() {
+    var p = state.debtPlan;
+    if (!p || typeof p !== "object") p = state.debtPlan = {};
+    if (!(Number(p.extra) >= 0)) p.extra = 0;
+    if (!p.strategy) p.strategy = "avalanche";
+    if (!p.off || typeof p.off !== "object") p.off = {};
+    if (!p.ignore || typeof p.ignore !== "object") p.ignore = {};
+    return p;
   }
+  function debtBudgetPaid(name, sinceYear) {
+    var key = String(name || "").toLowerCase(), paid = 0;
+    if (!key) return 0;
+    Object.keys(state.months || {}).forEach(function (mk) {
+      var y = parseInt(String(mk).slice(0, 4), 10);
+      if (!(y > sinceYear)) return;
+      var m = state.months[mk];
+      (m.categories || []).forEach(function (cat) {
+        if (!/^debt$/i.test(cat.name || "")) return;
+        (cat.lines || []).forEach(function (line) {
+          if (String(line.name || "").toLowerCase() !== key) return;
+          paid += Math.max(0, Number(spentOnLine(m, line.id)) || 0);
+        });
+      });
+    });
+    return roundCents(paid);
+  }
+  function debtCalcLoans() {
+    var p = debtPlan(), month = monthRecord(), GM = window.GradeMath, age = GM.ageYears(birthdayISO());
+    var wy = state.worthYear || 2025;
+    return collectListedDebts(month).map(function (l) {
+      var typed = false, bal = l.balance, paid = 0;
+      if (l.source === "nw") {
+        var nl = (state.worth.lines || []).filter(function (x) { return x.id === l.id; })[0];
+        typed = !!(nl && Number(nl.loanBalance) > 0);
+      } else typed = true;
+      if (!typed && !p.ignore[l.id]) { paid = debtBudgetPaid(l.name, wy); bal = Math.max(0, roundCents(bal - paid)); }
+      var c = GM.classifyDebt(l, age) || {};
+      return {
+        id: String(l.id), source: l.source, name: l.name || "Loan", balance: bal, apr: l.apr, min: l.min, debtType: l.debtType,
+        typed: typed, paid: paid, tier: c.tier || null, on: !p.off[l.id], ready: bal > 0 && l.apr > 0 && l.min > 0, ignore: !!p.ignore[l.id]
+      };
+    }).filter(function (l) { return l.balance > 0 || l.apr > 0 || l.min > 0; });
+  }
+  function debtOrder(loans, strategy) {
+    var byRate = loans.slice().sort(function (a, b) { return b.apr - a.apr || a.balance - b.balance; });
+    if (strategy === "snowball") return loans.slice().sort(function (a, b) { return a.balance - b.balance || b.apr - a.apr; });
+    if (strategy && strategy !== "avalanche") {
+      var t = byRate.filter(function (l) { return l.id === strategy; });
+      if (t.length) return t.concat(byRate.filter(function (l) { return l.id !== strategy; }));
+    }
+    return byRate;
+  }
+  /* Returns { months, interest, payoff: {id: month#}, series: {id: [balances]} }; capped at 600 months. */
+  function debtSimulate(loans, extra, strategy, roll) {
+    var order = debtOrder(loans, strategy), bal = {}, series = {}, payoff = {}, interest = 0, m = 0;
+    order.forEach(function (l) { bal[l.id] = l.balance; series[l.id] = [l.balance]; });
+    function left() { return order.some(function (l) { return bal[l.id] > 0.005; }); }
+    while (left() && m < 600) {
+      m++;
+      var pool = extra;
+      order.forEach(function (l) {
+        if (bal[l.id] <= 0.005) { if (roll) pool += l.min; return; }
+        var i = bal[l.id] * l.apr / 1200; interest += i; bal[l.id] += i;
+        var pay = Math.min(l.min, bal[l.id]); bal[l.id] -= pay;
+        if (roll && pay < l.min) pool += l.min - pay;
+      });
+      for (var k = 0; k < order.length && pool > 0.005; k++) {
+        var id = order[k].id;
+        if (bal[id] <= 0.005) continue;
+        var x = Math.min(pool, bal[id]); bal[id] -= x; pool -= x;
+      }
+      order.forEach(function (l) {
+        if (bal[l.id] <= 0.005 && payoff[l.id] == null) { bal[l.id] = 0; payoff[l.id] = m; }
+        series[l.id].push(Math.max(0, bal[l.id]));
+      });
+    }
+    return { months: m, interest: roundCents(interest), payoff: payoff, series: series, order: order, capped: left() };
+  }
+  function debtMonthLabel(n) {
+    if (n == null) return "—";
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + n);
+    return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
+  function debtTierDot(t) { return t === "red" ? "🔴" : t === "yellow" ? "🟡" : t === "green" ? "🟢" : "⚪"; }
+  function debtCalcModel() {
+    var p = debtPlan(), loans = debtCalcLoans();
+    var plan = loans.filter(function (l) { return l.on && l.ready; });
+    var extra = Number(p.extra) || 0, strat = p.strategy;
+    if (strat !== "avalanche" && strat !== "snowball" && !plan.some(function (l) { return l.id === strat; })) strat = "avalanche";
+    var out = { loans: loans, plan: plan, extra: extra, strategy: strat };
+    out.minTotal = roundCents(plan.reduce(function (s, l) { return s + l.min; }, 0));
+    if (!plan.length) return out;
+    out.base = debtSimulate(plan, 0, strat, false);
+    out.noRoll = debtSimulate(plan, extra, strat, false);
+    out.withX = debtSimulate(plan, extra, strat, true);
+    out.saves = Math.max(0, roundCents(out.base.interest - out.withX.interest));
+    out.fromExtra = Math.max(0, roundCents(out.base.interest - out.noRoll.interest));
+    out.fromRoll = Math.max(0, roundCents(out.saves - out.fromExtra));
+    out.monthsSooner = Math.max(0, out.base.months - out.withX.months);
+    return out;
+  }
+  function debtChartSvg(M) {
+    var W = 320, H = 170, padL = 6, padR = 6, padT = 10, padB = 8;
+    var maxM = Math.max(M.base.months, 1), maxB = 0;
+    M.plan.forEach(function (l) { maxB = Math.max(maxB, l.balance); });
+    var inks = ["var(--berry)", "var(--plum)", "var(--gold)", "var(--moss)", "#3B7EA1", "#B5651D"];
+    function x(i) { return padL + (W - padL - padR) * i / maxM; }
+    function y(b) { return padT + (H - padT - padB) * (1 - Math.sqrt(Math.max(0, b) / (maxB || 1))); }
+    function path(arr) { return arr.map(function (b, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(b).toFixed(1); }).join(" "); }
+    var svg = '<svg class="debt-chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Loan balances over time: faded solid lines are minimums only, dashed lines include your extra">';
+    svg += '<line x1="' + padL + '" y1="' + (H - padB) + '" x2="' + (W - padR) + '" y2="' + (H - padB) + '" stroke="currentColor" stroke-opacity=".25"/>';
+    var marks = "";
+    M.withX.order.forEach(function (l, i) {
+      var ink = inks[i % inks.length];
+      svg += '<path d="' + path(M.base.series[l.id]) + '" fill="none" stroke="' + ink + '" stroke-opacity=".3" stroke-width="2"/>';
+      svg += '<path d="' + path(M.withX.series[l.id]) + '" fill="none" stroke="' + ink + '" stroke-width="2.4" stroke-dasharray="6 4"/>';
+      var pm = M.withX.payoff[l.id];
+      if (pm != null) {
+        var cx = x(pm), cy = H - padB;
+        marks += '<circle cx="' + cx.toFixed(1) + '" cy="' + (cy - 9) + '" r="8" fill="' + ink + '"/><text x="' + cx.toFixed(1) + '" y="' + (cy - 5.5) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">' + (i + 1) + "</text>";
+      }
+    });
+    return svg + marks + "</svg>";
+  }
+  /* Dashboard card. */
+  function debtCardHtml() {
+    var M = debtCalcModel();
+    var h = '<section class="card dash-card debt-card" data-act="debt-open" role="button" tabindex="0" aria-label="Open debt calculator"><h3>Debt payoff <span class="chev">›</span></h3>';
+    if (!M.loans.length) return h + '<p class="plain-line">No loans yet. Add one to see when you could be debt-free.</p><button type="button" class="primary small" data-act="debt-open">Add a loan</button></section>';
+    if (!M.plan.length) return h + '<p class="plain-line">Add a rate and minimum payment to a loan to see your debt-free date.</p></section>';
+    h += '<div class="debt-tops"><div><span class="lbl">Monthly minimums</span><b class="mono">' + moneyWhole(M.minTotal) + '</b></div>' +
+      '<div><span class="lbl">Debt-free at minimums</span><b>' + esc(debtMonthLabel(M.base.months)) + "</b></div></div>";
+    if (M.extra > 0) h += '<p class="debt-green">With your extra ' + moneyWhole(M.extra) + "/mo: <b>" + esc(debtMonthLabel(M.withX.months)) + "</b></p>";
+    h += '<p class="plain-line">' + (M.extra > 0 ? "Paying " + moneyWhole(M.extra) + " extra each month saves about " + moneyWhole(M.saves) + " in interest." : "Tap to see how a little extra each month speeds this up.") + "</p>";
+    return h + "</section>";
+  }
+  function debtCalcHtml() {
+    var M = debtCalcModel(), p = debtPlan();
+    var h = '<div class="sheet-top"><h3>Debt calculator</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>';
+    if (!M.loans.length) {
+      return h + '<div class="debt-empty"><p class="big">🎉 No loans listed</p><p class="caption">Add a loan (balance, rate and minimum payment) to see your debt-free date and how much extra payments save.</p>' +
+        '<button type="button" class="primary" data-debt="add">Add a loan</button></div>';
+    }
+    if (M.plan.length) {
+      h += '<div class="debt-tops three"><div><span class="lbl">Monthly minimums</span><b class="mono">' + moneyWhole(M.minTotal) + "</b></div>" +
+        '<div><span class="lbl">Debt-free at minimums</span><b>' + esc(debtMonthLabel(M.base.months)) + "</b>" + (M.extra > 0 ? '<span class="debt-green small">' + esc(debtMonthLabel(M.withX.months)) + " with extra</span>" : "") + "</div>" +
+        '<div><span class="lbl">Total interest</span><b class="mono">' + moneyWhole(M.base.interest) + "</b>" + (M.extra > 0 ? '<span class="debt-green small">Extra saves ' + moneyWhole(M.saves) + "</span>" : "") + "</div></div>";
+      h += debtChartSvg(M);
+      h += '<p class="caption debt-key">Faded line = minimums only · dashed = with extra · numbers = payoff order</p>';
+    } else {
+      h += '<p class="caption">Check a loan with a rate and minimum to draw the plan.</p>';
+    }
+    h += '<label class="field debt-extra">Extra per month<input type="text" inputmode="decimal" data-debt-input="extra" value="' + (M.extra ? Math.round(M.extra) : "") + '" placeholder="$0"></label>';
+    if (M.plan.length && M.extra > 0) {
+      var first = M.withX.order[0];
+      h += '<p class="debt-insight">Paying ' + moneyWhole(M.extra) + " extra a month makes you debt-free " + (M.monthsSooner ? formatDuration(M.monthsSooner) + " sooner" : "about the same time") +
+        " and saves about " + moneyWhole(M.saves) + " in interest. Start with " + esc(first.name) + ".</p>";
+      h += '<p class="caption debt-split">' + moneyWhole(M.fromExtra) + " from the extra itself · " + moneyWhole(M.fromRoll) + " from rolling each paid-off minimum forward</p>";
+    }
+    var opts = [["avalanche", "Auto (avalanche: highest rate first)"], ["snowball", "Snowball (smallest balance first)"]].concat(M.plan.map(function (l) { return [l.id, l.name]; }));
+    h += '<label class="field">Pay extra on:<select data-debt-input="strategy">' + opts.map(function (o) {
+      return '<option value="' + esc(o[0]) + '"' + (o[0] === M.strategy ? " selected" : "") + ">" + esc(o[1]) + "</option>";
+    }).join("") + "</select></label>";
+    h += '<p class="caption debt-legend">🔴 high 🟡 medium 🟢 low (Money Guy rules by age and loan type)</p>';
+    var rank = {};
+    if (M.withX) M.withX.order.forEach(function (l, i) { rank[l.id] = i + 1; });
+    h += '<div class="debt-rows">';
+    M.loans.forEach(function (l) {
+      var cls = "debt-row" + (!l.on ? " off" : "") + (!l.ready ? " needs" : "");
+      h += '<div class="' + cls + '"><div class="debt-row-main">' +
+        '<input type="checkbox" data-debt-input="on" data-id="' + esc(l.id) + '"' + (l.on ? " checked" : "") + ' aria-label="Include ' + esc(l.name) + ' in plan">' +
+        (l.on && rank[l.id] ? '<span class="debt-badge">' + rank[l.id] + "</span>" : "") +
+        '<span class="debt-dot">' + debtTierDot(l.tier) + "</span>" +
+        '<span class="debt-name">' + esc(l.name) + "</span>" +
+        '<span class="mono debt-bal">' + moneyWhole(l.balance) + "</span>" +
+        '<button type="button" class="icon-btn" data-debt="edit" data-id="' + esc(l.id) + '" aria-label="Edit ' + esc(l.name) + '">✎</button></div>';
+      if (!l.ready) {
+        h += '<div class="debt-row-sub"><span class="tag warn">Needs rate</span><button type="button" class="link-btn" data-debt="edit" data-id="' + esc(l.id) + '">Add rate</button></div>';
+      } else {
+        h += '<div class="debt-row-sub caption">' + (Math.round(l.apr * 100) / 100) + "% · min " + moneyWhole(l.min) + "/mo" +
+          (l.on && M.withX ? " · paid off " + esc(debtMonthLabel(M.withX.payoff[l.id])) : " · not in plan") + "</div>";
+      }
+      if (l.source === "nw" && !l.typed) {
+        h += '<label class="debt-row-sub caption consent-row"><input type="checkbox" data-debt-input="ignore" data-id="' + esc(l.id) + '"' + (l.ignore ? " checked" : "") + "> Ignore budget transactions" +
+          (l.paid > 0 && !l.ignore ? " (" + moneyWhole(l.paid) + " paid this year)" : "") + "</label>";
+      }
+      h += "</div>";
+    });
+    h += "</div>";
+    h += '<button type="button" class="ghost" data-debt="add">+ Add a loan</button>';
+    h += '<p class="caption estimate-note">Estimate, not advice. Rates and minimums are what you typed; real lenders may differ.</p>';
+    return h;
+  }
+  function openDebtCalc() {
+    captureModalReturnScreenTop();
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet debt-sheet" id="debt-sheet">' + debtCalcHtml() + "</div>";
+    armSheetA11y(modal);
+  }
+  function refreshDebtCalc() {
+    var s = document.getElementById("debt-sheet");
+    if (s) { var st = s.scrollTop; s.innerHTML = debtCalcHtml(); s.scrollTop = st; }
+  }
+  function debtFindLine(l) {
+    if (!l) return null;
+    if (l.source === "nw") return (state.worth.lines || []).filter(function (x) { return String(x.id) === l.id; })[0];
+    var hit = null;
+    (monthRecord().categories || []).forEach(function (c) { (c.lines || []).forEach(function (x) { if (String(x.id) === l.id) hit = x; }); });
+    return hit;
+  }
+  function openDebtEdit(id) {
+    var l = id ? debtCalcLoans().filter(function (x) { return x.id === id; })[0] : null;
+    var types = [["", "Pick a type"], ["credit_card", "Credit card"], ["personal", "Personal loan"], ["auto", "Auto loan"], ["student", "Student loan"], ["mortgage", "Mortgage"], ["other", "Other"]];
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet" id="debt-edit"><div class="sheet-top"><h3>' + (l ? "Edit " + esc(l.name) : "Add a loan") + '</h3><button type="button" class="sheet-x" data-debt="back" aria-label="Back">✕</button></div>' +
+      '<label class="field">Name<input id="debt-e-name" value="' + esc(l ? l.name : "") + '"' + (l ? " disabled" : "") + "></label>" +
+      '<label class="field">Balance<input id="debt-e-bal" inputmode="decimal" value="' + (l && l.balance ? l.balance : "") + '"></label>' +
+      '<label class="field">Interest rate (APR %)<input id="debt-e-apr" inputmode="decimal" value="' + (l && l.apr ? l.apr : "") + '"></label>' +
+      '<label class="field">Minimum payment / month<input id="debt-e-min" inputmode="decimal" value="' + (l && l.min ? l.min : "") + '"></label>' +
+      '<label class="field">Type<select id="debt-e-type">' + types.map(function (t) { return '<option value="' + t[0] + '"' + (l && l.debtType === t[0] ? " selected" : "") + ">" + t[1] + "</option>"; }).join("") + "</select></label>" +
+      (l && l.source === "nw" ? '<p class="caption">Typing a balance keeps it as is (budget payments stop reducing it). Clear it to go back to your Net worth balance.</p>' : "") +
+      '<div class="sheet-actions"><button type="button" data-debt="back">Cancel</button><button type="button" class="primary" data-debt="save" data-id="' + esc(l ? l.id : "") + '">Save</button></div></div>';
+    armSheetA11y(modal);
+  }
+  function debtNum(id) { var v = String((document.getElementById(id) || {}).value || "").replace(/[^0-9.]/g, ""); return v ? Number(v) : 0; }
+  function saveDebtEdit(id) {
+    var bal = debtNum("debt-e-bal"), apr = debtNum("debt-e-apr"), min = debtNum("debt-e-min"), type = (document.getElementById("debt-e-type") || {}).value || "";
+    var line;
+    if (id) {
+      var l = debtCalcLoans().filter(function (x) { return x.id === id; })[0];
+      line = debtFindLine(l);
+      if (!line) return;
+      if (l.source === "nw") {
+        var raw = String((document.getElementById("debt-e-bal") || {}).value || "").trim();
+        if (!raw) line.loanBalance = 0;
+        else if (Math.abs(bal - l.balance) > 0.005 || l.typed) line.loanBalance = bal;
+      } else line.loanBalance = bal;
+    } else {
+      var name = String((document.getElementById("debt-e-name") || {}).value || "").trim() || "Loan";
+      var yr = state.worthYear || 2025, amounts = {}; amounts[yr] = bal;
+      line = { id: nextId(), name: name, kind: "liability", group: "debt", sortOrder: (state.worth.lines || []).length, amounts: amounts, additions: {}, employerMatch: {}, employerBase: {},
+        loanBalance: bal, loanApr: 0, loanMinPayment: 0, loanOriginalBalance: bal, loanDebtType: "" };
+      state.worth.lines.push(line);
+    }
+    line.loanApr = apr; line.loanMinPayment = min; line.loanDebtType = type;
+    saveState();
+    openDebtCalc();
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-debt]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    var a = b.getAttribute("data-debt"), id = b.getAttribute("data-id") || "";
+    if (a === "add") openDebtEdit("");
+    else if (a === "edit") openDebtEdit(id);
+    else if (a === "back") openDebtCalc();
+    else if (a === "save") saveDebtEdit(id);
+  }, true);
+  function debtInput(e) {
+    var el = e.target, k = el && el.getAttribute && el.getAttribute("data-debt-input");
+    if (!k) return;
+    var p = debtPlan(), id = el.getAttribute("data-id");
+    if (k === "extra") {
+      if (e.type !== "change") return;
+      p.extra = Math.max(0, Number(String(el.value).replace(/[^0-9.]/g, "")) || 0);
+    } else if (k === "strategy") p.strategy = el.value;
+    else if (k === "on") { if (el.checked) delete p.off[id]; else p.off[id] = true; }
+    else if (k === "ignore") { if (el.checked) p.ignore[id] = true; else delete p.ignore[id]; }
+    saveState();
+    refreshDebtCalc();
+  }
+  document.addEventListener("change", debtInput, true);
 
   function payoffResultsHtml(loans, extra) {
     var GM = window.GradeMath;
@@ -6919,46 +7112,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  function insuranceTeaserHtml() {
-    var GM = window.GradeMath;
-    var over = GM.insuranceOverpay(vaultInsuranceDocs(), GM.ageYears(birthdayISO()));
-    if (over.unreadPremium && !(over.rows && over.rows.length)) {
-      return '<section class="card insight-card"><h3>Insurance</h3><p>' +
-        esc(over.emptyCopy || over.teaser) + "</p></section>";
-    }
-    return '<section class="card insight-card">' +
-      "<h3>Insurance</h3><p>" + esc(over.teaser) + "</p>" +
-      '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Subscribe for details</button>' +
-      "</section>";
-  }
-
-  function insuranceDetailHtml() {
-    var GM = window.GradeMath;
-    var over = GM.insuranceOverpay(vaultInsuranceDocs(), GM.ageYears(birthdayISO()));
-    var html = '<section class="card insight-card"><h3>Insurance overpay</h3>';
-    if (!over.rows.length) {
-      html += "<p>" + esc(over.emptyCopy || "Add a Vault insurance card with a premium to benchmark. Cohort table is a stub.") + "</p>";
-    } else {
-      html += '<div class="sheet-table compare-grid">' +
-        '<div class="stmt-cols"><span>Policy</span><span style="text-align:right">You</span>' +
-        '<span style="text-align:right">Cohort</span></div>';
-      over.rows.forEach(function (row) {
-        html += '<div class="stmt-row dense"><span>' + esc(row.title) +
-          ' <span class="caption">' + esc(row.policy) + "</span></span><span>" +
-          money(row.youMonthly) + "/mo</span><span>" + money(row.cohortMonthly) + "/mo</span></div>";
-      });
-      html += "</div>";
-      if (over.totalOverpayMonthly > 0) {
-        html += "<p>Overpay seed ~" + money(over.totalOverpayMonthly) + "/mo vs age + policy cohort.</p>";
-      }
-      if (over.unreadCount) {
-        html += "<p>" + esc(over.emptyCopy || "") + "</p>";
-      }
-    }
-    html += '<p class="caption">Age + policy from Vault vs seed table. Stub — not live quotes.</p></section>';
-    return html;
-  }
-
   function envelopeSpends(month) {
     var rows = [];
     expenseTxs(month.transactions).forEach(function (tx) {
@@ -6989,30 +7142,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += "</div>";
     }
     html += '<p class="caption">Preview stub vs last month. Estimate — not advice.</p></section>';
-    return html;
-  }
-
-  function autoMapHtml(month) {
-    var GM = window.GradeMath;
-    var seen = {};
-    var maps = [];
-    expenseTxs(month.transactions).forEach(function (tx) {
-      var payee = tx.payee || "Spend";
-      var key = payee.toLowerCase();
-      if (seen[key]) return;
-      seen[key] = true;
-      maps.push(GM.autoCategorize(payee));
-    });
-    maps = maps.slice(0, 6);
-    var html = '<section class="card insight-card"><h3>Auto-categorize</h3>';
-    if (!maps.length) html += "<p>No merchants to map yet.</p>";
-    else {
-      maps.forEach(function (map) {
-        html += '<div class="row dense"><span>' + esc(map.payee) + '</span><span class="caption">' +
-          esc(map.envelope) + " · " + esc(map.line) + "</span></div>";
-      });
-    }
-    html += '<p class="caption">QuickBooks-style best-effort from payee names. Preview only.</p></section>';
     return html;
   }
 
@@ -7241,12 +7370,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  function streakChipHtml() {
-    if (!hasExpenseHistory()) return '<p class="streak-chip">No-spend streak starts after your first logged purchase</p>';
-    var n = currentNoSpendStreak();
-    return '<p class="streak-chip">No-spend streak · ' + n + (n === 1 ? " day" : " days") + "</p>";
-  }
-
   function merchantHintHtml() {
     if (!state.merchantHint || !state.merchantHint.payee) return "";
     return '<p class="merchant-hint">Mapped from your history — change anytime</p>';
@@ -7265,26 +7388,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="runway-label">You have ' + label + " months saved</p></div>";
   }
 
+  /* v37.5.60 (owner): one Wrapped tile with the annual wrap and the quarterly check-in. */
   function wrapEntryHtml(month) {
-    var cadence = "year";
     state.wrapCadence = "year";
-    var bounds = periodBounds(month.year, month.month, cadence);
-    return '<button class="card insight-card wrap-entry" type="button" data-act="open-wrapped">' +
-      '<p class="kicker">Your wrap</p><h3>' + esc(bounds.name) + "</h3>" +
-      "<p>" + (isPremium()
-        ? "Your year on paper — planned vs spent, savings rate, and the rest of the story."
-        : "Two slides free. Premium opens the full year.") +
-      "</p></button>" +
-      /* v37.5.59.52: quarterly check-in, next to the annual wrap. */
-      (function () {
-        var av = quarterAvail(), last = av[av.length - 1];
-        if (!last) return '<button class="card insight-card wrap-entry wrap-entry-q" type="button" data-act="open-quarter">' +
-          '<p class="kicker">Quarterly check-in</p><h3>Your first check-in</h3><p>Log a few spends and your 90-day check-in starts here.</p></button>';
-        return '<button class="card insight-card wrap-entry wrap-entry-q" type="button" data-act="open-quarter">' +
-          '<p class="kicker">Quarterly check-in</p><h3>Q' + last.q + " " + last.year + (last.done ? "" : " in progress") + "</h3>" +
-          "<p>" + (isPremium() ? "90 days in six slides: savings rate, plot twist, glow-up, goals and pace." : "Your 90-day savings rate and pace check are free. Premium adds the rest.") +
-          "</p></button>";
-      })();
+    var bounds = periodBounds(month.year, month.month, "year");
+    var av = quarterAvail(), last = av[av.length - 1];
+    return '<section class="card insight-card wrap-tile" id="dash-wrapped"><p class="kicker">Wrapped</p>' +
+      '<div class="wrap-tile-btns"><button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + esc(bounds.name) + "</strong>" +
+      '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" +
+      '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>' + (last ? "Q" + last.q + " " + last.year + (last.done ? "" : " so far") : "First check-in") + "</strong>" +
+      '<span class="caption">90-day check-in</span></button></div>' +
+      '<p class="plain-line">A quick, swipeable recap of your money, including how you compare with people your age.</p></section>';
   }
 
   /* v37.5.55 (owner): one Wrapped page per spending category for the year.
@@ -7580,7 +7694,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function wrapSigned(n) { n = Math.round(Number(n) || 0); return (n > 0 ? "+" : n < 0 ? "−" : "") + moneyWhole(Math.abs(n)); }
   function wrapInvestLines() {
     return ((state.worth && state.worth.lines) || []).filter(function (l) {
-      return l.kind !== "liability" && !nwLeftOut(l) && (l.group === "retirement" || l.group === "taxable" || l.group === "investment");
+      return l.kind !== "liability" && !nwLeftOut(l) && (isRetGroup(l.group) || l.group === "taxable" || l.group === "investment");
     });
   }
   function wrapGraphSlides(month) {
@@ -8266,6 +8380,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!isQ && (t.id === "g-networth" || t.id === "g-networth-empty")) t.kicker = "The big number · " + month.year;
       return t;
     });
+    if (!isQ) { var cmp = compareWrapSlides(); if (cmp.length) deck.slides.splice.apply(deck.slides, [Math.max(0, deck.slides.length - 1), 0].concat(cmp)); }
     if (wrapSlideIndex >= deck.slides.length) wrapSlideIndex = deck.slides.length - 1;
     if (wrapSlideIndex < 0) wrapSlideIndex = 0;
     var slide = deck.slides[wrapSlideIndex];
@@ -8293,6 +8408,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.progress) html += wrapProgressHtml(slide.progress);
+    if (slide.askBirthday) html += '<label class="field wrap-bday">Birthday<input type="date" id="cmp-bday-in"></label><button class="wrap-soft-btn" type="button" data-cmp-bday="1">Save and compare</button>';
     if (slide.preview) html += '<button class="wrap-soft-btn" type="button" data-act="set-plan" data-plan="premium">See your full check-in</button>';
     if (slide.cta) html += '<button class="wrap-soft-btn" type="button" data-act="' + esc(slide.cta.act) + '">' + esc(slide.cta.label) + "</button>";
     if (slide.locked) {
@@ -8332,190 +8448,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     armSheetA11y(modal);
   }
 
-  function premiumExtraHtml(month, grade) {
-    var html = autoMapHtml(month) + insuranceDetailHtml();
-    var est = estimateCompensation(state.compensation);
-    var plan = state.compensation;
-    var employeePct = plan.employee401kIsPercent === false
-      ? (est.cashPay > 0 ? (est.employee401k / est.cashPay) * 100 : null)
-      : (Number(plan.employee401kValue) || 0);
-    var matchPct = checklistMatchPercent();
-    var foo = migrateFoo(state.foo);
-    if (!foo.matchFull && matchPct != null && (employeePct == null ? 0 : employeePct) + 0.05 < matchPct) {
-      html += insightCard("Employer match", "You may not be getting the full employer match — that’s free money.");
-    }
-    var savingsCat = (month.categories || []).filter(function (c) { return /^savings$/i.test(c.name); })[0];
-    var monthly = window.GradeMath.monthlySpend(budgetLinesFromMonth(month));
-    if (!(monthly > 0) && est.takeHome > 0) monthly = est.takeHome / 12;
-    if (monthly > 0) {
-      var year = state.worthYear || 2025;
-      var onHand = (Number(foo.emergencyAmount) || 0) > 0
-        ? Number(foo.emergencyAmount)
-        : cashOnHandForYear(year);
-      html += insightCard(
-        "Emergency reserves",
-        "3–6 mo target " + money(monthly * 3) + " – " + money(monthly * 6) + ". On hand " + money(onHand) + "."
-      );
-    }
-    html += taxFreeRoomCard(est, foo);
-    return html;
-  }
-
-  function renderInsights(month) {
-    migrateCompensation(state.compensation);
-    state.foo = migrateFoo(state.foo);
-    state.matters = migrateMatters(state.matters);
-    if (state.insightsDoor === "foo") state.insightsDoor = ""; // v37.5.59.21: full order-of-operations screen retired
-    return renderGradeLanding(month);
-  }
-
-  function renderFullFoo(month) {
-    var foo = state.foo;
-    var est = estimateCompensation(state.compensation);
-    var plan = state.compensation;
-    var employeePct = plan.employee401kIsPercent === false
-      ? (est.cashPay > 0 ? (est.employee401k / est.cashPay) * 100 : null)
-      : (Number(plan.employee401kValue) || 0);
-    var matchPct = checklistMatchPercent();
-    var listed = foo.noDebt ? [] : collectListedDebts(month);
-    var classified = foo.noDebt
-      ? { items: [] }
-      : window.GradeMath.classifyDebts(listed, window.GradeMath.ageYears(birthdayISO()));
-    var grade = window.GradeMath.evaluate(buildGradeInput(month));
-    var statuses = {};
-    grade.foo.steps.forEach(function (step) { statuses[step.number] = step.status; });
-    var html =
-      '<div class="nav-row"><button class="text-btn" type="button" data-act="insights-back">Back</button>' +
-      "<h2>Full order of operations</h2></div>" +
-      '<section class="card insight-card">' +
-      "<p>Financial Order of Operations — fill this checklist in order. Estimates only, not tax or legal advice.</p>" +
-      "</section>" +
-      '<div class="foo-list">';
-
-    if (fooStep1Shown()) {
-      html += fooStep(1, "Deductibles covered",
-        '<label class="field">Amount' +
-        '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="deductibles" inputmode="numeric" autocomplete="off" type="text" value="' +
-        esc(moneyEntry(foo.deductibles || 0)) + '"></label>' +
-        highestDeductibleNoteHtml(foo),
-        statuses[1]);
-    }
-
-    var matchBody =
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="matchFull"' +
-      (foo.matchFull ? " checked" : "") + '> I’m getting the full match</label>' +
-      '<label class="field">Total match %' +
-      '<input data-act="foo-percent" data-field="matchPercent" inputmode="decimal" type="text" value="' +
-      esc(foo.matchPercent === "" || foo.matchPercent == null ? "" : foo.matchPercent) +
-      '" placeholder="e.g. 7"></label>';
-    if (!foo.matchFull && matchPct != null && (employeePct == null ? 0 : employeePct) + 0.05 < matchPct) {
-      matchBody += "<p>You may not be getting the full employer match — that’s free money.</p>" +
-        '<p class="caption">Estimate — not advice. Uses the match % you entered — never invented.</p>';
-    } else {
-      matchBody += '<p class="caption">Enter the match % from your plan. Paper Trail never invents one.</p>';
-    }
-    matchBody += fooEmployerRatesHtml();
-    html += fooStep(2, "Employer match", matchBody, statuses[2]);
-
-    var debtBody = '<label class="check"><input type="checkbox" data-act="foo-check" data-field="noDebt"' +
-      (foo.noDebt ? " checked" : "") + "> No debt</label>";
-    var cheapBody = "";
-    if (!foo.noDebt) {
-      var needsBirthday = false;
-      listed.forEach(function (loan, i) {
-        var item = classified.items[i] || window.GradeMath.classifyDebt(loan, window.GradeMath.ageYears(birthdayISO()));
-        if (item.needsBirthday) needsBirthday = true;
-        var block = fooLoanBlock(loan, item, false);
-        if (item.fooStep === 9) cheapBody += block;
-        else debtBody += block;
-      });
-      if (needsBirthday) {
-        debtBody += '<p class="caption">Add birthday in Profile so student and auto loans can be classified. Age is never invented.</p>' +
-          '<button class="matters-btn" type="button" data-act="open-profile">Add birthday in Profile</button>';
-      }
-      debtBody += '<p class="sheet-label">Add a debt</p>' +
-        field("Name", "debtName", "") +
-        field("Balance", "debtBalance", "0", "number") +
-        '<label class="field">APR %<input name="debtApr" inputmode="decimal" type="text" value="0"></label>' +
-        field("Min payment", "debtMin", "0", "number") +
-        debtTypeSelect("debtType", "", "") +
-        '<button class="planner-apply" type="button" data-act="add-foo-debt">Add this debt</button>' +
-        '<p class="caption">Writes a Debt envelope line with the same balance / APR / min fields. Extra payment lives on the Payoff card. Estimates, not advice.</p>';
-    } else {
-      debtBody += '<p class="caption">No-debt hides extra-payment math. Step 5 is the tax-free slot.</p>';
-    }
-    html += fooStep(3, "High-interest debt", debtBody, statuses[3]);
-
-    var savingsCat = (month.categories || []).filter(function (c) { return /^savings$/i.test(c.name); })[0];
-    var essentials = window.GradeMath.monthlyEssentials(budgetLinesFromMonth(month));
-    var burn = essentials > 0 ? essentials : (est.takeHome > 0 ? est.takeHome / 12 : 0);
-    var emergencyBody =
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="emergencyFunded"' +
-      (foo.emergencyFunded ? " checked" : "") + "> Fully funded</label>" +
-      '<label class="field">On hand $' +
-      '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="emergencyAmount" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(moneyEntry(foo.emergencyAmount || 0)) + '"></label>';
-    if (burn > 0) {
-      var three = burn * 3;
-      var six = burn * 6;
-      var year = state.worthYear || 2025;
-      var nwSaving = (state.worth.lines || []).filter(function (line) {
-        var n = String(line.name || "").toLowerCase();
-        return n === "saving" || n === "savings";
-      })[0];
-      var onHand = (Number(foo.emergencyAmount) || 0) > 0
-        ? Number(foo.emergencyAmount)
-        : (nwSaving && (Number(nwSaving.amounts[year]) || 0) > 0
-          ? Number(nwSaving.amounts[year])
-          : (savingsCat ? catAssigned(savingsCat) : 0));
-      emergencyBody += runwayHtml(Number(foo.emergencyAmount) || 0, burn);
-      emergencyBody += "<p>3–6 mo target " + money(three) + " – " + money(six) +
-        ". On hand " + money(onHand) + ".</p>" +
-        '<p class="caption">Essential burn from Budget essentials' +
-        (essentials > 0 ? "" : ", else take-home / 12") +
-        ". Estimate — not advice.</p>";
-    }
-    html += fooStep(4, "Emergency reserves", emergencyBody, statuses[4]);
-
-    html += fooStep(5, "Roth IRA + HSA",
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="rothOnTrack"' +
-      (foo.rothOnTrack ? " checked" : "") + "> On track</label>" +
-      '<label class="field">This year $' +
-      '<input class="cents-input" data-dollars="1" data-act="foo-money" data-field="rothAmount" inputmode="numeric" autocomplete="off" type="text" value="' +
-      esc(moneyEntry(foo.rothAmount || 0)) + '"></label>' +
-      '<p class="caption">Tax-free slot — Roth or HSA. Extra-payment math lives on Step 3 only when a loan is listed.</p>',
-      statuses[5]);
-
-    html += fooStep(6, "Max retirement",
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="maxEmployerPlans"' +
-      (foo.maxEmployerPlans ? " checked" : "") + "> Maxing employer plans</label>" +
-      '<p class="caption">If Roth + HSA + employer match + employee deferral already hit 25% of gross, this step is complete — no nag to max the employer plan.</p>',
-      statuses[6]);
-
-    html += fooStep(7, "Hyper-accumulation (25% of gross)",
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="hyperOnTrack"' +
-      (foo.hyperOnTrack ? " checked" : "") + "> On track</label>" +
-      '<label class="field">Current % of gross' +
-      '<input data-act="foo-percent" data-field="hyperPercent" inputmode="decimal" type="text" value="' +
-      esc(foo.hyperPercent === "" || foo.hyperPercent == null ? "" : foo.hyperPercent) + '"></label>',
-      statuses[7]);
-
-    html += fooStep(8, "Prepaid future expenses",
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="prepayFuture"' +
-      (foo.prepayFuture ? " checked" : "") + "> Prepaying future expenses</label>",
-      statuses[8]);
-
-    html += fooStep(9, "Low-interest debt pre-pay",
-      '<label class="check"><input type="checkbox" data-act="foo-check" data-field="prepayLowInterest"' +
-      (foo.prepayLowInterest ? " checked" : "") + "> Prepaying low-interest debt</label>" +
-      (cheapBody
-        ? cheapBody + '<p class="caption">Cheap debt waits here. A mortgage never sits on Step 3. In the spirit of Money Guy’s Financial Order of Operations — estimates, not advice.</p>'
-        : '<p class="caption">Extra to cheap debt only after the rest of the order of operations.</p>'),
-      statuses[9]);
-
-    html += "</div>";
-    return html;
-  }
 
   function fooLoanBlock(loan, item, showExtra) {
     var extra = fooLoanExtra(loan.name);
@@ -8538,14 +8470,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     html += "</div>";
     return html;
-  }
-
-  function fooStep(number, title, body, status) {
-    var done = status === "done";
-    return '<section class="foo-step" id="foo-step-' + number + '">' +
-      '<div class="foo-step-head"><h3>' + number + ". " + esc(title) + "</h3>" +
-      (done ? fooDoneCluster(number) : fooHelpButton(number)) +
-      "</div>" + body + "</section>";
   }
 
   function openFooExplainer(step) {
@@ -8861,6 +8785,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!id) return null;
     return ((state.worth && state.worth.lines) || []).filter(function (l) { return l.id === id && l.kind !== "liability"; })[0] || null;
   }
+  function isRetGroup(g) { return g === "retirement" || g === "retirementAfterTax"; }
   function nwGroupTitle(g) { var f = GROUPS.filter(function (x) { return x.id === g; })[0]; return f ? f.title : (g === "investment" ? "Investments" : String(g || "")); }
   function retireLineVerdict(catName, lineName) {
     var nm = String(lineName || "");
@@ -8870,7 +8795,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var tag = "feeds “" + acct.name + "” (" + nwGroupTitle(acct.group) + ")";
       if (nwLeftOut(acct)) return { counts: false, linked: true, why: tag + " — left out of net worth" };
       if (is401k(acct)) return { counts: false, linked: true, why: tag + " — 401k counts from your pay stub" };
-      if (acct.group === "retirement") return { counts: true, linked: true, why: tag };
+      if (isRetGroup(acct.group)) return { counts: true, linked: true, why: tag };
       return { counts: false, linked: true, why: tag + " — not Retirement" };
     }
     if (gm().isRetirementName(nm)) return { counts: true, linked: false, why: "not linked — counted by name" };
@@ -8923,7 +8848,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *     lines / 401k / HSA that feed that account, so nothing counts twice.
    * Withdrawals typed as a negative Added subtract. Brokerage, cash and house-fund lines never count. */
   function retireAcctCounts(l) {
-    return !!(l && l.kind !== "liability" && !l.vehicle && !nwLeftOut(l) && (l.group === "retirement" || gm().isRetirementName(l.name) || is401k(l)));
+    return !!(l && l.kind !== "liability" && !l.vehicle && !nwLeftOut(l) && (isRetGroup(l.group) || gm().isRetirementName(l.name) || is401k(l)));
   }
   function retireMoneySet(year, m1, m2) {
     var y = Number(year), from = Math.max(1, Number(m1) || 1), to = Math.min(12, Number(m2) || 12), n = Math.max(0, to - from + 1);
@@ -9172,11 +9097,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
-  function insightCard(title, body) {
+  function insightCard(title, body, plain) {
     return '<section class="card insight-card">' +
       "<h3>" + esc(title) + "</h3>" +
       "<p>" + esc(body) + "</p>" +
-      '<p class="caption">Estimate — not advice.</p></section>';
+      (plain ? '<p class="plain-line">' + esc(plain) + "</p>" : "") + "</section>";
+  }
+
+  /* v37.5.60 (owner): Emergency reserves + Roth / HSA room (were Premium-only on Insights). */
+  function dashReservesHtml(month) {
+    var html = "";
+    try {
+      var est = estimateCompensation(state.compensation || defaultCompensation()), foo = migrateFoo(state.foo);
+      var monthly = window.GradeMath.monthlySpend(budgetLinesFromMonth(month));
+      if (!(monthly > 0) && est.takeHome > 0) monthly = est.takeHome / 12;
+      if (monthly > 0) {
+        var onHand = (Number(foo.emergencyAmount) || 0) > 0 ? Number(foo.emergencyAmount) : cashOnHandForYear(state.worthYear || 2025);
+        var months = onHand / monthly;
+        html += insightCard("Emergency reserves", "3–6 month target " + moneyWhole(monthly * 3) + " – " + moneyWhole(monthly * 6) + ". On hand " + moneyWhole(onHand) + ".",
+          "Your cash would cover about " + (Math.round(months * 10) / 10) + " months of spending if your pay stopped.");
+      }
+      html += taxFreeRoomCard(est, foo);
+    } catch (e) {}
+    return html;
   }
 
   function taxFreeRoomCard(est, foo) {
@@ -9204,7 +9147,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (room.rothEligible === "none") bits.push("Income looks above the " + room.year + " Roth limit.");
     else if (room.rothEligible === "partial") bits.push("Income may phase out some Roth room.");
     if (room.needsBirthday) bits.push("Add birthday in Profile for catch-up.");
-    return insightCard("Roth / HSA room left → Step 5", bits.join(" "));
+    return insightCard("Roth / HSA room left", bits.join(" "), "How much more you can still put into tax-free accounts this year.");
   }
 
 
@@ -10568,7 +10511,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.92: investment = group (taxable / retirement / investment) or HSA; name words never count. */
   function nwIsInvest(l) {
     if (!l || l.kind === "liability" || l.vehicle || l.group === "vehicles") return false;
-    if (isHsaLine(l) || l.group === "taxable" || l.group === "retirement" || l.group === "investment") return true;
+    if (isHsaLine(l) || l.group === "taxable" || isRetGroup(l.group) || l.group === "investment") return true;
     /* v37.5.59.92 (owner): group only, never name words. Move an account to Investments with the Group picker. */
     return false;
   }
@@ -10646,7 +10589,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (g === "lifestyle" && !veh && /fund|saving|account|acct|hysa|cash|reserve/.test(n)) return { sec: 0, r: 2 };
     if (/\bhsa\b|health savings/.test(n)) return { sec: 1, r: 3 };
     if (g === "taxable" || g === "investment") return { sec: 1, r: 0 };
-    if (g === "retirement") return { sec: 1, r: /roth/.test(n) ? 2 : (/401|403|457|ira|tsp|pension|traditional|rollover|sep/.test(n) ? 1 : 3) };
+    if (isRetGroup(g)) return { sec: 1, r: /roth/.test(n) ? 2 : (/401|403|457|ira|tsp|pension|traditional|rollover|sep/.test(n) ? 1 : 3) };
     if (veh) return { sec: 2, r: 0 };
     if (g === "realEstate") return { sec: 2, r: 1 };
     return { sec: 2, r: 2 };
@@ -10859,7 +10802,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var row = annualRow(raw), inc = annualIncomeParts(row, Number(year));
     return { you: Number(row.dedRetire) || 0, er: Number(inc.match) || 0 };
   }
-  function nwInvestGroup(l) { return !!l && l.kind !== "liability" && (l.group === "retirement" || l.group === "taxable" || l.group === "investment"); }
+  function nwInvestGroup(l) { return !!l && l.kind !== "liability" && (isRetGroup(l.group) || l.group === "taxable" || l.group === "investment"); }
   function incomeInvestParts(year) {
     var parts = [], addedThisYear = {}, byId = {}, k401In = 0;
     /* v37.5.59.107 (owner): Investments reads every account from Net worth, 401k included: each 401k account's
@@ -11099,7 +11042,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           return;
         }
         var byName = gm().isRetirementName(l.name);
-        if (l.group !== "retirement" && !byName) { amt && skipped.push([l.name, amt, "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
+        if (!isRetGroup(l.group) && !byName) { amt && skipped.push([l.name, amt, "not a retirement account (group isn’t Retirement, name has no Roth / IRA / HSA)"]); return; }
         if (hs && isHsaLine(l) && !hsInAcct) { amt && skipped.push([l.name, amt, "HSA already counted from pay stubs"]); return; }
         var au = addedAuto(l, y);
         parts.push([l.name + " Added" + (au.applied ? " (auto " + moneyWhole(au.applied) + " + extra " + moneyWhole(lineExtraAdded(l, y)) + ")" : "") + (e ? " + employer" : ""), amt]); any = true;
@@ -13346,6 +13289,149 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return remainingChipHtml(month, lineId, spendDraft.id || "");
   }
 
+  /* ===== v37.5.60 (owner): EveryDollar-style Add Transaction =====
+   * Expense / Income switch, one card (Amount · Date · Merchant), a searchable Budget Item(s) picker grouped by
+   * envelope with Remaining, Save, and a big number pad with Done. New transactions only; editing keeps the full
+   * sheet. Saves through the same save-spend-sheet path (spendDraft), so splits, month moves and merchant memory
+   * behave exactly as before. */
+  var edUi = null;
+  function openEdAdd(month) {
+    openSpendSheet(null, month);
+    spendDraft.categoryTouched = true;
+    edUi = { pad: true, picker: false, q: "", amt: "", err: "" };
+    renderEdAdd(month);
+  }
+  function edLines(month) {
+    var out = [];
+    (month.categories || []).forEach(function (cat) {
+      (cat.lines || []).forEach(function (l) { out.push({ cat: cat, line: l, key: cat.id + ":" + l.id, rem: remainingForLine(month, l.id) }); });
+    });
+    return out;
+  }
+  function edAmountText() {
+    if (!edUi.amt) return "$0.00";
+    var parts = edUi.amt.split(".");
+    return "$" + Number(parts[0] || 0).toLocaleString("en-US") + (parts.length > 1 ? "." + parts[1] : "");
+  }
+  function renderEdAdd(month) {
+    month = month || ensureMonth(state.year, state.month);
+    var d = spendDraft, inc = d.type === "income";
+    var h = '<form class="sheet ed-add" data-act="save-spend-sheet" novalidate>' +
+      '<div class="sheet-top"><h3>Add Transaction</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
+      '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
+      '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>' +
+      '<div class="ed-card">' +
+      '<button type="button" class="ed-row ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad"><span class="lbl">Amount</span><span class="mono ed-amt-v">' + esc(edAmountText()) + "</span></button>" +
+      '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>';
+    if (inc) {
+      h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
+        (month.incomes || []).map(function (i) { return '<option value="' + esc(i.id) + '"' + (String(d.incomeId) === String(i.id) ? " selected" : "") + ">" + esc(i.name || "Income") + "</option>"; }).join("") + "</select></label>";
+    } else {
+      var picked = (d.legs || []).filter(function (l) { return l.lineId; });
+      h += '<p class="sheet-label">Budget Item(s)</p><button type="button" class="ed-items" data-ed="picker">' +
+        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>';
+      if (picked.length > 1) {
+        h += '<div class="ed-split">' + picked.map(function (l, i) {
+          var f = findLine(month, l.lineId);
+          return '<label class="ed-row"><span class="lbl">' + esc(f && f.line ? f.line.name : "Item") + '</span><input type="text" inputmode="decimal" data-ed-leg="' + i + '" value="' + (Number(l.amount) ? (Number(l.amount)).toFixed(2) : "") + '" placeholder="$0.00"></label>';
+        }).join("") + '<p class="caption">Split amounts must add up to the total.</p></div>';
+      }
+    }
+    if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
+    h += '<button type="submit" class="primary ed-save">Save</button>';
+    if (edUi.pad) {
+      h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
+        '<button type="button" class="ed-done" data-ed="done">Done</button></div>';
+    }
+    if (edUi.picker && !inc) {
+      var q = edUi.q.toLowerCase(), sel = {};
+      (d.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
+      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget Item(s)</h3><button type="button" class="primary small" data-ed="picker-done">Done</button></div>' +
+        '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q) + '">';
+      var lastCat = null;
+      edLines(month).forEach(function (x) {
+        if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
+        if (x.cat !== lastCat) { h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>"; lastCat = x.cat; }
+        h += '<button type="button" class="ed-item' + (sel[x.line.id] ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '" aria-pressed="' + !!sel[x.line.id] + '">' +
+          '<span class="ed-check">' + (sel[x.line.id] ? "✓" : "") + "</span><span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + moneyWhole(x.rem) + " remaining</span></button>";
+      });
+      h += "</div>";
+    }
+    h += "</form>";
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = h;
+    armSheetA11y(modal);
+    if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+  }
+  function edSyncAmount() {
+    spendDraft.amount = roundCents(Number(edUi.amt) || 0);
+    var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+    if (legs.length === 1) legs[0].amount = spendDraft.amount;
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-ed]");
+    if (!b || !edUi || !spendDraft || !b.closest(".ed-add")) return;
+    e.preventDefault(); e.stopPropagation();
+    var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
+    edUi.err = ""; edUi.focusSearch = false;
+    if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
+    else if (a === "pad") edUi.pad = true;
+    else if (a === "done") edUi.pad = false;
+    else if (a === "key") {
+      var k = b.getAttribute("data-k"), s = edUi.amt;
+      if (k === "⌫") s = s.slice(0, -1);
+      else if (k === ".") { if (s.indexOf(".") < 0) s = (s || "0") + "."; }
+      else if (!(s.indexOf(".") >= 0 && s.split(".")[1].length >= 2) && s.replace(".", "").length < 9) s = (s === "0" ? "" : s) + k;
+      edUi.amt = s; edSyncAmount();
+    }
+    else if (a === "picker") { edUi.picker = true; edUi.pad = false; }
+    else if (a === "picker-done") edUi.picker = false;
+    else if (a === "item") {
+      var parts = String(b.getAttribute("data-key")).split(":"), legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+      var has = legs.filter(function (l) { return l.lineId === parts[1]; })[0];
+      if (has) legs = legs.filter(function (l) { return l !== has; });
+      else legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
+      if (legs.length === 1) legs[0].amount = spendDraft.amount;
+      spendDraft.legs = legs.length ? legs : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+    }
+    renderEdAdd(month);
+  }, true);
+  document.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!edUi || !spendDraft || !el.closest || !el.closest(".ed-add")) return;
+    var k = el.getAttribute("data-ed-in"), li = el.getAttribute("data-ed-leg");
+    if (k === "payee") spendDraft.payee = el.value;
+    else if (k === "date") { if (el.value) spendDraft.date = el.value; }
+    else if (k === "incomeId") spendDraft.incomeId = el.value;
+    else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
+    else if (li != null) {
+      var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+      if (legs[+li]) legs[+li].amount = roundCents(Number(String(el.value).replace(/[^0-9.]/g, "")) || 0);
+    }
+  }, true);
+  document.addEventListener("change", function (e) {
+    var el = e.target;
+    if (!edUi || !spendDraft || !el.closest || !el.closest(".ed-add")) return;
+    if (el.getAttribute("data-ed-in") === "incomeId") spendDraft.incomeId = el.value;
+    if (el.getAttribute("data-ed-in") === "date" && el.value) spendDraft.date = el.value;
+    e.stopPropagation();
+  }, true);
+  /* Check before the shared save runs, so a mistake shows here instead of falling back to the long sheet. */
+  document.addEventListener("submit", function (e) {
+    var f = e.target;
+    if (!f || !f.classList || !f.classList.contains("ed-add") || !spendDraft || !edUi) return;
+    var amt = Number(spendDraft.amount) || 0, legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+    var err = "";
+    if (!(amt > 0)) err = "Enter an amount.";
+    else if (spendDraft.type !== "income" && !legs.length) err = "Choose a budget item.";
+    else if (spendDraft.type !== "income" && legs.length > 1 && cents(legs.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0)) !== cents(amt)) err = "Split amounts must add up to " + money(amt) + ".";
+    if (err) { e.preventDefault(); e.stopImmediatePropagation(); edUi.err = err; renderEdAdd(); return; }
+    edUi = null;
+  }, true);
   function openSpendSheet(tx, month) {
     if (tx) {
       spendDraft = {
@@ -14133,7 +14219,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var label = MONTH_NAMES[r.month.month - 1] + " " + r.month.year;
     if (t.state === "ok") {
       return '<p class="caption">True savings rate (' + esc(label) + "): " + gm().formatSavingsRate(t.rate) +
-        " — retirement budget lines + 401k + employer 401k + HSA (you + employer) ÷ gross pay, from your confirmed pay stubs. Details on Insights.</p>";
+        " — retirement budget lines + 401k + employer 401k + HSA (you + employer) ÷ gross pay, from your confirmed pay stubs. Details on your Dashboard.</p>";
     }
     if (t.state === "locked") {
       return '<p class="caption">True savings rate is a Premium feature' + (confirmedPayStubSnapshot() || confirmedPayStubs().length ? " — your pay stub is already confirmed." : " and needs a confirmed pay stub.") + "</p>";
@@ -15353,13 +15439,36 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="sheet profile-sheet">' +
       '<div class="sheet-head"><h3>Profile</h3>' +
       '<button class="sheet-close" type="button" data-act="close-modal" aria-label="Close">×</button></div>' +
-      '<p class="profile-section">Basics</p>' +
+      '<section class="profile-acct-card" id="profile-acct-card"><p class="profile-section">Account</p>' +
+      profileAccountHtml() +
+      '<p class="sheet-label">Personal details</p>' +
       '<label class="field">Name' +
       '<input data-act="profile-name" type="text" autocomplete="name" value="' +
       esc(profile.name || "") + '" placeholder="Your name"></label>' +
       '<label class="field">Phone' +
       '<input data-act="profile-phone" type="tel" autocomplete="tel" inputmode="tel" value="' +
       esc(profile.phone || "") + '" placeholder="(555) 010-0100"></label>' +
+      '<label class="field">Birthday' +
+      '<input data-act="profile-birthday" type="date" min="1920-01-01" max="' +
+      esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
+      '" value="' + esc(birthdayISO()) + '"></label>' +
+      '<p class="caption">Used for Accumulation and high-interest debt steps. Until set, those stay omitted — never invented.</p>' +
+      '<label class="field">ZIP' +
+      '<input data-act="profile-zip" name="zipCode" inputmode="numeric" type="text" value="' +
+      esc(plan.zipCode || "") + '"></label>' +
+      '<p class="caption" id="profile-zip-helper">' + esc(profileZipHelper()) +
+      ". Empty ZIP means no state or local tax.</p>" +
+      /* v37.5.60 (owner): one Filing status (moved here from Dashboard › Taxes); also sets the paycheck estimate. */
+      (function () { var fs = annualFilingStatus(ensureAnnualStatement());
+        return '<label class="field annual-filing">Filing status <select data-act="annual-filing">' +
+          '<option value="single"' + (fs === "single" ? " selected" : "") + ">Single</option>" +
+          '<option value="mfj"' + (fs === "mfj" ? " selected" : "") + ">Married filing jointly</option>" +
+          '<option value="hoh"' + (fs === "hoh" ? " selected" : "") + ">Head of household</option></select></label>"; })() +
+      '<label class="field">Dependents' +
+      '<input data-act="profile-dependents" inputmode="numeric" type="number" min="0" step="1" value="' +
+      esc(profile.dependents || 0) + '"></label>' +
+      hsaCoverageFieldHtml(new Date().getFullYear()) +
+      '</section>' +
       '<p class="profile-section">Plan</p>' +
       '<p class="plan-test-label" id="plan-test-label">Test mode: Premium is free during testing.</p>' +
       '<div class="plan-toggle" role="tablist" aria-labelledby="plan-test-label">' +
@@ -15367,12 +15476,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (!isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Free</button>" +
       '<button type="button" data-act="set-plan" data-plan="premium"' +
       (isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Premium</button></div>" +
-      '<p class="caption">Free keeps Insights lite. Premium unlocks full compare, trends, auto-categorize, insurance detail, and Wrapped.</p>' +
-      '<label class="field">Birthday' +
-      '<input data-act="profile-birthday" type="date" min="1920-01-01" max="' +
-      esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
-      '" value="' + esc(birthdayISO()) + '"></label>' +
-      '<p class="caption">Used for Accumulation and high-interest debt steps. Until set, those stay omitted — never invented.</p>' +
+      '<p class="caption">Free shows a glimpse of your grade and two Wrapped slides. Premium unlocks the full grade, how you compare, the tax triangle and the full Wrapped.</p>' +
       '<p class="sheet-label">Theme</p><div class="plan-toggle theme-pick" role="group" aria-label="Theme">' +
       [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(function (o) {
         var on = (state.theme || "auto") === o[0];
@@ -15387,25 +15491,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }).join("") +
       "</select></label>" +
       '<p class="caption">Used only for Suggest paycheck. Never auto-writes Budget paycheck $.</p>' +
-      '<p class="profile-section">Household / demographics</p>' +
-      '<label class="field">ZIP' +
-      '<input data-act="profile-zip" name="zipCode" inputmode="numeric" type="text" value="' +
-      esc(plan.zipCode || "") + '"></label>' +
-      '<p class="caption" id="profile-zip-helper">' + esc(profileZipHelper()) +
-      ". Empty ZIP means no state or local tax.</p>" +
-      '<label class="field">Filing status' +
-      '<select data-act="profile-filing">' +
-      '<option value="single"' + (filing === "single" ? " selected" : "") + ">Single</option>" +
-      '<option value="married"' + (filing === "married" ? " selected" : "") + ">Married</option>" +
-      "</select></label>" +
-      '<label class="field">Dependents' +
-      '<input data-act="profile-dependents" inputmode="numeric" type="number" min="0" step="1" value="' +
-      esc(profile.dependents || 0) + '"></label>' +
       profileDocumentsHtml(profile) +
-      '<button class="matters-btn profile-door" type="button" data-act="open-matters">What matters / Go deeper</button>' +
-      '<p class="caption">Insights stays the grade. This is the door into the survey.</p>' +
+      '<button class="matters-btn profile-door" type="button" data-act="open-matters">What matters to you</button>' +
+      '<p class="caption">A short survey about your goals. Your answers shape the tips on your Dashboard.</p>' +
       profileSharingHtml() +
-      profileAccountHtml() + profileDataHtml() +
+      profileDataHtml() +
       '<button class="data-btn about-door" type="button" data-act="open-about"><strong>About &amp; Privacy</strong><span class="caption">Backups · what’s stored · tester sharing · version ' + esc(APP_VERSION) + '</span></button>' +
       '<div class="profile-danger" id="profile-danger">' +
       '<p class="caption">Danger zone</p>' +
@@ -16117,7 +16207,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="welcome-stats">' + welcomeCardsHtml(wp) + "</div>" +
         '<p class="welcome-note">Surveys show association, not cause.</p>' +
         '<div class="welcome-foot">' +
-        '<button class="primary onboard-primary" type="button" data-act="ob-next">' + esc(wp.cta) + '</button>' +
+        (screen === "welcome2" && !policyAccepted() ? '<label class="consent-row ob-consent"><input type="checkbox" id="ob-consent"> <span>I’m 18 or older and agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' : '') +
+        '<button class="primary onboard-primary" type="button" data-act="ob-next"' + (screen === "welcome2" && !policyAccepted() ? ' disabled' : '') + '>' + esc(screen === "welcome2" && !policyAccepted() ? "Agree & continue" : wp.cta) + '</button>' +
         '<div class="welcome-dots" aria-hidden="true"><i class="' + (screen === "welcome" ? "on" : "") + '"></i><i class="' + (screen === "welcome2" ? "on" : "") + '"></i></div>';
       if (screen === "welcome2") {
         html += '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
@@ -16130,7 +16221,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += "<h2>First name</h2>" +
         '<label class="field">First name<input name="obName" type="text" autocomplete="given-name" value="' +
         esc(a.name || "") + '" placeholder="Your name"></label>' +
-        '<p class="caption">Optional. Shows on Insights and in Profile.</p>' +
+        '<p class="caption">Optional. Shows on your Dashboard and in Profile.</p>' +
         surveyActions(back, true);
     } else if (screen === "pay") {
       html += "<h2>How often do you get paid?</h2>" + surveyChoicesHtml(ONBOARD_PAY_CHOICES, a.payFrequency, false);
@@ -16450,11 +16541,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       .then(function (j) { return cloudSaveSession(j).access_token; })
       .catch(function (e) { if (e.status === 400 || e.status === 401) { cloudJson(CLOUD_SESSION_KEY, null); } throw e; });
   }
-  function cloudAal() {
-    var s = cloudSession(); if (!s) return "";
-    try { return JSON.parse(atob(s.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).aal || "aal1"; } catch (e) { return "aal1"; }
-  }
-  function cloudFactors() { var s = cloudSession(); return ((s && s.user && s.user.factors) || []).filter(function (f) { return f.status === "verified"; }); }
   function cloudRefreshUser() {
     return cloudFetch("/auth/v1/user", {}, true).then(function (u) { var s = cloudSession(); if (s) { s.user = u; cloudJson(CLOUD_SESSION_KEY, s); } return u; });
   }
@@ -16547,37 +16633,58 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!cloudCfg()) return "";
     var s = cloudSession(), sync = cloudSync();
     if (!cloudSignedIn()) {
-      return '<div class="profile-account" id="profile-account"><p class="profile-section">Account</p>' +
+      return '<div class="profile-account" id="profile-account">' +
         '<p class="caption">Optional. Sign in to back up your books to your account automatically and get them back on a new phone. Without an account, everything stays on this device only.</p>' +
         '<button class="primary" type="button" data-act="acct-open-signin">Sign in</button> <button type="button" data-act="acct-open-signup">Create account</button></div>';
     }
-    var f = cloudFactors();
-    return '<div class="profile-account" id="profile-account"><p class="profile-section">Account</p>' +
+    return '<div class="profile-account" id="profile-account">' +
       '<p><strong>' + esc((s.user && s.user.email) || "") + '</strong></p>' +
       '<p class="caption" id="acct-status">' + esc(sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."))) + '</p>' +
       (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Back up now</button>') +
       ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
-      '<p class="profile-section">Two-step sign-in</p>' +
-      (f.length ? '<p class="caption">On · ' + esc(f.map(function (x) { return x.factor_type === "phone" ? "text message" + (x.phone ? " to ••" + String(x.phone).slice(-2) : "") : "authenticator app"; }).join(", ")) + '</p>' +
-          '<button class="text-btn" type="button" data-act="acct-mfa-remove" data-id="' + esc(f[0].id) + '">Turn off</button>'
-        : '<p class="caption">Off. Adding a second step makes it much harder for someone with your password to get in.</p><button type="button" data-act="acct-mfa-start">Set up two-step sign-in</button>') +
+      '<p class="caption">Two-step sign-in: on. Each sign-in also asks for a 6-digit code we email you.</p>' +
       '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up.</p>' +
-      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button></div>';
+      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div>';
   }
   function openSignIn(mode) {
     var up = mode === "signup";
     openCloudSheet(up ? "Create account" : "Sign in",
       '<label class="field"><span>Email</span><input id="acct-email" type="email" autocomplete="email" inputmode="email"></label>' +
-      '<label class="field"><span>Password</span><input id="acct-pass" type="password" autocomplete="' + (up ? "new-password" : "current-password") + '"></label>' +
-      (up ? '<p class="caption">At least 8 characters.</p>' : '') +
-      '<div class="acct-actions"><button class="primary" type="button" data-act="' + (up ? "acct-signup" : "acct-signin") + '">' + (up ? "Create account" : "Sign in") + '</button>' +
+      '<label class="field"><span>Password</span><input id="acct-pass" type="password" autocomplete="' + (up ? "new-password" : "current-password") + '"' + (up ? ' data-signup-check="1"' : '') + '></label>' +
+      (up ? '<label class="field"><span>Confirm password</span><input id="acct-pass2" type="password" autocomplete="new-password" data-signup-check="1"></label>' +
+        '<p class="caption" id="acct-pass-hint">At least 8 characters.</p>' +
+        '<label class="consent-row"><input type="checkbox" id="acct-consent" data-signup-check="1"> <span>I agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' : '') +
+      '<div class="acct-actions"><button class="primary" type="button" id="acct-submit" data-act="' + (up ? "acct-signup" : "acct-signin") + '"' + (up ? " disabled" : "") + '>' + (up ? "Create account" : "Sign in") + '</button>' +
       (up ? '<button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>'
           : '<button class="text-btn" type="button" data-act="acct-forgot">Forgot password?</button><button class="text-btn" type="button" data-act="acct-open-signup">Create account</button>') + '</div>');
   }
+  /* v37.5.60: Create account stays disabled until the passwords match (8+) and the policy box is checked. */
+  function signupFormCheck() {
+    var a = (document.getElementById("acct-pass") || {}).value || "", b = (document.getElementById("acct-pass2") || {}).value || "";
+    var ok = (document.getElementById("acct-consent") || {}).checked;
+    var hint = document.getElementById("acct-pass-hint"), btn = document.getElementById("acct-submit");
+    var msg = a.length < 8 ? "At least 8 characters." : (b && a !== b ? "Passwords don’t match." : (a === b ? "Passwords match." : "Type it again to confirm."));
+    if (hint) { hint.textContent = msg; hint.classList.toggle("bad", !!b && a !== b); }
+    if (btn) btn.disabled = !(a.length >= 8 && a === b && ok);
+  }
+  /* v37.5.60: two-step sign-in is a required 6-digit email code for every account (Supabase email OTP).
+   * The password is checked first; the session is only kept after the emailed code is verified. */
+  var pendingOtp = null;
+  function sendEmailCode(email) {
+    return cloudFetch("/auth/v1/otp", { method: "POST", body: { email: email, create_user: false } });
+  }
+  function openEmailCode(email, purpose) {
+    pendingOtp = { email: email, purpose: purpose || "signin" };
+    openCloudSheet(purpose === "delete" ? "Confirm account deletion" : "Enter your email code",
+      '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>' +
+      (purpose === "delete" ? '<p class="caption">This permanently deletes your account and every cloud backup. The books on this device stay unless you erase them in Profile.</p>' : '') +
+      '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
+      '<div class="acct-actions"><button class="primary' + (purpose === "delete" ? " danger" : "") + '" type="button" data-act="acct-otp-verify">' + (purpose === "delete" ? "Delete my account" : "Continue") + '</button>' +
+      '<button class="text-btn" type="button" data-act="acct-otp-resend">Send a new code</button></div>');
+  }
   function afterSignIn() {
     return cloudRefreshUser().catch(function () {}).then(function () {
-      var f = cloudFactors();
-      if (f.length && cloudAal() !== "aal2") return openMfaChallenge(f[0]);
+      policySyncToCloud();
       return firstSync();
     });
   }
@@ -16591,42 +16698,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         return;
       }
       closeModal(); render();
-      if (!cloudFactors().length && !cloudSync().mfaNudged) { cloudSync({ mfaNudged: Date.now() }); setTimeout(openMfaNudge, 400); }
       return cloudSyncNow("signin");
     });
-  }
-  function openMfaNudge() {
-    openCloudSheet("Add two-step sign-in?",
-      '<p>Optional, and recommended. When you sign in on a new device, you’ll also enter a code. You can set it up later in Profile › Account.</p>' +
-      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-start">Set it up</button><button class="text-btn" type="button" data-act="close-modal">Not now</button></div>');
-  }
-  function openMfaStart() {
-    var phoneOk = !!(cloudCfg() && cloudCfg().phoneMfa);
-    openCloudSheet("Two-step sign-in",
-      (phoneOk ? '<label class="field"><span>Phone number for text codes</span><input id="acct-phone" type="tel" autocomplete="tel" placeholder="+1 555 555 0100"></label>' +
-        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-phone">Text me a code</button></div><p class="caption">Or use an authenticator app instead:</p>' : '') +
-      '<div class="acct-actions"><button ' + (phoneOk ? "" : 'class="primary" ') + 'type="button" data-act="acct-mfa-totp">Use an authenticator app</button></div>' +
-      (phoneOk ? "" : '<p class="caption">Text-message codes aren’t available yet. An authenticator app (like Google Authenticator or 1Password) works without a phone signal.</p>'));
-  }
-  function mfaEnroll(type) {
-    var body = { factor_type: type, friendly_name: type === "phone" ? "Phone" : "Authenticator " + new Date().toISOString().slice(0, 10) };
-    if (type === "phone") { body.phone = acctVal("acct-phone").replace(/[^\d+]/g, ""); if (!/^\+?\d{10,15}$/.test(body.phone)) return acctErr("Enter the phone number with country code, like +1 612 555 0100."); if (body.phone[0] !== "+") body.phone = "+1" + body.phone; }
-    cloudFetch("/auth/v1/factors", { method: "POST", body: body }, true).then(function (f) {
-      return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
-        openCloudSheet(type === "phone" ? "Enter the code we texted" : "Scan with your authenticator app",
-          (type === "totp" && f.totp ? '<div class="acct-qr">' + (f.totp.qr_code && /^data:image\//.test(f.totp.qr_code) ? '<img alt="QR code" src="' + esc(f.totp.qr_code) + '">' : "") + '</div><p class="caption">Or enter this key: <code>' + esc(f.totp.secret || "") + '</code></p>' : '') +
-          '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
-          '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-verify" data-id="' + esc(f.id) + '" data-ch="' + esc(ch.id) + '">Turn on</button></div>');
-      });
-    }).catch(function (e) { acctErr(e.message); });
-  }
-  function openMfaChallenge(f) {
-    return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
-      openCloudSheet("Enter your code",
-        '<p class="caption">' + (f.factor_type === "phone" ? "We texted a code to your phone." : "Open your authenticator app.") + '</p>' +
-        '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
-        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-mfa-login" data-id="' + esc(f.id) + '" data-ch="' + esc(ch.id) + '">Continue</button></div>');
-    }).catch(function (e) { acctErr(e.message); });
   }
   function openCloudVersions() {
     openCloudSheet("Cloud versions", '<div id="acct-versions" class="snap-list"><p class="caption quiet">Loading…</p></div>');
@@ -16646,14 +16719,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var email = acctVal("acct-email"), pass = (document.getElementById("acct-pass") || {}).value || "";
       if (!/^\S+@\S+\.\S+$/.test(email)) return acctErr("Enter your email address.");
       if (pass.length < (act === "acct-signup" ? 8 : 1)) return acctErr(act === "acct-signup" ? "Use at least 8 characters." : "Enter your password.");
+      if (act === "acct-signup") {
+        if (pass !== ((document.getElementById("acct-pass2") || {}).value || "")) return acctErr("Passwords don’t match.");
+        if (!(document.getElementById("acct-consent") || {}).checked) return acctErr("Please agree to the Privacy Policy to continue.");
+        policyAccept("signup");
+      }
       acctErr("…");
+      /* Sign-up sends no redirect_to on purpose: the confirmation link lands on the project's Site URL (Paper Trail). */
       var p = act === "acct-signup"
-        ? cloudFetch("/auth/v1/signup", { method: "POST", body: { email: email, password: pass } })
+        ? cloudFetch("/auth/v1/signup", { method: "POST", body: { email: email, password: pass, data: { policy_version: POLICY_VERSION, policy_accepted_at: new Date().toISOString() } } })
         : cloudFetch("/auth/v1/token?grant_type=password", { method: "POST", body: { email: email, password: pass } });
       return p.then(function (j) {
-        if (j && j.access_token) { cloudSaveSession(j); return afterSignIn(); }
-        openCloudSheet("Check your email", '<p>We sent a confirmation link to <strong>' + esc(email) + '</strong>. Open it, then come back and sign in.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
-      }).catch(function (e) { acctErr(/invalid/i.test(e.message) ? "That email and password don’t match." : e.message); });
+        if (act === "acct-signin" || (j && j.access_token)) {
+          /* Password is right. Don't keep this session: require the emailed code first. */
+          return sendEmailCode(email).then(function () { openEmailCode(email, "signin"); });
+        }
+        openCloudSheet("Check your email", '<p>We sent a confirmation link to <strong>' + esc(email) + '</strong>. Open it (it brings you back to Paper Trail), then sign in here.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+      }).catch(function (e) { acctErr(/invalid/i.test(e.message) ? "That email and password don’t match." : (/not confirmed/i.test(e.message) ? "Confirm your email first: open the link we sent you." : e.message)); });
+    }
+    if (act === "acct-otp-resend") {
+      if (!pendingOtp) return;
+      return sendEmailCode(pendingOtp.email).then(function () { acctErr("New code sent."); }).catch(function (e) { acctErr(e.message); });
+    }
+    if (act === "acct-otp-verify") {
+      var c = acctVal("acct-code").replace(/\D/g, "");
+      if (!pendingOtp) return acctErr("Start again from Sign in.");
+      if (c.length < 6) return acctErr("Enter the 6-digit code.");
+      var po = pendingOtp;
+      return cloudFetch("/auth/v1/verify", { method: "POST", body: { type: "email", email: po.email, token: c } })
+        .then(function (j) {
+          if (!j || !j.access_token) throw new Error("bad");
+          cloudSaveSession(j); pendingOtp = null;
+          if (po.purpose === "delete") return deleteMyAccount();
+          return afterSignIn();
+        }, function (e) { if (e.status === 429) throw e; throw new Error("That code didn’t work or expired. Try the newest one."); })
+        .catch(function (e) { acctErr(e.message); });
+    }
+    if (act === "acct-delete-start") {
+      var me = cloudSession(), em2 = me && me.user && me.user.email;
+      if (!em2) return;
+      if (!window.confirm("Delete your Paper Trail account and all cloud backups?\n\nWe'll email you a code to confirm.")) return;
+      return sendEmailCode(em2).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) { showToast(e.message, 4000); });
     }
     if (act === "acct-forgot") {
       var em = acctVal("acct-email");
@@ -16662,40 +16768,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         .then(function () { acctErr("If that email has an account, a reset link is on its way."); }).catch(function (e) { acctErr(e.message); });
     }
     if (act === "acct-set-password") {
-      var np = (document.getElementById("acct-pass") || {}).value || "";
+      var np = (document.getElementById("acct-pass") || {}).value || "", np2 = (document.getElementById("acct-pass2") || {}).value || "";
       if (np.length < 8) return acctErr("Use at least 8 characters.");
-      /* v37.5.59.126: with two-step sign-in on, Supabase only lets an aal2 session change the password, and a
-       * reset link signs in at aal1 — so ask for the authenticator code, step up, then save. */
-      var rcode = acctVal("acct-code").replace(/\D/g, "");
-      var stepUp = rcode.length >= 6
-        ? cloudRefreshUser().then(function (u) {
-            var f = ((u && u.factors) || []).filter(function (x) { return x.status === "verified" && x.factor_type === "totp"; })[0];
-            if (!f) return null;
-            return cloudFetch("/auth/v1/factors/" + f.id + "/challenge", { method: "POST", body: {} }, true).then(function (ch) {
-              return cloudFetch("/auth/v1/factors/" + f.id + "/verify", { method: "POST", body: { challenge_id: ch.id, code: rcode } }, true)
-                .then(function (j) { cloudSaveSession(j); }, function () { var e = new Error("That code didn’t work. Try the newest one."); e.badCode = true; throw e; });
-            });
-          })
-        : Promise.resolve();
-      return stepUp.then(function () { return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true); })
+      if (np !== np2) return acctErr("Passwords don’t match.");
+      /* v37.5.60: no authenticator step-up any more. The reset link (sent to the inbox) proves the email,
+       * the same factor as the sign-in code; the next sign-in still asks for the emailed code. */
+      return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true)
         .then(function () { showToast("Password updated", 3000); return afterSignIn(); })
-        .catch(function (e) {
-          if (!e.badCode && /aal2/i.test(e.message || "")) {
-            if (!document.getElementById("acct-code")) {
-              var pf = document.getElementById("acct-pass"), lab = pf && pf.closest("label");
-              if (lab) lab.insertAdjacentHTML("afterend", '<label class="field"><span>6-digit code from your authenticator app</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>');
-            }
-            return acctErr("Two-step sign-in is on: enter the code from your authenticator app, then Save password.");
-          }
-          acctErr(e.message);
-        });
+        .catch(function (e) { acctErr(/aal2/i.test(e.message || "") ? "This account still has an old authenticator attached. Email us and we'll remove it." : e.message); });
     }
     if (act === "acct-signout") {
       cloudFetch("/auth/v1/logout", { method: "POST" }, true).catch(function () {});
       cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
       showToast("Signed out. Your books stay on this device.", 3500); render(); return;
     }
-    if (act === "acct-first-yes") { cloudSync({ paused: false }); closeModal(); var pl = cloudPayload(); return (pl ? cloudUpload(pl) : Promise.resolve()).then(function () { render(); showToast("Backed up to your account", 3000); if (!cloudFactors().length && !cloudSync().mfaNudged) { cloudSync({ mfaNudged: Date.now() }); setTimeout(openMfaNudge, 400); } }).catch(function (e) { showToast(e.message, 4000); }); }
+    if (act === "acct-first-yes") { cloudSync({ paused: false }); closeModal(); var pl = cloudPayload(); return (pl ? cloudUpload(pl) : Promise.resolve()).then(function () { render(); showToast("Backed up to your account", 3000); }).catch(function (e) { showToast(e.message, 4000); }); }
     if (act === "acct-first-no") { cloudSync({ paused: true }); closeModal(); render(); return; }
     if (act === "acct-resume") { cloudSync({ paused: false }); return firstSync(); }
     if (act === "acct-sync-now") { return cloudSyncNow("manual").then(render); }
@@ -16704,25 +16791,113 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!window.confirm("Replace the books on this device with this cloud version?\n\nThis device’s current books are saved as an automatic backup first.")) return;
       return cloudAdopt(el.getAttribute("data-id")).catch(function (e) { acctErr(e.message); });
     }
-    if (act === "acct-use-cloud") { var c = cloudConflict; cloudConflict = null; return cloudAdopt(c.id).catch(function (e) { acctErr(e.message); }); }
+    if (act === "acct-use-cloud") { var cc = cloudConflict; cloudConflict = null; return cloudAdopt(cc.id).catch(function (e) { acctErr(e.message); }); }
     if (act === "acct-keep-local") { cloudConflict = null; closeModal(); var pl2 = cloudPayload(); return (pl2 ? cloudUpload(pl2) : Promise.resolve()).then(function () { showToast("This device’s version is now the newest in your account", 3500); render(); }); }
     if (act === "acct-decide-later") { closeModal(); cloudStatus = "Waiting for you to pick a version."; render(); return; }
-    if (act === "acct-mfa-start") return openMfaStart();
-    if (act === "acct-mfa-totp") return mfaEnroll("totp");
-    if (act === "acct-mfa-phone") return mfaEnroll("phone");
-    if (act === "acct-mfa-verify" || act === "acct-mfa-login") {
-      var code = acctVal("acct-code").replace(/\D/g, "");
-      if (code.length < 6) return acctErr("Enter the 6-digit code.");
-      return cloudFetch("/auth/v1/factors/" + el.getAttribute("data-id") + "/verify", { method: "POST", body: { challenge_id: el.getAttribute("data-ch"), code: code } }, true)
-        .then(function (j) { cloudSaveSession(j); return cloudRefreshUser(); })
-        .then(function () { if (act === "acct-mfa-verify") { closeModal(); showToast("Two-step sign-in is on", 3000); render(); } else return firstSync(); })
-        .catch(function () { acctErr("That code didn’t work. Try the newest one."); });
-    }
-    if (act === "acct-mfa-remove") {
-      if (!window.confirm("Turn off two-step sign-in?")) return;
-      return cloudFetch("/auth/v1/factors/" + el.getAttribute("data-id"), { method: "DELETE" }, true).then(cloudRefreshUser).then(render).catch(function (e) { showToast(e.message, 4000); });
-    }
   }
+  /* v37.5.60: delete the signed-in account through the delete_my_account() SQL function (runs as the user,
+   * deletes only auth.uid()). Until owner deploys it, explain instead of failing silently. */
+  function deleteMyAccount() {
+    var pause = cloudSync({ paused: true });
+    return cloudInflight.catch(function () {}).then(function () {
+      return cloudFetch("/rest/v1/rpc/delete_my_account", { method: "POST", body: {} }, true);
+    }).then(function () {
+      cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
+      openCloudSheet("Account deleted", '<p>Your account and its cloud backups are deleted. The books on this device are still here; erase them in Profile › Data if you want them gone too.</p><div class="acct-actions"><button class="primary" type="button" data-act="close-modal">Done</button></div>');
+      render();
+    }).catch(function (e) {
+      cloudSync({ paused: false });
+      if (e.status === 404 || /function|schema cache|not find/i.test(e.message || "")) {
+        return acctErr("In-app deletion isn't switched on yet. Email us from the Privacy Policy's contact address and we'll delete your account within 30 days.");
+      }
+      acctErr(e.message);
+    });
+  }
+  /* ---- v37.5.60 Privacy Policy consent ----
+   * Everyone agrees once: Create account (required box), welcome2 for local-only users, or a blocking
+   * "Agree & continue" sheet on startup when the accepted version isn't the current one. The record (version +
+   * time) lives in the books, in its own localStorage key (survives erase/demo), and in the signed-in user's own
+   * auth metadata (PUT /auth/v1/user with their token; never a service key). */
+  var POLICY_VERSION = "1.0", POLICY_URL = "privacy.html", POLICY_KEY = "PaperTrail.policyConsent";
+  function policyConsent() {
+    var c = cloudJson(POLICY_KEY);
+    if (c && c.version) return c;
+    return (state && state.policyConsent) || null;
+  }
+  function policyAccepted() { var c = policyConsent(); return !!(c && c.version === POLICY_VERSION); }
+  function policyAccept(via) {
+    var c = { version: POLICY_VERSION, acceptedAt: new Date().toISOString(), via: via || "app" };
+    cloudJson(POLICY_KEY, c);
+    if (state) { state.policyConsent = c; try { saveState(); } catch (e) {} }
+    policySyncToCloud();
+    return c;
+  }
+  function policySyncToCloud() {
+    var c = policyConsent();
+    if (!c || !cloudSignedIn()) return;
+    var u = (cloudSession() || {}).user || {}, md = u.user_metadata || {};
+    if (md.policy_version === c.version) return;
+    cloudFetch("/auth/v1/user", { method: "PUT", body: { data: { policy_version: c.version, policy_accepted_at: c.acceptedAt } } }, true).catch(function () {});
+  }
+  function openPolicy() {
+    var modal = document.getElementById("modal");
+    var back = modal && !modal.hidden ? modal.innerHTML : null;
+    var host = document.createElement("div");
+    host.className = "policy-reader"; host.id = "policy-reader";
+    host.setAttribute("role", "dialog"); host.setAttribute("aria-label", "Privacy Policy");
+    host.innerHTML = '<div class="policy-top"><strong>Privacy Policy</strong><button type="button" class="sheet-x" data-act="policy-close" aria-label="Close">✕</button></div><div class="policy-body"><p class="caption">Loading…</p></div>';
+    (document.getElementById("phone") || document.body).appendChild(host);
+    fetch(POLICY_URL).then(function (r) { if (!r.ok) throw new Error(); return r.text(); }).then(function (t) {
+      var m = /<main[^>]*>([\s\S]*)<\/main>/.exec(t);
+      var b = host.querySelector(".policy-body");
+      if (b) b.innerHTML = m ? m[1] : t;
+    }).catch(function () {
+      var b = host.querySelector(".policy-body");
+      if (b) b.innerHTML = '<p>Couldn’t load the policy offline. Open <a href="' + POLICY_URL + '" target="_blank" rel="noopener">privacy.html</a> when you’re connected.</p>';
+    });
+    void back;
+  }
+  function policyGateNeeded() {
+    if (policyAccepted() || loadFailure) return false;
+    var ob = state && state.onboarding;
+    if (ob && ob.status === "survey" && (ob.screen === "welcome" || ob.screen === "welcome2")) return false;
+    return true;
+  }
+  function policyGateHtml() {
+    var had = policyConsent();
+    return '<div class="policy-gate-inner"><h2>' + (had ? "Our Privacy Policy changed" : "Before you continue") + '</h2>' +
+      (had ? '<p class="caption">You agreed to version ' + esc(had.version) + '. This is version ' + POLICY_VERSION + '.</p>' : '') +
+      '<ul class="about-list"><li>Your books stay on this device unless you create an account for cloud backup.</li>' +
+      '<li>Testers share rates and percentages with their tester code; envelope names, merchants and notes never leave.</li>' +
+      '<li>No ads, no tracking, never sold. Export or delete anytime.</li><li>For people 18 and older. Estimates, not advice.</li></ul>' +
+      '<label class="consent-row"><input type="checkbox" id="policy-gate-box"> <span>I agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' +
+      '<button class="primary" type="button" data-act="policy-gate-agree" id="policy-gate-agree" disabled>Agree &amp; continue</button></div>';
+  }
+  function renderPolicyGate() {
+    var phone = document.getElementById("phone"); if (!phone) return;
+    var g = document.getElementById("policy-gate");
+    if (!policyGateNeeded()) { if (g) g.remove(); return; }
+    if (g) return;
+    g = document.createElement("section");
+    g.id = "policy-gate"; g.className = "policy-gate";
+    g.setAttribute("role", "dialog"); g.setAttribute("aria-modal", "true"); g.setAttribute("aria-label", "Privacy Policy");
+    g.innerHTML = policyGateHtml();
+    phone.appendChild(g);
+  }
+  document.addEventListener("change", function (e) {
+    var t = e.target; if (!t || !t.id) return;
+    if (t.id === "policy-gate-box") { var b = document.getElementById("policy-gate-agree"); if (b) b.disabled = !t.checked; }
+    if (t.id === "ob-consent") { var n = document.querySelector('#onboard [data-act="ob-next"]'); if (n) n.disabled = !t.checked; }
+    if (t.getAttribute && t.getAttribute("data-signup-check")) signupFormCheck();
+  });
+  document.addEventListener("input", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-signup-check")) signupFormCheck(); });
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest && e.target.closest("[data-act]"); if (!a) return;
+    var act = a.getAttribute("data-act");
+    if (act === "policy-open") { e.preventDefault(); e.stopPropagation(); openPolicy(); }
+    else if (act === "policy-close") { e.stopPropagation(); var r = document.getElementById("policy-reader"); if (r) r.remove(); }
+    else if (act === "policy-gate-agree") { e.stopPropagation(); if ((document.getElementById("policy-gate-box") || {}).checked) { policyAccept(policyConsent() ? "reprompt" : "startup"); renderPolicyGate(); } }
+  }, true);
   /* Boot: password-reset link, then sync on open. */
   function cloudBoot() {
     if (!cloudCfg()) return;
@@ -16732,6 +16907,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       cloudSaveSession({ access_token: q.access_token, refresh_token: q.refresh_token, expires_in: Number(q.expires_in) || 3600 });
       try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
       openCloudSheet("Set a new password", '<label class="field"><span>New password</span><input id="acct-pass" type="password" autocomplete="new-password"></label>' +
+        '<label class="field"><span>Confirm new password</span><input id="acct-pass2" type="password" autocomplete="new-password"></label>' +
         '<div class="acct-actions"><button class="primary" type="button" data-act="acct-set-password">Save password</button></div>');
       return;
     }
@@ -17092,7 +17268,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (priorYear == null) return null;
     var prior = 0, end = 0, adds = 0, any = false;
     (state.worth.lines || []).forEach(function (line) {
-      if (line.kind === "liability" || (line.group !== "retirement" && line.group !== "taxable")) return;
+      if (line.kind === "liability" || (!isRetGroup(line.group) && line.group !== "taxable")) return;
       any = true;
       prior += lineAmount(line, priorYear);
       end += lineAmount(line, year);
@@ -17494,6 +17670,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "ob-next") {
       readOnboardInputs();
       if (ob.screen === "welcome" || ob.screen === "welcome2") {
+        if (ob.screen === "welcome2" && !policyAccepted()) {
+          if (!(document.getElementById("ob-consent") || {}).checked) return;
+          policyAccept("welcome");
+        }
         ob.error = "";
         ob.screen = ob.screen === "welcome" ? "welcome2" : "name";
         saveState();
@@ -17748,6 +17928,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var html = '<div class="sheet about-sheet">' +
       "<h3>About &amp; Privacy</h3>" +
       '<p class="about-version mono">Paper Trail · version ' + esc(APP_VERSION) + " (browser preview)</p>" +
+      '<button class="data-btn" type="button" data-act="policy-open"><strong>Privacy Policy</strong><span class="caption">' + (policyConsent() ? "Version " + esc(policyConsent().version) + " · you agreed " + esc(new Date(policyConsent().acceptedAt).toLocaleDateString()) : "Version " + POLICY_VERSION) + '</span></button>' +
       '<p class="profile-section">Backups</p>' +
       "<p>Keep a backup: if this device is lost or erased without one, your data may not be recoverable — so save a backup now and then.</p>" +
       '<p class="profile-section">What Paper Trail stores</p>' +
@@ -17762,11 +17943,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="profile-section">Estimates</p>' +
       "<p>" + ESTIMATE_DISCLAIMER + "</p>" +
       '<p class="profile-section">Tester data sharing</p>' +
-      "<p>Testers share app data with their tester code to help find bugs and improve Paper Trail. Rates and changes (savings rate, average tax, year-over-year changes, plan vs. spent %), grade, streaks, feature use, and survey answers are always included. Dollar amounts and Vault details (document count and types) are included unless you turn them off. Tester sharing doesn’t include merchant names, transaction notes, account numbers, or file contents.</p>" +
+      "<p>Testers share app data with their tester code to help find bugs and improve Paper Trail. Rates and changes (savings rate, average tax, year-over-year changes, plan vs. spent % per envelope, numbered, never named), grade, feature use, and survey answers are always included. Dollar amounts and Vault details (document count and types) are included unless you turn them off. Tester sharing never includes envelope names, merchant names, transaction notes, account numbers, or file contents.</p>" +
       "<p>" + (TESTER_ENDPOINT ? "Sharing is connected." : "Not connected yet: nothing has left this device. Shares wait on this device until it connects.") + "</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="sharing"><strong>Go to Profile › Data sharing</strong><span class="caption">Switches · Preview what’s shared</span></button>' +
       '<p class="profile-section">No ads, no tracking</p>' +
-      "<p>No ads, no third-party analytics, no crash reporting, no third-party scripts. Code and fonts ship with the app. Right now, tester sharing is the only thing that sends data.</p>" +
+      "<p>No ads, no third-party analytics, no crash reporting, no third-party scripts. Code and fonts ship with the app. Only two things ever send data: tester sharing, and cloud backup if you create an account.</p>" +
       '<p class="profile-section">Export</p>' +
       "<p>Excel workbook, a monthly PDF report, or a full backup file you can restore later.</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="data"><strong>Go to Profile › Data</strong><span class="caption">Export · Backup · Restore</span></button>' +
@@ -18018,7 +18199,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.59.126";
+  var APP_VERSION = "37.5.60";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18745,11 +18926,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       };
     });
     var totals = sums(month);
-    out.categories = (month.categories || []).map(function (c) {
+    /* v37.5.60 (owner): envelope NAMES never leave the device (a name like "Therapy" is personal); only a position + percentages. */
+    out.categories = (month.categories || []).map(function (c, ci) {
       var assigned = catAssigned(c);
       var spent = spentFor(month, c.id);
       return {
-        category: c.name || "",
+        category: "Envelope " + (ci + 1),
         planVsSpentPct: assigned > 0 ? testerRound((spent - assigned) / assigned) : null,
         shareOfSpendingPct: totals.spent > 0 ? testerRound(Math.max(0, spent) / totals.spent) : null
       };
@@ -18843,8 +19025,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function testerOtherDollarsBlock(month) {
     var totals = sums(month);
-    var cats = (month.categories || []).map(function (c) {
-      return { category: c.name || "", assigned: testerDollars(catAssigned(c)), spent: testerDollars(spentFor(month, c.id)) };
+    var cats = (month.categories || []).map(function (c, ci) {
+      return { category: "Envelope " + (ci + 1), assigned: testerDollars(catAssigned(c)), spent: testerDollars(spentFor(month, c.id)) };
     });
     var years = testerAnnualYears().map(function (y) {
       return { year: y.year, operatingExpenses: testerDollars(y.row.opex), investments: testerDollars(y.row.investments) };
@@ -19833,6 +20015,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function render() {
     addedAutoCache = {};
+    /* v37.5.60 (owner): Insights merged into the Dashboard; an old "insights" tab lands there. */
+    if (state.tab === "insights") { state.tab = "stats"; state.statsDoor = "dash"; }
+    try { renderPolicyGate(); } catch (e) {} /* v37.5.60: blocking Privacy Policy prompt (first run after update / new version) */
     applyNight();
     paintSaveWarning();
     renderMonthBar();
@@ -19863,9 +20048,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bindMoneyInputs(screen);
     } else if (state.tab === "stats" && state.statsDoor === "statement") {
       screen.innerHTML = renderAnnualStatement();
-      bindMoneyInputs(screen);
-    } else if (state.tab === "insights") {
-      screen.innerHTML = renderInsights(ensureMonth(state.year, state.month));
       bindMoneyInputs(screen);
     } else {
       month = ensureMonth(state.year, state.month);
@@ -21111,7 +21293,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       mattersReturnToProfile = !!actEl.closest(".profile-sheet");
       openMattersSurvey({ start: true });
     } else if (act === "open-insights-foo") {
-      state.tab = "insights";
+      state.tab = "stats"; state.statsDoor = "dash";
       state.insightsDoor = "";
       saveState();
       closeModal();
@@ -21207,8 +21389,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           openSheet((foundLine.cat ? foundLine.cat.name + " · " : "") + foundLine.line.name,
             lineFields, "save-line-item");
         } else {
-          state.tab = "insights";
-          state.insightsDoor = "foo";
+          state.tab = "stats"; state.statsDoor = "dash";
+          state.insightsDoor = "";
           saveState();
           closeModal();
           render();
@@ -21223,8 +21405,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var nwBtn = document.querySelector('[data-act="edit-line"][data-id="' + callId + '"]');
         if (nwBtn) nwBtn.click();
       } else {
-        state.tab = "insights";
-        state.insightsDoor = "foo";
+        state.tab = "stats"; state.statsDoor = "dash";
+        state.insightsDoor = "";
         saveState();
         closeModal();
         render();
@@ -21551,6 +21733,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       applyNight(); saveState();
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
+    else if (act === "debt-open") { openDebtCalc(); }
     else if (act === "close-modal") {
       var wasMatters = !!document.querySelector("#modal .matters-sheet");
       if (wasMatters) setTimeout(maybeSendMattersPayload, 0);
@@ -21685,7 +21868,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!al) return;
       var af = field("Name", "name", al.name);
       if (al.kind !== "liability" && al.group !== "debt" && !al.vehicle) {
-        var ag = [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, Roth, HSA)"],
+        var ag = [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, HSA)"], ["retirementAfterTax", "Investments · retirement after-tax (Roth IRA)"],
           ["realEstate", "Property · home / real estate"], ["lifestyle", "Property · other"]];
         var acur = al.group === "investment" ? "taxable" : al.group;
         af += '<label class="field">Group<select name="group">' + ag.map(function (o) {
@@ -21884,7 +22067,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       /* v37.5.59.39: tapping the $ lands on Amount; tapping the row/name keeps Name first. */
       focusSheetField(actEl.getAttribute("data-focus") === "amount" ? "amount" : "name");
     }     else if (act === "add-spend") {
-      openSpendSheet(null, month);
+      openEdAdd(month);
     } else if (act === "edit-spend") {
       var tx = (month.transactions || []).filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
       if (tx) {
@@ -21905,7 +22088,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet("Add account",
         field("Name", "name", "") +
         '<label class="field">Group<select name="group">' +
-        [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, Roth, HSA)"],
+        [["cash", "Cash"], ["taxable", "Investments · brokerage / taxable"], ["retirement", "Investments · retirement (401k, IRA, HSA)"], ["retirementAfterTax", "Investments · retirement after-tax (Roth IRA)"],
           ["realEstate", "Property · home / real estate"], ["lifestyle", "Property · other"]].map(function (o) {
           return '<option value="' + o[0] + '">' + o[1] + "</option>";
         }).join("") + "</select></label>" +
@@ -21947,7 +22130,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       if (line.kind !== "liability" && line.group !== "debt" && !line.vehicle) {
         /* v37.5.55: move an asset between groups (e.g. car to Property). */
-        var grpOpts = [["cash", "Cash"], ["retirement", "Retirement"], ["taxable", "Investments (taxable)"],
+        var grpOpts = [["cash", "Cash"], ["retirement", "Retirement"], ["retirementAfterTax", "Retirement (after-tax)"], ["taxable", "Investments (taxable)"],
           ["realEstate", "Property"], ["lifestyle", "Other"]];
         var curGrp = line.group === "investment" ? "taxable" : line.group;
         fields += '<label class="field">Group<select name="group">' + grpOpts.map(function (o) {
@@ -21968,7 +22151,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           field("Min payment", "loanMinPayment", String(line.loanMinPayment || 0), "number") +
           field("Original balance", "loanOriginalBalance", String(line.loanOriginalBalance || 0), "number") +
           debtTypeSelect("loanDebtType", line.loanDebtType || "", line.name) +
-          '<p class="caption">No matching Debt envelope line. Insights uses APR, min payment and type for payoff estimates (Money Guy order of operations — estimates, not advice).</p>';
+          '<p class="caption">No matching Debt envelope line. The debt calculator uses APR, min payment and type for payoff estimates (Money Guy order of operations — estimates, not advice).</p>';
       }
       if (line.vehicle) {
         fields += '<label class="check vehicle-out"><input type="checkbox" name="excludeFromNw"' + (nwLeftOut(line) ? " checked" : "") +
@@ -22388,7 +22571,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!state.worth.lines) state.worth.lines = [];
       var acctName = (data.name || "").replace(/^\s+|\s+$/g, "") || "Account";
       var acctGroup = data.group || "cash";
-      if (acctGroup !== "cash" && acctGroup !== "retirement" && acctGroup !== "taxable" &&
+      if (acctGroup !== "cash" && !isRetGroup(acctGroup) && acctGroup !== "taxable" &&
           acctGroup !== "realEstate" && acctGroup !== "lifestyle") {
         acctGroup = "cash";
       }
@@ -22438,7 +22621,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (sl) {
         sl.name = String(data.name || "").replace(/^\s+|\s+$/g, "") || sl.name;
         if (data.group && !sl.vehicle && sl.kind !== "liability" && sl.group !== "debt" &&
-            ["cash", "retirement", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
+            ["cash", "retirement", "retirementAfterTax", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
             !(sl.group === "investment" && data.group === "taxable")) sl.group = data.group;
         if (sl.kind === "liability" && typeof syncNwLiabilityToVault === "function") syncNwLiabilityToVault(sl);
         saveState();
@@ -22462,7 +22645,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             syncNwLiabilityToVault(line);
           }
           if (data.group && !line.vehicle && line.kind !== "liability" && line.group !== "debt" &&
-              ["cash", "retirement", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
+              ["cash", "retirement", "retirementAfterTax", "taxable", "realEstate", "lifestyle"].indexOf(data.group) >= 0 &&
               !(line.group === "investment" && data.group === "taxable")) {
             line.group = data.group;
           }
@@ -22760,6 +22943,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ensureAnnualStatement();
       var filingVal = el.value;
       state.annualStatement.filingStatus = (filingVal === "mfj" || filingVal === "hoh") ? filingVal : "single";
+      state.profile = migrateProfile(state.profile, state.foo, state.compensation);
+      state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+      state.profile.filingStatus = filingVal === "mfj" ? "married" : "single";
+      state.compensation.filingStatus = state.profile.filingStatus;
       saveState();
       render();
     } else if (el.getAttribute("data-act") === "comp-401k-type" || el.getAttribute("data-act") === "comp-401k-since") {

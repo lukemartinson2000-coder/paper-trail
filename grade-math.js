@@ -249,6 +249,17 @@
     return 10;
   }
 
+  /* v37.5.60 (owner, Money Guy rules by age and loan type): tier red = FOO Step 3, yellow = within 2 points under a
+   * red cutoff (mortgage: 6%+, never red), green otherwise. Credit cards and consumer debt are always red; car loans
+   * above 8% at any age; student loans above 6% (20s) / 5% (30s) / 4% (40s) / any at 50+. */
+  function debtTier(type, apr, ageYears) {
+    if (type === "mortgage") return apr >= 6 ? "yellow" : "green";
+    if (type === "creditCard" || type === "personal") return "red";
+    var cut = type === "auto" ? 8 : studentAprCutoff(ageYears);
+    if (cut == null) return apr > 6 ? "red" : null;
+    if (cut === 0 || apr > cut) return "red";
+    return apr > cut - 2 ? "yellow" : "green";
+  }
   function classifyDebt(debt, ageYears) {
     var name = (debt && debt.name) || "";
     var apr = Number(debt && debt.apr) || 0;
@@ -261,16 +272,19 @@
       needsBirthday: false,
       isEstimate: false,
       badge: "",
-      caption: ""
+      caption: "",
+      tier: "green"
     };
     function markStep3(badge, estimate) {
       result.fooStep = 3;
+      result.tier = "red";
       result.isEstimate = !!estimate;
       result.badge = badge;
       result.caption = badge;
       return result;
     }
     if (type === "mortgage") {
+      result.tier = debtTier(type, apr, ageYears);
       result.caption = "Mortgage / Home loan → Step 9 (never consumer Step 3)";
       return result;
     }
@@ -280,66 +294,28 @@
         : (name || "Card") + " → Step 3";
       return markStep3(cardBadge, false);
     }
-    if (type === "student") {
-      if (ageYears == null) {
-        if (apr > 6) return markStep3((name || "Student loan") + " " + apr.toFixed(1) + "% → Step 3", false);
-        result.needsBirthday = true;
-        result.fooStep = null;
-        result.caption = "Add birthday in Profile";
-        return result;
-      }
-      var studentCut = studentAprCutoff(ageYears);
-      if (studentCut === 0 || apr > studentCut) {
-        return markStep3((name || "Student loan") + " " + apr.toFixed(1) + "% → Step 3 at your age", false);
-      }
-      result.caption = (name || "Student loan") + " " + apr.toFixed(1) + "% → Step 9 at your age";
-      return result;
-    }
+    if (type === "personal") return markStep3((name || "Personal") + " " + apr.toFixed(1) + "% → Step 3 (consumer debt)", false);
     if (type === "auto") {
-      result.isEstimate = true;
-      if (ageYears == null) {
-        if (apr > 10) {
-          return markStep3((name || "Car") + " " + apr.toFixed(1) + "% → Step 3 (estimate)", true);
-        }
-        result.needsBirthday = true;
-        result.fooStep = null;
-        result.caption = "Add birthday in Profile";
-        return result;
-      }
-      var autoCut = autoAprCutoff(ageYears);
-      if (autoCut === 0 || apr > autoCut) {
-        return markStep3((name || "Car") + " " + apr.toFixed(1) + "% → Step 3 at your age (estimate)", true);
-      }
-      result.caption = (name || "Car") + " → Step 9 (20/3/8 estimate)";
+      if (apr > 8) return markStep3((name || "Car") + " " + apr.toFixed(1) + "% → Step 3 (above 8%)", false);
+      result.tier = debtTier(type, apr, ageYears);
+      result.caption = (name || "Car") + " → Step 9 (8% or less)";
       return result;
     }
-    if (type === "personal") {
+    if (type === "student" || apr > 0) {
+      var label = type === "student" ? (name || "Student loan") : (name || "Loan");
       if (ageYears == null) {
-        if (apr > 6) return markStep3((name || "Personal") + " " + apr.toFixed(1) + "% → Step 3", true);
+        if (apr > 6) return markStep3(label + " " + apr.toFixed(1) + "% → Step 3", type !== "student");
         result.needsBirthday = true;
         result.fooStep = null;
+        result.tier = null;
         result.caption = "Add birthday in Profile";
         return result;
       }
-      var personalCut = studentAprCutoff(ageYears);
-      if (personalCut === 0 || apr > personalCut) {
-        return markStep3((name || "Personal") + " " + apr.toFixed(1) + "% → Step 3 at your age", true);
-      }
-      result.caption = (name || "Personal") + " → Step 9 at your age";
+      var cut = studentAprCutoff(ageYears);
+      if (cut === 0 || apr > cut) return markStep3(label + " " + apr.toFixed(1) + "% → Step 3 at your age", type !== "student");
+      result.tier = debtTier("student", apr, ageYears);
+      result.caption = label + " " + apr.toFixed(1) + "% → Step 9 at your age";
       return result;
-    }
-    if (apr > 0) {
-      if (ageYears == null) {
-        if (apr > 6) return markStep3((name || "Loan") + " " + apr.toFixed(1) + "% → Step 3 (estimate)", true);
-        result.needsBirthday = true;
-        result.fooStep = null;
-        result.caption = "Add birthday in Profile";
-        return result;
-      }
-      var otherCut = studentAprCutoff(ageYears);
-      if (otherCut === 0 || apr > otherCut) {
-        return markStep3((name || "Loan") + " " + apr.toFixed(1) + "% → Step 3 (estimate)", true);
-      }
     }
     result.caption = (name || "Loan") + " → Step 9";
     return result;
@@ -1166,6 +1142,14 @@
     assert(carHigh.fooStep === 3, "11% car in 20s is FOO 3", errors);
     var carCheap = classifyDebt({ name: "Car", apr: 7 }, 25);
     assert(carCheap.fooStep === 9, "7% car in 20s is FOO 9 estimate", errors);
+    assert(carCheap.tier === "yellow", "7% car is yellow (within 2 of 8)", errors);
+    assert(classifyDebt({ name: "Car", apr: 9 }, 55).fooStep === 3, "9% car red at any age", errors);
+    assert(classifyDebt({ name: "Car", apr: 5 }, 55).tier === "green", "5% car green", errors);
+    assert(classifyDebt({ name: "Home loan", apr: 7.5, debtType: "mortgage" }, 25).tier === "yellow", "mortgage 6%+ yellow, never red", errors);
+    assert(classifyDebt({ name: "Home loan", apr: 5.5, debtType: "mortgage" }, 25).tier === "green", "mortgage under 6% green", errors);
+    assert(classifyDebt({ name: "Student Loan", apr: 4.5 }, 35).tier === "yellow", "4.5% student in 30s yellow", errors);
+    assert(classifyDebt({ name: "Student Loan", apr: 2.5 }, 35).tier === "green", "2.5% student in 30s green", errors);
+    assert(classifyDebt({ name: "Personal", apr: 3, debtType: "personal" }, 35).tier === "red", "consumer debt always red", errors);
     var explainer = fooExplainer(8);
     assert(explainer && explainer.name === "Prepaid future expenses", "step 8 name", errors);
     assert(explainer.examples.length >= 2, "step 8 examples", errors);
@@ -5680,6 +5664,7 @@
       if (/\broth\b/.test(name)) return "afterTax";
       return "nonQualified";
     }
+    if (group === "retirementAfterTax") return "afterTax"; /* v37.5.60: Retirement (after-tax) group */
     if (group === "retirement" || group === "taxadvantaged" || group === "tax-advantaged") {
       if (/\broth\b|\bhsa\b|health\s+savings/.test(name)) return "afterTax";
       if (/traditional|\bira\b|401k|403b|457|pension|deferred/.test(name)) return "preTax";
@@ -7554,6 +7539,7 @@
     normalizeDebtType: normalizeDebtType,
     debtTypeLabel: debtTypeLabel,
     classifyDebt: classifyDebt,
+    debtTier: debtTier,
     classifyDebts: classifyDebts,
     fooExplainer: fooExplainer,
     fooExplainers: FOO_EXPLAINERS,

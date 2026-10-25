@@ -1,15 +1,15 @@
-/* Paper Trail service worker (v37.5.59.124). Caches the app shell per version so the app opens offline and from
+/* Paper Trail service worker (v37.5.60). Caches the app shell per version so the app opens offline and from
  * the home screen. index.html and app.js are network-first: with a connection, closing and reopening the app
  * always loads the newest version; offline, the last cached copy is used. Other files are versioned (?v=) and
  * served cache-first. Old version caches are deleted on activate. Data stays in localStorage, never in here. */
-var VERSION = "37.5.59.126";
+var VERSION = "37.5.60";
 var CACHE = "pt-shell-" + VERSION;
 var SHELL = [
   "./", "index.html", "manifest.webmanifest?v=27",
   "styles.css?v=" + VERSION, "vendor/fflate.js?v=" + VERSION, "grade-math.js?v=" + VERSION,
   "export-kit.js?v=" + VERSION, "import-merge.js?v=" + VERSION, "app.js?v=" + VERSION, "cloud-config.js?v=" + VERSION,
   "favicon.svg?v=27", "apple-touch-icon.png?v=27", "icon-192.png?v=27", "icon-512.png?v=27",
-  "fonts/Caveat-Medium.ttf", "fonts/ShadowsIntoLight-Regular.ttf"
+  "fonts/Caveat-Medium.ttf", "fonts/ShadowsIntoLight-Regular.ttf", "privacy.html"
 ];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
