@@ -41,7 +41,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <p>If your device is lost or the browser data is cleared and you have no backup, we can't recover the data. Save a backup now and then (Profile › Data).</p>
 <h2>4. Optional account and cloud backup</h2>
 <p>An account is optional. If you create one:
-- <strong>Sign-in:</strong> your email and password are handled by our hosting provider, Supabase (see §8). We never see your password. Every sign-in also asks for a 6-digit code sent to your email (two-step sign-in), so a password alone can't open your account.
+- <strong>Sign-in:</strong> your email and password are handled by our hosting provider, Supabase (see §8). We never see your password. Every sign-in also asks for a 6-digit code sent to your email (two-step sign-in). Our database checks this on the server: a session that signed in with only a password can't read, change, or delete your backups, so a password alone can't open your account. Because the code goes to your email, keep your email account secure too.
 - <strong>What's backed up:</strong> your saved books, including the details on each Vault card. <strong>The Vault files themselves are not uploaded.</strong> Each backup also records the time, device ID, app version, transaction count and size.
 - <strong>When:</strong> when you open the app and a few seconds after each change. You can pause backup on a device.
 - <strong>How many:</strong> the server keeps your last 10 versions.
@@ -103,7 +103,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <ul>
 <li>All traffic uses HTTPS.</li>
 <li>Row-level security protects cloud backups. Only the public key is in the app.</li>
-<li>Two-step sign-in (a code emailed to you) is required for every account.</li>
+<li>Two-step sign-in (a code emailed to you) is required for every account and enforced by our server, not just the app. After a password reset, you sign in again with your new password and a new code.</li>
 </ul>
 <p>No system is perfectly secure. Use a strong password and keep your device locked. If we learn of a breach that affects your data, we'll tell you.</p>
 <h2>12. Age requirement</h2>

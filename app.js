@@ -16502,6 +16502,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function cloudSession() { return cloudJson(CLOUD_SESSION_KEY); }
   function cloudSignedIn() { var s = cloudSession(); return !!(cloudCfg() && s && s.access_token && s.user); }
+  /* v37.5.62: the server only lets a session touch backups if it came from an emailed code (JWT amr
+   * method otp, or a link from the inbox). A password-only session is never kept; older saved ones are dropped. */
+  var CODE_AMR = ["otp", "magiclink", "recovery", "email/signup", "invite"];
+  function tokenAmr(tok) {
+    try {
+      var b = String(tok || "").split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b.length % 4) b += "=";
+      var amr = JSON.parse(atob(b)).amr || [];
+      return amr.map(function (a) { return typeof a === "string" ? a : (a && a.method) || ""; });
+    } catch (e) { return []; }
+  }
+  function tokenHasCode(tok) { return tokenAmr(tok).some(function (m) { return CODE_AMR.indexOf(m) >= 0; }); }
   function cloudHash(text) {
     var h = 0x811c9dc5;
     for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
@@ -16664,7 +16676,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption" id="acct-status">' + esc(sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."))) + '</p>' +
       (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Back up now</button>') +
       ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
-      '<p class="caption">Two-step sign-in: on. Each sign-in also asks for a 6-digit code we email you.</p>' +
+      '<p class="caption">Two-step sign-in: on. Each sign-in also asks for a 6-digit code we email you, and our server won’t open your backups without it.</p>' +
       '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up.</p>' +
       '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div>';
   }
@@ -16697,15 +16709,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function sendEmailCode(email) {
     return cloudFetch("/auth/v1/otp?redirect_to=" + authRedirect(), { method: "POST", body: { email: email, create_user: false } });
   }
+  function discardSession(tok) {
+    var cfg = cloudCfg(); if (!cfg || !tok) return;
+    try { fetch(cfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: cfg.anonKey, Authorization: "Bearer " + tok } }).catch(function () {}); } catch (e) {}
+  }
   function openEmailCode(email, purpose) {
     email = String(email || "").trim().toLowerCase();
     pendingOtp = { email: email, purpose: purpose || "signin" };
-    openCloudSheet(purpose === "delete" ? "Confirm account deletion" : "Enter your email code",
-      '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>' +
+    openCloudSheet(purpose === "delete" ? "Confirm account deletion" : (purpose === "signup" ? "Confirm your email" : "Enter your email code"),
+      (purpose === "signup"
+        ? '<p class="caption">We sent a confirmation email to <strong>' + esc(email) + '</strong>. Type the 6-digit code from it here. (Opening its link works too; then sign in.) Check spam if it’s not there in a minute.</p>'
+        : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>') +
       (purpose === "delete" ? '<p class="caption">This permanently deletes your account and every cloud backup. The books on this device stay unless you erase them in Profile.</p>' : '') +
       '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
       '<div class="acct-actions"><button class="primary' + (purpose === "delete" ? " danger" : "") + '" type="button" data-act="acct-otp-verify">' + (purpose === "delete" ? "Delete my account" : "Continue") + '</button>' +
-      '<button class="text-btn" type="button" data-act="acct-otp-resend">Send a new code</button></div>');
+      '<button class="text-btn" type="button" data-act="acct-otp-resend">Send a new code</button>' +
+      (purpose === "signup" ? '<button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>' : '') + '</div>');
   }
   function afterSignIn() {
     return cloudRefreshUser().catch(function () {}).then(function () {
@@ -16781,24 +16800,31 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         : cloudFetch("/auth/v1/token?grant_type=password", { method: "POST", body: { email: email, password: pass } });
       return p.then(function (j) {
         if (act === "acct-signin" || (j && j.access_token)) {
-          /* Password is right. Don't keep this session: require the emailed code first. */
+          /* Password is right. v37.5.62: revoke this password-only session right away (never stored; the server
+           * wouldn't let it read backups anyway), then require the emailed code. */
+          if (j && j.access_token) discardSession(j.access_token);
           return sendEmailCode(email).then(function () { openEmailCode(email, "signin"); });
         }
-        openCloudSheet("Check your email", '<p>We sent a confirmation link to <strong>' + esc(email) + '</strong>. Open it (it brings you back to Paper Trail), then sign in here.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+        /* v37.5.62: the confirmation email carries a 6-digit code too; typing it here signs you in directly. */
+        openEmailCode(email, "signup");
       }).catch(function (e) { acctErr(/invalid/i.test(e.message) ? "That email and password don’t match." : (/not confirmed/i.test(e.message) ? "Confirm your email first: open the link we sent you." : e.message)); });
     }
     if (act === "acct-otp-resend") {
       if (!pendingOtp) return;
-      return sendEmailCode(pendingOtp.email).then(function () { acctErr("New code sent."); }).catch(function (e) { acctErr(e.message); });
+      var rs = pendingOtp.purpose === "signup"
+        ? cloudFetch("/auth/v1/resend?redirect_to=" + authRedirect(), { method: "POST", body: { type: "signup", email: pendingOtp.email } })
+        : sendEmailCode(pendingOtp.email);
+      return rs.then(function () { acctErr("New code sent."); }).catch(function (e) { acctErr(e.message); });
     }
     if (act === "acct-otp-verify") {
       var c = acctVal("acct-code").replace(/\D/g, "");
       if (!pendingOtp) return acctErr("Start again from Sign in.");
       if (c.length < 6) return acctErr("Enter the 6-digit code.");
       var po = pendingOtp;
-      return cloudFetch("/auth/v1/verify", { method: "POST", body: { type: "email", email: po.email, token: c } })
+      return cloudFetch("/auth/v1/verify", { method: "POST", body: { type: po.purpose === "signup" ? "signup" : "email", email: po.email, token: c } })
         .then(function (j) {
           if (!j || !j.access_token) throw new Error("bad");
+          if (!tokenHasCode(j.access_token)) { discardSession(j.access_token); throw new Error("bad"); }
           cloudSaveSession(j); pendingOtp = null;
           if (po.purpose === "delete") return deleteMyAccount();
           return afterSignIn();
@@ -16826,10 +16852,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
        * the same factor as the sign-in code; the next sign-in still asks for the emailed code. */
       return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true)
         .then(function () {
-          /* v37.5.61: sign out every other device. GoTrue's logout?scope=others keeps this session. */
-          return cloudFetch("/auth/v1/logout?scope=others", { method: "POST" }, true).catch(function () {});
+          /* v37.5.62: sign out every device, this reset session included; the new password still needs the emailed code. */
+          return cloudFetch("/auth/v1/logout?scope=global", { method: "POST" }, true).catch(function () {});
         })
-        .then(function () { showToast("Password updated. Other devices are signed out.", 3500); return afterSignIn(); })
+        .then(function () {
+          cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null }); cloudStatus = "";
+          openSignIn("signin");
+          var em3 = document.getElementById("acct-email"); if (em3 && resetEmail) em3.value = resetEmail;
+          acctErr("Password updated and every device signed out. Sign in with your new password; we’ll email you a code.");
+          render();
+        })
         .catch(function (e) { acctErr(/aal2/i.test(e.message || "") ? "This account still has an old authenticator attached. Email us and we'll remove it." : e.message); });
     }
     if (act === "acct-signout") {
@@ -16955,12 +16987,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "policy-gate-agree") { e.stopPropagation(); if ((document.getElementById("policy-gate-box") || {}).checked) { policyAccept(policyConsent() ? "reprompt" : "startup"); renderPolicyGate(); } }
   }, true);
   /* Boot: password-reset link, then sync on open. */
+  var resetEmail = "";
   function cloudBoot() {
     if (!cloudCfg()) return;
+    /* v37.5.62: a saved session without an emailed-code sign-in can't read backups any more; ask once to sign in again. */
+    var bs = cloudSession();
+    if (bs && bs.access_token && !tokenHasCode(bs.access_token) && !/type=recovery/.test(location.hash || "")) {
+      discardSession(bs.access_token);
+      cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null });
+      setTimeout(function () { showToast("Please sign in again: sign-in now always uses an emailed code.", 5000); }, 800);
+    }
     var h = location.hash || "";
     if (/type=recovery/.test(h) && /access_token=/.test(h)) {
       var q = {}; h.replace(/^#/, "").split("&").forEach(function (kv) { var p = kv.split("="); q[p[0]] = decodeURIComponent(p[1] || ""); });
       cloudSaveSession({ access_token: q.access_token, refresh_token: q.refresh_token, expires_in: Number(q.expires_in) || 3600 });
+      cloudRefreshUser().then(function (u) { resetEmail = (u && u.email) || ""; }).catch(function () {});
       try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
       openCloudSheet("Set a new password", '<label class="field"><span>New password</span><input id="acct-pass" type="password" autocomplete="new-password"></label>' +
         '<label class="field"><span>Confirm new password</span><input id="acct-pass2" type="password" autocomplete="new-password"></label>' +
@@ -18273,7 +18314,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.61";
+  var APP_VERSION = "37.5.62";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
