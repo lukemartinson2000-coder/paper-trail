@@ -16507,6 +16507,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
     return text.length + "-" + h.toString(16);
   }
+  /* v37.5.61: every auth email names its landing page explicitly; otherwise GoTrue falls back to the
+   * Referer origin (the bare github.io root, a 404). */
+  function authRedirect() { return encodeURIComponent(location.origin + location.pathname); }
+  function friendlyCloudMsg(msg, status) {
+    msg = String(msg || "");
+    if (/duplicate key|unique constraint|violates|sqlstate|database error|relation .* does not exist|syntax error/i.test(msg)) return "Something went wrong on our side. Wait a moment, then try again.";
+    if (status >= 500) return "Something went wrong on our side. Wait a moment, then try again.";
+    return msg;
+  }
   function cloudFetch(path, opts, auth) {
     var cfg = cloudCfg();
     if (!cfg) return Promise.reject(new Error("Accounts aren't set up yet."));
@@ -16520,12 +16529,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else if (/^eyJ/.test(cfg.anonKey)) headers.Authorization = "Bearer " + cfg.anonKey;
       else delete headers.Authorization;
       return fetch(cfg.url.replace(/\/$/, "") + path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+        .catch(function () { var oe = new Error("You look offline. Check your connection and try again."); oe.offline = true; throw oe; })
         .then(function (res) {
           return res.text().then(function (t) {
             var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
             if (!res.ok) {
               var msg = (j && (j.msg || j.message || j.error_description || j.error)) || ("Request failed (" + res.status + ")");
-              if (res.status === 429) msg = "Too many tries right now (the email limit is a few per hour). Wait a while, then try again.";
+              if (res.status === 429 || /security purposes|after \d+ seconds/i.test(msg)) {
+                msg = /security purposes|after \d+ seconds|seconds/i.test(msg)
+                  ? "Please wait about a minute before asking for another code."
+                  : "Too many emails right now (there's an hourly limit). Try again in a while.";
+              } else msg = friendlyCloudMsg(msg, res.status);
               var err = new Error(msg); err.status = res.status; throw err;
             }
             return j;
@@ -16661,7 +16675,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<label class="field"><span>Password</span><input id="acct-pass" type="password" autocomplete="' + (up ? "new-password" : "current-password") + '"' + (up ? ' data-signup-check="1"' : '') + '></label>' +
       (up ? '<label class="field"><span>Confirm password</span><input id="acct-pass2" type="password" autocomplete="new-password" data-signup-check="1"></label>' +
         '<p class="caption" id="acct-pass-hint">At least 8 characters.</p>' +
-        '<label class="consent-row"><input type="checkbox" id="acct-consent" data-signup-check="1"> <span>I agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' : '') +
+        '<label class="consent-row"><input type="checkbox" id="acct-consent" data-signup-check="1"> <span>I agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' +
+        '<p class="caption" id="acct-consent-hint">Check the box to agree to the Privacy Policy.</p>' : '') +
       '<div class="acct-actions"><button class="primary" type="button" id="acct-submit" data-act="' + (up ? "acct-signup" : "acct-signin") + '"' + (up ? " disabled" : "") + '>' + (up ? "Create account" : "Sign in") + '</button>' +
       (up ? '<button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>'
           : '<button class="text-btn" type="button" data-act="acct-forgot">Forgot password?</button><button class="text-btn" type="button" data-act="acct-open-signup">Create account</button>') + '</div>');
@@ -16673,15 +16688,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var hint = document.getElementById("acct-pass-hint"), btn = document.getElementById("acct-submit");
     var msg = a.length < 8 ? "At least 8 characters." : (b && a !== b ? "Passwords don’t match." : (a === b ? "Passwords match." : "Type it again to confirm."));
     if (hint) { hint.textContent = msg; hint.classList.toggle("bad", !!b && a !== b); }
-    if (btn) btn.disabled = !(a.length >= 8 && a === b && ok);
+    var ch = document.getElementById("acct-consent-hint"); if (ch) ch.style.display = ok ? "none" : "";
+    if (btn && !acctBusy) btn.disabled = !(a.length >= 8 && a === b && ok);
   }
   /* v37.5.60: two-step sign-in is a required 6-digit email code for every account (Supabase email OTP).
    * The password is checked first; the session is only kept after the emailed code is verified. */
   var pendingOtp = null;
   function sendEmailCode(email) {
-    return cloudFetch("/auth/v1/otp", { method: "POST", body: { email: email, create_user: false } });
+    return cloudFetch("/auth/v1/otp?redirect_to=" + authRedirect(), { method: "POST", body: { email: email, create_user: false } });
   }
   function openEmailCode(email, purpose) {
+    email = String(email || "").trim().toLowerCase();
     pendingOtp = { email: email, purpose: purpose || "signin" };
     openCloudSheet(purpose === "delete" ? "Confirm account deletion" : "Enter your email code",
       '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>' +
@@ -16720,22 +16737,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }).join("") : '<p class="caption">No cloud versions yet.</p>';
     }).catch(function (e) { acctErr(e.message); });
   }
+  /* v37.5.61: one auth request at a time; re-taps are ignored and the tapped button is disabled meanwhile. */
+  var acctBusy = false;
+  var ACCT_GUARDED = { "acct-signin": 1, "acct-signup": 1, "acct-otp-resend": 1, "acct-otp-verify": 1, "acct-delete-start": 1, "acct-forgot": 1, "acct-set-password": 1 };
+  var COMMON_PW = ["password", "password1", "password12", "password123", "passw0rd", "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000",
+    "qwerty12", "qwerty123", "qwertyuiop", "iloveyou", "abc12345", "abcd1234", "letmein1", "welcome1", "admin123", "sunshine", "football", "baseball", "monkey123", "princess", "trustno1", "papertrail"];
+  function weakPassword(pw) {
+    var l = String(pw || "").toLowerCase();
+    if (COMMON_PW.indexOf(l) >= 0 || /^(.)\1+$/.test(l)) return "That password is too common. Pick something harder to guess.";
+    return "";
+  }
   function handleCloudAct(act, el) {
+    if (!ACCT_GUARDED[act]) return handleCloudActRaw(act, el);
+    if (acctBusy) return;
+    acctBusy = true;
+    var btn = el && el.tagName === "BUTTON" ? el : null;
+    if (btn) btn.disabled = true;
+    var done = function () {
+      acctBusy = false;
+      if (btn && document.body.contains(btn)) { btn.disabled = false; if (btn.id === "acct-submit" && document.getElementById("acct-pass2")) signupFormCheck(); }
+    };
+    var r;
+    try { r = handleCloudActRaw(act, el); } catch (e) { done(); throw e; }
+    Promise.resolve(r).then(done, done);
+    return r;
+  }
+  function handleCloudActRaw(act, el) {
     if (act === "acct-open-signin") return openSignIn("signin");
     if (act === "acct-open-signup") return openSignIn("signup");
     if (act === "acct-signin" || act === "acct-signup") {
-      var email = acctVal("acct-email"), pass = (document.getElementById("acct-pass") || {}).value || "";
+      var email = acctVal("acct-email").toLowerCase(), pass = (document.getElementById("acct-pass") || {}).value || "";
       if (!/^\S+@\S+\.\S+$/.test(email)) return acctErr("Enter your email address.");
       if (pass.length < (act === "acct-signup" ? 8 : 1)) return acctErr(act === "acct-signup" ? "Use at least 8 characters." : "Enter your password.");
+      if (act === "acct-signup" && weakPassword(pass)) return acctErr(weakPassword(pass));
       if (act === "acct-signup") {
         if (pass !== ((document.getElementById("acct-pass2") || {}).value || "")) return acctErr("Passwords don’t match.");
         if (!(document.getElementById("acct-consent") || {}).checked) return acctErr("Please agree to the Privacy Policy to continue.");
         policyAccept("signup");
       }
       acctErr("…");
-      /* Sign-up sends no redirect_to on purpose: the confirmation link lands on the project's Site URL (Paper Trail). */
       var p = act === "acct-signup"
-        ? cloudFetch("/auth/v1/signup", { method: "POST", body: { email: email, password: pass, data: { policy_version: POLICY_VERSION, policy_accepted_at: new Date().toISOString() } } })
+        ? cloudFetch("/auth/v1/signup?redirect_to=" + authRedirect(), { method: "POST", body: { email: email, password: pass, data: { policy_version: POLICY_VERSION, policy_accepted_at: new Date().toISOString() } } })
         : cloudFetch("/auth/v1/token?grant_type=password", { method: "POST", body: { email: email, password: pass } });
       return p.then(function (j) {
         if (act === "acct-signin" || (j && j.access_token)) {
@@ -16760,7 +16802,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           cloudSaveSession(j); pendingOtp = null;
           if (po.purpose === "delete") return deleteMyAccount();
           return afterSignIn();
-        }, function (e) { if (e.status === 429) throw e; throw new Error("That code didn’t work or expired. Try the newest one."); })
+        }, function (e) { if (e.status === 429 || e.offline) throw e; throw new Error("That code didn’t work or expired. Try the newest one."); })
         .catch(function (e) { acctErr(e.message); });
     }
     if (act === "acct-delete-start") {
@@ -16770,19 +16812,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return sendEmailCode(em2).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) { showToast(e.message, 4000); });
     }
     if (act === "acct-forgot") {
-      var em = acctVal("acct-email");
+      var em = acctVal("acct-email").toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(em)) return acctErr("Enter your email above first.");
-      return cloudFetch("/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", body: { email: em } })
+      return cloudFetch("/auth/v1/recover?redirect_to=" + authRedirect(), { method: "POST", body: { email: em } })
         .then(function () { acctErr("If that email has an account, a reset link is on its way."); }).catch(function (e) { acctErr(e.message); });
     }
     if (act === "acct-set-password") {
       var np = (document.getElementById("acct-pass") || {}).value || "", np2 = (document.getElementById("acct-pass2") || {}).value || "";
       if (np.length < 8) return acctErr("Use at least 8 characters.");
+      if (weakPassword(np)) return acctErr(weakPassword(np));
       if (np !== np2) return acctErr("Passwords don’t match.");
       /* v37.5.60: no authenticator step-up any more. The reset link (sent to the inbox) proves the email,
        * the same factor as the sign-in code; the next sign-in still asks for the emailed code. */
       return cloudFetch("/auth/v1/user", { method: "PUT", body: { password: np } }, true)
-        .then(function () { showToast("Password updated", 3000); return afterSignIn(); })
+        .then(function () {
+          /* v37.5.61: sign out every other device. GoTrue's logout?scope=others keeps this session. */
+          return cloudFetch("/auth/v1/logout?scope=others", { method: "POST" }, true).catch(function () {});
+        })
+        .then(function () { showToast("Password updated. Other devices are signed out.", 3500); return afterSignIn(); })
         .catch(function (e) { acctErr(/aal2/i.test(e.message || "") ? "This account still has an old authenticator attached. Email us and we'll remove it." : e.message); });
     }
     if (act === "acct-signout") {
@@ -16898,6 +16945,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (t.id === "ob-consent") { var n = document.querySelector('#onboard [data-act="ob-next"]'); if (n) n.disabled = !t.checked; }
     if (t.getAttribute && t.getAttribute("data-signup-check")) signupFormCheck();
   });
+  document.addEventListener("input", function (e) { var t0 = e.target; if (t0 && t0.id === "acct-code") { var ae = document.getElementById("acct-err"); if (ae && /didn.t work|enter the 6-digit/i.test(ae.textContent)) ae.textContent = ""; } });
   document.addEventListener("input", function (e) { var t = e.target; if (t && t.getAttribute && t.getAttribute("data-signup-check")) signupFormCheck(); });
   document.addEventListener("click", function (e) {
     var a = e.target && e.target.closest && e.target.closest("[data-act]"); if (!a) return;
@@ -16918,6 +16966,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<label class="field"><span>Confirm new password</span><input id="acct-pass2" type="password" autocomplete="new-password"></label>' +
         '<div class="acct-actions"><button class="primary" type="button" data-act="acct-set-password">Save password</button></div>');
       return;
+    }
+    /* v37.5.61: confirmation / magic links land here with tokens in the hash. Never keep that session
+     * (sign-in still needs password + code); clear the URL and say what happened. */
+    if (/access_token=|error_description=|error=/.test(h)) {
+      var q2 = {}; h.replace(/^#/, "").split("&").forEach(function (kv) { var p = kv.split("="); q2[p[0]] = decodeURIComponent((p[1] || "").replace(/\+/g, " ")); });
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      if (q2.error || q2.error_description) {
+        openCloudSheet("That link didn’t work", '<p>The link expired or was already used. Sign in to get a new one.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+        return;
+      }
+      if (q2.type === "signup" || q2.type === "email_change" || q2.type === "invite") {
+        openCloudSheet("Email confirmed", '<p>Your email is confirmed. Sign in with your email and password to finish.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+        return;
+      }
+      if (q2.type === "magiclink") {
+        openCloudSheet(pendingOtp ? "Enter your email code" : "Use the code instead", '<p>For your security, type the 6-digit code from that email in Paper Trail instead of tapping the link. Start from Sign in if the code screen isn’t open.</p><div class="acct-actions"><button class="primary" type="button" data-act="acct-open-signin">Sign in</button></div>');
+        return;
+      }
     }
     if (cloudSignedIn() && !loadFailure) cloudSyncNow("open");
   }
@@ -18207,7 +18273,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.60";
+  var APP_VERSION = "37.5.61";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
