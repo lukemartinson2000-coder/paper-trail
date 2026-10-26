@@ -16567,13 +16567,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     cloudJson(CLOUD_SESSION_KEY, s);
     return s;
   }
+  /* v37.5.63: refresh token revoked (password reset / sign-out elsewhere): drop the session and show signed out. */
+  function isDeadSessionErr(e) { return !!e && (e.deadSession || /refresh token|invalid_grant|jwt expired|session.*not found/i.test(String(e.message || ""))); }
+  function cloudSessionDied() {
+    cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null }); cloudStatus = "";
+    showToast("Please sign in again: you were signed out on this device (password changed or signed out elsewhere).", 5000);
+    try { render(); } catch (err) {}
+  }
   function cloudFreshToken() {
     var s = cloudSession();
     if (!s || !s.access_token) return Promise.reject(new Error("Signed out"));
     if ((s.expires_at || 0) - Date.now() / 1000 > 90) return Promise.resolve(s.access_token);
     return cloudFetch("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: s.refresh_token } })
       .then(function (j) { return cloudSaveSession(j).access_token; })
-      .catch(function (e) { if (e.status === 400 || e.status === 401) { cloudJson(CLOUD_SESSION_KEY, null); } throw e; });
+      .catch(function (e) { if (e.status === 400 || e.status === 401 || isDeadSessionErr(e)) { cloudJson(CLOUD_SESSION_KEY, null); e.deadSession = true; } throw e; });
   }
   function cloudRefreshUser() {
     return cloudFetch("/auth/v1/user", {}, true).then(function (u) { var s = cloudSession(); if (s) { s.user = u; cloudJson(CLOUD_SESSION_KEY, s); } return u; });
@@ -16622,7 +16629,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!pl) return cloudAdopt(latest.id, true);
       cloudConflict = latest; showCloudConflict(latest);
       return null;
-    }).catch(function (e) { cloudStatus = "Backup paused: " + e.message; })
+    }).catch(function (e) { if (isDeadSessionErr(e)) { cloudBusy = false; cloudSessionDied(); return; } cloudStatus = "Backup paused: " + e.message; })
       .then(function () { cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = cloudStatus; });
   }
   function cloudNoteChange() {
@@ -16720,6 +16727,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (purpose === "signup"
         ? '<p class="caption">We sent a confirmation email to <strong>' + esc(email) + '</strong>. Type the 6-digit code from it here. (Opening its link works too; then sign in.) Check spam if it’s not there in a minute.</p>'
         : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>') +
+      (purpose === "delete" ? '<p class="caption acct-del-note"><strong>Heads up:</strong> the email is titled “Your sign-in link” and says “Your sign-in code”. That’s the right one: typing that code here confirms the deletion. Don’t tap the link in it.</p>' : '') +
       (purpose === "delete" ? '<p class="caption">This permanently deletes your account and every cloud backup. The books on this device stay unless you erase them in Profile.</p>' : '') +
       '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
       '<div class="acct-actions"><button class="primary' + (purpose === "delete" ? " danger" : "") + '" type="button" data-act="acct-otp-verify">' + (purpose === "delete" ? "Delete my account" : "Continue") + '</button>' +
@@ -16835,7 +16843,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var me = cloudSession(), em2 = me && me.user && me.user.email;
       if (!em2) return;
       if (!window.confirm("Delete your Paper Trail account and all cloud backups?\n\nWe'll email you a code to confirm.")) return;
-      return sendEmailCode(em2).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) { showToast(e.message, 4000); });
+      return sendEmailCode(em2).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) {
+        /* v37.5.63: a 429 here (code asked for under a minute ago) used to be easy to miss. Open the code sheet
+         * anyway with the wait message in it: the code from the last minute still works, or tap Send a new code later. */
+        if (e.status === 429) {
+          openEmailCode(em2, "delete");
+          acctErr("Please wait about a minute before asking for another code. If we emailed you a code in the last minute, type it here.");
+          return;
+        }
+        showToast(e.message, 5000);
+      });
     }
     if (act === "acct-forgot") {
       var em = acctVal("acct-email").toLowerCase();
@@ -17048,7 +17065,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ob = state && state.onboarding;
     if (loadFailure) { renderRecoveryScreen(phone, host); return; }
     /* v37.5.59.121: the new-user survey never opens over saved books. */
-    if (ob && ob.status === "survey" && !ob.retake) {
+    if (ob && ob.status === "survey" && !ob.retake && !ob.resumed) {
       var stored = null; try { stored = localStorage.getItem(STORAGE_KEY); } catch (e) {}
       if (stored && surveyWouldHideBooks(stored)) { loadFailure = { why: "survey over saved books", bytes: stored.length, at: new Date().toISOString(), surveyStuck: true }; keepRawBackup(stored, RESCUE_KEY); renderRecoveryScreen(phone, host); return; }
     }
@@ -17258,6 +17275,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ob = onboarding();
     if (ob.retake || ob.status === "survey") return;
     ob.status = "survey";
+    ob.resumed = true; /* v37.5.63: finishing a skipped survey over real books is intentional; the hide-books guard must not trip */
     ob.screen = ob.resumeScreen || "name";
     ob.error = "";
     closeModal();
@@ -17663,7 +17681,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     applyOnboardAnswers();
     ob.surveyCompletedAt = new Date().toISOString();
     ob.surveyYear = new Date().getFullYear();
-    ob.status = "active";
+    ob.status = "active"; delete ob.resumed;
     ob.screen = "privacy";
     ob.error = "";
     state.tab = "budget";
@@ -17924,7 +17942,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       /* v37.5.59.12: the budget-vs-net-worth pick is gone. Any stale button (old cached page)
        * closes onboarding the same way the survey does and lands on Budget. */
       applyOnboardAnswers();
-      ob.status = "active";
+      ob.status = "active"; delete ob.resumed;
       ob.screen = "plan";
       state.tab = "budget";
       saveState();
@@ -18314,7 +18332,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.62";
+  var APP_VERSION = "37.5.63";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
