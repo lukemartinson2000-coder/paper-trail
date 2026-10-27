@@ -166,12 +166,48 @@
     return lib.zipSync(files, { level: 6 });
   }
 
+  /* v37.5.64 (review C2): Vault files are only PNG, JPEG, WebP, HEIC or PDF, judged by their first bytes,
+   * never by the label in the data URL. Returns the real MIME type or "" when not allowed. */
+  var DOC_MIMES = ["image/png", "image/jpeg", "image/webp", "image/heic", "application/pdf"];
+  function sniffDocMime(bytes) {
+    if (!bytes || bytes.length < 4) return "";
+    var b = function (i) { return bytes[i] | 0; };
+    var str = function (from, n) { var o = ""; for (var i = from; i < from + n && i < bytes.length; i++) o += String.fromCharCode(b(i)); return o; };
+    if (str(0, 4) === "%PDF") return "application/pdf";
+    if (b(0) === 0x89 && str(1, 3) === "PNG") return "image/png";
+    if (b(0) === 0xFF && b(1) === 0xD8 && b(2) === 0xFF) return "image/jpeg";
+    if (str(0, 4) === "RIFF" && str(8, 4) === "WEBP") return "image/webp";
+    if (str(4, 4) === "ftyp" && /^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/.test(str(8, 4))) return "image/heic";
+    return "";
+  }
+  function b64Head(b64, nBytes) {
+    var chunk = String(b64 || "").replace(/\s+/g, "").slice(0, Math.ceil(nBytes / 3) * 4);
+    chunk = chunk.slice(0, chunk.length - (chunk.length % 4));
+    try {
+      var bin = typeof atob === "function" ? atob(chunk) : Buffer.from(chunk, "base64").toString("binary");
+      var out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    } catch (e) { return null; }
+  }
+  /* MIME of a base64 data URL by content, or "" if it isn't an allowed Vault file. */
+  function dataUrlDocMime(d) {
+    var m = /^data:[^,]*;base64,(.*)$/.exec(typeof d === "string" ? d.slice(0, 200) : "");
+    if (!m) return "";
+    return sniffDocMime(b64Head(d.slice(d.indexOf(",") + 1, d.indexOf(",") + 65), 48));
+  }
+
+  /* v37.5.64 (review M4): values starting with = + - @ tab or CR open as formulas in Excel/Sheets. */
+  function csvSafe(s) {
+    return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  }
+
   function csvFromRows(rows) {
     var lines = (rows || []).map(function (r) {
       return (r || []).map(function (raw) {
         var v = raw && typeof raw === "object" ? raw.v : raw;
         if (v == null) return "";
-        var s = typeof v === "number" ? String(Math.round(v * 100) / 100) : String(v);
+        var s = typeof v === "number" ? String(Math.round(v * 100) / 100) : csvSafe(String(v));
         return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(",");
     });
@@ -236,12 +272,17 @@
     var blobs = obj.documents && typeof obj.documents === "object" ? obj.documents : {};
     var blobCount = 0;
     var badBlob = "";
+    var badType = "";
     Object.keys(blobs).forEach(function (id) {
       var d = blobs[id];
-      if (typeof d === "string" && /^data:[^,]*;base64,/.test(d)) blobCount += 1;
+      if (typeof d === "string" && /^data:[^,]*;base64,/.test(d)) {
+        if (dataUrlDocMime(d)) blobCount += 1;
+        else if (!badType) badType = id;
+      }
       else badBlob = id;
     });
     if (badBlob) return fail("Vault file " + badBlob + " is not a base64 data URL.");
+    if (badType) return fail("Vault file " + String(badType).slice(0, 40) + " isn't a photo or PDF. Only PNG, JPEG, WebP, HEIC and PDF files can be restored.");
     return {
       ok: true,
       error: "",
@@ -280,9 +321,14 @@
     ok(validateBackup(null).ok === false, "backup null rejected");
     ok(validateBackup({ kind: "nope" }).ok === false, "backup wrong kind rejected");
     ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: {}, worth: {} } }).ok === false, "backup missing NW lines rejected");
-    var good = validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: { "2026-9": { categories: [], transactions: [{}] } }, worth: { lines: [] }, profile: { documents: [{ id: "d1" }] } }, documents: { d1: "data:application/pdf;base64,JVBERi0=" } });
+    var good = validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: { "2026-9": { categories: [], transactions: [{ amount: 0 }] } }, worth: { lines: [] }, profile: { documents: [{ id: "d1" }] } }, documents: { d1: "data:application/pdf;base64,JVBERi0=" } });
     ok(good.ok && good.summary.transactions === 1 && good.summary.files === 1, "good backup accepted");
     ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: {}, worth: { lines: [] } }, documents: { d1: "http://x" } }).ok === false, "non-dataURL blob rejected");
+    ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: {}, worth: { lines: [] } }, documents: { d1: "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==" } }).ok === false, "html blob rejected");
+    ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: {}, worth: { lines: [] } }, documents: { d1: "data:application/pdf;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==" } }).ok === false, "html labeled pdf rejected");
+    ok(dataUrlDocMime("data:image/png;base64,iVBORw0KGgo=") === "image/png", "png sniffed");
+    var csv2 = csvFromRows([["=HYPERLINK(\"x\")", "+1", "-2", "@a", "ok"]]);
+    ok(csv2.indexOf("\"'=HYPERLINK(\"\"x\"\")\"") > 0 && csv2.indexOf("'+1") > 0 && csv2.indexOf("'@a") > 0 && csv2.indexOf(",ok") > 0, "csv formula guard " + csv2);
     ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: { "2026-10": { year: 2026, month: 10, categories: [], transactions: [null] } }, worth: { lines: [] } } }).ok === false, "null transaction rejected");
     ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: { "2026-10": { year: 2026, month: 10, categories: [], transactions: [] } }, worth: { lines: [null] } } }).ok === false, "null NW line rejected");
     ok(validateBackup({ kind: BACKUP_KIND, format: 1, state: { months: { "abc-13": { year: "abc", month: 13, categories: [], transactions: [] } }, worth: { lines: [] } } }).ok === false, "bad YM rejected");
@@ -299,6 +345,9 @@
     buildXlsx: buildXlsx,
     csvFromRows: csvFromRows,
     validateBackup: validateBackup,
+    sniffDocMime: sniffDocMime,
+    dataUrlDocMime: dataUrlDocMime,
+    DOC_MIMES: DOC_MIMES,
     colName: colName,
     xmlEsc: xmlEsc,
     selfTest: selfTest

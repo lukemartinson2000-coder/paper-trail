@@ -15,26 +15,17 @@ create index if not exists book_versions_user_id_idx on public.book_versions (us
 
 alter table public.book_versions enable row level security;
 
--- Helper: true when the signed-in user has a verified second factor.
-create or replace function public.pt_has_verified_factor() returns boolean
-language sql stable security definer set search_path = '' as $$
-  select exists (select 1 from auth.mfa_factors f
-                 where f.user_id = auth.uid() and f.status = 'verified');
-$$;
-
--- Own rows only. If two-step sign-in is on, the session must have passed it (aal2).
+-- Own rows only. (v37.5.64: the old TOTP/aal2 clause is gone; the email-code requirement lives in
+-- 002_require_email_code.sql as a RESTRICTIVE policy that is AND-ed with these.)
 drop policy if exists "own rows select" on public.book_versions;
 create policy "own rows select" on public.book_versions for select to authenticated
-  using (user_id = auth.uid()
-         and ((auth.jwt()->>'aal') = 'aal2' or not public.pt_has_verified_factor()));
+  using (user_id = auth.uid());
 drop policy if exists "own rows insert" on public.book_versions;
 create policy "own rows insert" on public.book_versions for insert to authenticated
-  with check (user_id = auth.uid()
-         and ((auth.jwt()->>'aal') = 'aal2' or not public.pt_has_verified_factor()));
+  with check (user_id = auth.uid());
 drop policy if exists "own rows delete" on public.book_versions;
 create policy "own rows delete" on public.book_versions for delete to authenticated
-  using (user_id = auth.uid()
-         and ((auth.jwt()->>'aal') = 'aal2' or not public.pt_has_verified_factor()));
+  using (user_id = auth.uid());
 -- No update policy: versions are append-only.
 
 -- Keep only the newest 10 versions per user.

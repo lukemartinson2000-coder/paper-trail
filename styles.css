@@ -5227,3 +5227,22 @@ button.danger,.danger-btn{color:var(--danger);border-color:var(--danger)}
 .ed-check{color:var(--moss);font-weight:700}
 
 .ed-amt-ghost{opacity:.35}
+
+/* v37.5.64 (review U2): the quick tour hides while any sheet/modal is open. */
+.phone:has(#modal:not([hidden])) .tour-coach, .tour-coach[hidden] { display: none !important; }
+/* v37.5.64 (review U3): "Try sample data" is an equal-size button, outlined. */
+.onboard button.onboard-primary.onboard-demo, button.onboard-primary.onboard-demo { background: transparent !important; color: var(--moss) !important; border: 1.5px solid var(--moss) !important; margin-top: 12px; }
+
+/* v37.5.64 follow-up: quick "Add your income" sheet from the Finish setup checklist. */
+.quick-income .qi-freq { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 14px; }
+.quick-income .pill { min-height: 44px; border: 1.5px solid var(--line, #d8d4cc); border-radius: 12px; background: transparent; font: inherit; color: inherit; }
+.quick-income .pill.on { border-color: var(--moss, #1f7a5f); background: var(--moss, #1f7a5f); color: #fff; font-weight: 600; }
+.quick-income .form-error { color: var(--danger, #b3261e); font-weight: 600; margin: 6px 0; }
+.quick-income .form-error:empty { display: none; }
+.quick-income .primary { width: 100%; margin-top: 4px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--moss); background: var(--moss); color: #f7f4ee; font: inherit; font-weight: 700; }
+.quick-income .text-btn { display: block; margin: 12px auto 0; }
+.left-to-budget:empty { display: none; }
+.quick-income .text-btn.qi-details { font-size: 0.85rem; opacity: 0.7; text-decoration: none; margin-top: 10px; }
+/* v37.5.64: quiet × skip on Finish setup rows; 44x44 tap target via negative margin so the row height stays the same. */
+.notif-item .notif-skip-x { width: 44px; height: 44px; margin: -10px 0 -10px auto; padding: 0; border: 0; background: transparent; color: #a8a49c; font-size: 20px; line-height: 44px; text-align: center; cursor: pointer; flex: 0 0 44px; }
+.notif-item .notif-skip-x:hover, .notif-item .notif-skip-x:focus-visible { color: #6f6b64; }

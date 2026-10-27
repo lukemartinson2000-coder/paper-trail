@@ -1842,11 +1842,11 @@
   function dataUrlToBlob(dataUrl) {
     try {
       var parts = String(dataUrl).split(",");
-      var meta = parts[0] || "";
-      var mime = (meta.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
       var binary = atob(parts[1] || "");
       var bytes = new Uint8Array(binary.length);
       for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      /* v37.5.64 (review C2): the type comes from the file's own bytes, never the label. */
+      var mime = (window.PaperTrailExport && PaperTrailExport.sniffDocMime(bytes)) || "application/octet-stream";
       return new Blob([bytes], { type: mime });
     } catch (err) {
       return null;
@@ -4521,7 +4521,7 @@
       '<p class="left-to-budget' + (ltb < 0 ? " over" : ltb === 0 ? " zero" : "") + '" id="left-to-budget">' +
       (ltb > 0 ? '<span class="mono moss">' + money(ltb) + "</span> left to budget"
         : ltb < 0 ? '<span class="mono rust">' + money(-ltb) + "</span> over budget"
-        : "Every dollar has a job") + "</p>";
+        : totals.income > 0 || totals.assigned > 0 ? "Every dollar has a job" : "") + "</p>"; /* v37.5.64: no line on an empty month */
     html +=
       '<section class="hero budget-hero" data-mode="' + hMode + '">' +
       "<div><p class='kicker'>" + hKicker + "</p>" +
@@ -4536,7 +4536,7 @@
     if (incOpen) {
       html += '<p class="section-label">Take-home paychecks ' + helpQ("What lands in your account after tax. Gross pay lives on your Income statement.") + "</p>";
       (month.incomes || []).forEach(function (item) {
-        html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + item.id + '">' +
+        html += '<div class="income-row-wrap"><button class="row-btn income-row" type="button" data-act="edit-income" data-id="' + esc(item.id) + '">' +
           '<div class="row"><div><div class="name">' + esc(item.name || "Paycheck 1") + "</div></div>" +
           "<span class='mono moss' role='button' tabindex='0' data-act='edit-income' data-focus='amount' data-id='" + item.id + "' aria-label='Edit " + esc(item.name || "Paycheck 1") + " amount'>" + money(item.amount) + "</span></div></button>" +
           docCueHtml("income") + "</div>";
@@ -4554,7 +4554,7 @@
       var amountClass = envelopeMode() === "remaining" && shown >= 0 ? tone(shown) : "ink";
       html += '<div class="envelope">' +
         '<div class="envelope-head">' +
-        '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + cat.id + '">' +
+        '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + esc(cat.id) + '">' +
         '<div class="name">' + esc(cat.name) + "</div>" +
         "</button>" +
         '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>";
@@ -4564,7 +4564,7 @@
         var lines = sortedLines(cat);
         html += '<div class="envelope-line">';
         html += '<div class="envelope-line-head">';
-        html += lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + line.id + '"');
+        html += lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + esc(line.id) + '"');
         var cueKind = /^debt$/i.test(cat.name) ? "loan"
           : /^insurance$/i.test(cat.name) ? "insurance"
           : /401/.test(String(line.name || "").toLowerCase()) ? "k401"
@@ -4576,7 +4576,7 @@
         html += "</div>";
         html += "</div>";
       });
-      html += '<button class="add-line" type="button" data-act="add-line" data-id="' + cat.id +
+      html += '<button class="add-line" type="button" data-act="add-line" data-id="' + esc(cat.id) +
         '" aria-label="Add subsection to ' + esc(cat.name) + '">+</button>';
       html += "</div>";
     });
@@ -6222,7 +6222,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function collectLoans(month) {
     return collectListedDebts(month).filter(function (loan) {
-      return loan.balance > 0 && loan.apr > 0 && loan.min > 0;
+      /* v37.5.64 (review): a loan with an APR typed as 0% is still a debt to pay off. */
+      return loan.balance > 0 && (loan.apr > 0 || (loan.apr === 0 && loan.aprSet)) && loan.min > 0;
     });
   }
 
@@ -6239,6 +6240,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           name: line.name,
           balance: Number(line.loanBalance) || 0,
           apr: Number(line.loanApr) || 0,
+          aprSet: line.loanApr !== "" && line.loanApr != null && isFinite(Number(line.loanApr)),
           min: Number(line.loanMinPayment) || 0,
           originalBalance: Number(line.loanOriginalBalance) || 0,
           debtType: line.loanDebtType || ""
@@ -6259,6 +6261,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           name: line.name,
           balance: (Number(line.loanBalance) || 0) > 0 ? Number(line.loanBalance) : nwAmount,
           apr: Number(line.loanApr) || 0,
+          aprSet: line.loanApr !== "" && line.loanApr != null && isFinite(Number(line.loanApr)),
           min: Number(line.loanMinPayment) || 0,
           originalBalance: Number(line.loanOriginalBalance) || 0,
           debtType: line.loanDebtType || ""
@@ -6722,7 +6725,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     keys.forEach(function (item) {
       var on = sort.key === item.id;
       var arrow = on ? (sort.dir === "asc" ? " ↑" : " ↓") : "";
-      html += '<button type="button" data-act="loan-sort" data-key="' + item.id + '"' +
+      html += '<button type="button" data-act="loan-sort" data-key="' + esc(item.id) + '"' +
         (on ? ' class="active" aria-pressed="true"' : ' aria-pressed="false"') + ">" +
         esc(item.title + arrow) + "</button>";
     });
@@ -6812,7 +6815,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var c = GM.classifyDebt(l, age) || {};
       return {
         id: String(l.id), source: l.source, name: l.name || "Loan", balance: bal, apr: l.apr, min: l.min, debtType: l.debtType,
-        typed: typed, paid: paid, tier: c.tier || null, on: !p.off[l.id], ready: bal > 0 && l.apr > 0 && l.min > 0, ignore: !!p.ignore[l.id]
+        typed: typed, paid: paid, tier: c.tier || null, on: !p.off[l.id], ready: bal > 0 && (l.apr > 0 || (l.apr === 0 && l.aprSet)) && l.min > 0, ignore: !!p.ignore[l.id]
       };
     }).filter(function (l) { return l.balance > 0 || l.apr > 0 || l.min > 0; });
   }
@@ -8460,7 +8463,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (item.caption && item.fooStep !== 3) {
       html += '<p class="caption">' + esc(item.caption) + "</p>";
     }
-    if (showExtra && loan.balance > 0 && loan.apr > 0 && loan.min > 0) {
+    if (showExtra && loan.balance > 0 && (loan.apr > 0 || (loan.apr === 0 && loan.aprSet)) && loan.min > 0) {
       html += '<label class="field extra-field">Extra $ / mo' +
         '<input class="cents-input" data-dollars="1" data-act="loan-extra" data-loan="' +
         esc(loan.name) + '" inputmode="numeric" autocomplete="off" type="text" value="' +
@@ -11658,7 +11661,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var spent = statementLastMonthSpent(month, previousMonth, cat);
       var left = assigned - spent;
       lastMonthActual += spent;
-      html += '<button class="stmt-row row-btn dense" type="button" data-act="open-envelope" data-id="' + cat.id + '">' +
+      html += '<button class="stmt-row row-btn dense" type="button" data-act="open-envelope" data-id="' + esc(cat.id) + '">' +
         '<span class="name">' + esc(cat.name) + "</span>" +
         "<span>" + money(assigned) + "</span><span>" + money(spent) + "</span>" +
         '<span class="' + tone(left) + '">' + money(left) + "</span></button>";
@@ -11848,7 +11851,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var kind = k401Kind(line); // v37.5.59.107: unset = traditional (never assume Roth)
     var tag = kind ? '<span class="k401-tag">' + (kind === "roth" ? "Roth" : "Traditional") + "</span>" : "";
     var seg = function (v, label) {
-      return '<button type="button" class="' + (kind === v ? "on" : "") + '" data-act="set-401k-type" data-id="' + line.id + '" data-v="' + v + '">' + label + "</button>";
+      return '<button type="button" class="' + (kind === v ? "on" : "") + '" data-act="set-401k-type" data-id="' + esc(line.id) + '" data-v="' + v + '">' + label + "</button>";
     };
     return '<div class="k401-sum"><div class="k401-pct">You ' + fp(youP) + ' ' + tag + ' · Employer ' + fp(erP) + ' · Total ' + fp(totP) + "</div>" +
       '<div class="k401-amt">You ' + fd(youD) + ' · Employer ' + fd(erD) + ' · Total ' + fd(totD) + " a year</div>" +
@@ -11936,7 +11939,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var shown = cur ? years.slice(-cur.n) : years;
     if (cur) trend = null;
     var chips = avail.length ? '<div class="trend-chips" role="group" aria-label="Trend range">' + avail.concat([TREND_RANGES[2]]).map(function (r) {
-      return '<button type="button" class="trend-chip' + (r.id === range ? " on" : "") + '" data-act="trend-range" data-range="' + r.id + '" aria-pressed="' + (r.id === range) + '">' + r.label + "</button>";
+      return '<button type="button" class="trend-chip' + (r.id === range ? " on" : "") + '" data-act="trend-range" data-range="' + esc(r.id) + '" aria-pressed="' + (r.id === range) + '">' + r.label + "</button>";
     }).join("") + "</div>" : "";
     var sel = shown.indexOf(state.worthScrubYear) >= 0 ? state.worthScrubYear : (shown.indexOf(year) >= 0 ? year : shown[shown.length - 1]);
     years = shown;
@@ -12253,18 +12256,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var yoyPct = (prior != null && prior > 0) ? (current - prior) / prior : null;
         var open = !!nwOpenLines[line.id];
         var chev = '<span class="nw-chev" aria-hidden="true"></span>';
-        var amtAttr = ' role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + line.id +
+        var amtAttr = ' role="button" tabindex="0" data-act="edit-line" data-focus="amount" data-id="' + esc(line.id) +
           '" aria-label="Edit ' + esc(line.name) + ' amount"';
-        html += '<div class="worth-line' + (open ? " open" : "") + (nwLeftOut(line) ? " nw-left-out" : "") + '" data-nw-id="' + line.id + '">';
+        html += '<div class="worth-line' + (open ? " open" : "") + (nwLeftOut(line) ? " nw-left-out" : "") + '" data-nw-id="' + esc(line.id) + '">';
         html += '<div class="worth-line-head">';
         if (priorYear != null) {
-          html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
+          html += '<button class="row-btn worth-line-main worth-years-row" type="button" data-act="toggle-nw-line" data-id="' + esc(line.id) + '" aria-expanded="' + open + '">' +
             '<span class="worth-years-name">' + chev + '<span class="name">' + esc(line.name) + "</span></span>" +
             '<span class="mono worth-col">' + moneyWhole(prior) + "</span>" +
             '<span class="mono worth-col nw-amt"' + amtAttr + '>' + (worthBlank(year) ? "—" : moneyWhole(current)) + "</span>" +
             '<span class="mono worth-delta ' + tone(yoy) + '">' + worthDeltaText(yoy, yoyPct) + "</span></button>";
         } else {
-          html += '<button class="row-btn worth-line-main" type="button" data-act="toggle-nw-line" data-id="' + line.id + '" aria-expanded="' + open + '">' +
+          html += '<button class="row-btn worth-line-main" type="button" data-act="toggle-nw-line" data-id="' + esc(line.id) + '" aria-expanded="' + open + '">' +
             "<div>" + chev + "<span class='name'>" + esc(line.name) + "</span></div>" +
             '<span class="mono nw-amt"' + amtAttr + '>' + (worthBlank(year) ? "—" : money(current)) + "</span></button>";
         }
@@ -12306,7 +12309,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
               (irrGains == null ? "ink" : tone(irrGains)) + '">' + (irrGains == null ? "—" : percent(irrGains)) + "</span></div>";
           }
         }
-        html += '<button class="text-btn nw-edit-btn" type="button" data-act="edit-line" data-id="' + line.id + '">Edit</button>';
+        html += '<button class="text-btn nw-edit-btn" type="button" data-act="edit-line" data-id="' + esc(line.id) + '">Edit</button>';
         html += "</div></div>";
         html += "</div>";
       });
@@ -12792,8 +12795,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var lineSpent = spentOnLine(month, line.id);
       var lineLeft = (Number(line.assigned) || 0) - lineSpent;
       html += '<div class="detail-line">' +
-        lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + line.id + '"') +
-        '<div class="caption">Planned <span class="mono detail-amt" role="button" tabindex="0" data-act="edit-line-item" data-focus="assigned" data-id="' + line.id + '" aria-label="Edit ' + esc(line.name) + ' planned amount">' + money(line.assigned) + "</span> · Spent " + money(lineSpent) + "</div>" +
+        lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + esc(line.id) + '"') +
+        '<div class="caption">Planned <span class="mono detail-amt" role="button" tabindex="0" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(line.id) + '" aria-label="Edit ' + esc(line.name) + ' planned amount">' + money(line.assigned) + "</span> · Spent " + money(lineSpent) + "</div>" +
         '<div class="caption ' + (lineLeft < 0 ? "ink" : tone(lineLeft)) + '">' + money(lineLeft) + " remaining</div>" +
         "</div>";
     });
@@ -13928,10 +13931,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var lines = "";
     sortedCategories(month).forEach(function (cat) {
       sortedLines(cat).forEach(function (line) {
-        lines += '<button class="quick-line" type="button" data-act="quick-spend-line" data-id="' + line.id + '">' +
+        lines += '<button class="quick-line" type="button" data-act="quick-spend-line" data-id="' + esc(line.id) + '">' +
           "<div><span class='env'>" + esc(cat.name) + "</span>" +
           lineNameSpan(line.name) + "</div>" +
-          '<span class="check" data-check="' + line.id + '"></span></button>';
+          '<span class="check" data-check="' + esc(line.id) + '"></span></button>';
       });
     });
     var modal = document.getElementById("modal");
@@ -14336,7 +14339,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption">By default Salary, Bonus (while its month is ahead) and 401k match here feed this year’s income statement. Pay stubs still win once confirmed. Nothing you typed there is changed or deleted.</p>' +
       '<label class="sync-toggle"><input type="checkbox" data-act="sync-toggle" data-line="all"' + (cfg.off ? " checked" : "") + '> Don’t sync from Compensation</label>';
     SYNC_LINES.forEach(function (l) {
-      html += '<label class="sync-toggle sync-line"><input type="checkbox" data-act="sync-toggle" data-line="' + l.id + '"' +
+      html += '<label class="sync-toggle sync-line"><input type="checkbox" data-act="sync-toggle" data-line="' + esc(l.id) + '"' +
         (cfg.lines[l.id] ? " checked" : "") + (cfg.off ? " disabled" : "") + "> Don’t sync " + esc(l.label) + "</label>";
     });
     return html;
@@ -15003,20 +15006,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="sd-line' + (manual ? " is-manual" : "") + '"><div class="sd-top"><span class="sd-name">' + ln.label + "</span>" +
         (manual ? '<span class="sd-tag is-manual">Manual</span>' : "") +
         '<div class="sd-seg" role="group" aria-label="' + ln.label + ' source">' +
-        '<button type="button" class="' + (manual ? "" : "on") + '" data-sd="mode-stub" data-line="' + ln.id + '" aria-pressed="' + (manual ? "false" : "true") + '">Stub</button>' +
-        '<button type="button" class="' + (manual ? "on" : "") + '" data-sd="mode-manual" data-line="' + ln.id + '" aria-pressed="' + (manual ? "true" : "false") + '">Manual</button></div></div>';
+        '<button type="button" class="' + (manual ? "" : "on") + '" data-sd="mode-stub" data-line="' + esc(ln.id) + '" aria-pressed="' + (manual ? "false" : "true") + '">Stub</button>' +
+        '<button type="button" class="' + (manual ? "on" : "") + '" data-sd="mode-manual" data-line="' + esc(ln.id) + '" aria-pressed="' + (manual ? "true" : "false") + '">Manual</button></div></div>';
       if (!manual) {
         if (stub != null) html += '<p class="sd-stubval"><span class="mono">' + esc(statedFmt(ln.unit, stub)) + '</span> <span class="caption">from your pay stub</span></p>';
-        else html += '<p class="sd-nostub">' + (hasStub ? "No stub data, " : "No pay stub yet, ") + '<button type="button" class="link-btn" data-sd="mode-manual" data-line="' + ln.id + '">switch to Manual</button></p>';
+        else html += '<p class="sd-nostub">' + (hasStub ? "No stub data, " : "No pay stub yet, ") + '<button type="button" class="link-btn" data-sd="mode-manual" data-line="' + esc(ln.id) + '">switch to Manual</button></p>';
         if (st.v != null) html += '<p class="caption quiet">Your saved Manual value: ' + esc(ln.unit === "$" && Number(st.v) % 1 ? formatMoney(Number(st.v), 2) : statedFmt(ln.unit, Number(st.v))) + "</p>";
       } else {
         var shown = st.v == null ? "" : (ln.unit === "$" ? moneyEntry(Number(st.v)) : Number(st.v).toFixed(2) + "%");
         html += (ln.unit === "$"
-          ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
-          : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + ln.id + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
-          '<p class="sd-stub">' + deleteBtnHtml("", "Clear manual value", ' data-sd="clear" data-line="' + ln.id + '"', true) + ' · Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
-          (stub != null ? ' · <button type="button" class="link-btn" data-sd="mode-stub" data-line="' + ln.id + '">use stub</button>' : "") + "</p>" +
-          '<input class="sd-note" data-sd="note" data-line="' + ln.id + '" type="text" maxlength="200" placeholder="Note (optional)" value="' + esc(st.note || "") + '" aria-label="' + ln.label + ' note">';
+          ? '<input id="sd-' + ln.id + '" class="sd-input cents-input" data-dollars="1" data-sd="value" data-line="' + esc(ln.id) + '" inputmode="numeric" autocomplete="off" type="text" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual">'
+          : '<input id="sd-' + ln.id + '" class="sd-input" data-pctc="1" data-sd="value" data-line="' + esc(ln.id) + '" inputmode="numeric" autocomplete="off" type="text" placeholder="0.00%" value="' + esc(shown) + '" aria-label="' + ln.label + ' manual percent">') +
+          '<p class="sd-stub">' + deleteBtnHtml("", "Clear manual value", ' data-sd="clear" data-line="' + esc(ln.id) + '"', true) + ' · Pay stub: <span class="mono">' + esc(statedFmt(ln.unit, stub)) + "</span>" +
+          (stub != null ? ' · <button type="button" class="link-btn" data-sd="mode-stub" data-line="' + esc(ln.id) + '">use stub</button>' : "") + "</p>" +
+          '<input class="sd-note" data-sd="note" data-line="' + esc(ln.id) + '" type="text" maxlength="200" placeholder="Note (optional)" value="' + esc(st.note || "") + '" aria-label="' + ln.label + ' note">';
       }
       html += "</div>";
     });
@@ -15453,9 +15456,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<label class="field">Name' +
       '<input data-act="profile-name" type="text" autocomplete="name" value="' +
       esc(profile.name || "") + '" placeholder="Your name"></label>' +
-      '<label class="field">Phone' +
-      '<input data-act="profile-phone" type="tel" autocomplete="tel" inputmode="tel" value="' +
-      esc(profile.phone || "") + '" placeholder="(555) 010-0100"></label>' +
+      /* v37.5.64 (review U): unexplained phone field removed; any saved value is kept, never shown. */
       '<label class="field">Birthday' +
       '<input data-act="profile-birthday" type="date" min="1920-01-01" max="' +
       esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
@@ -15500,8 +15501,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "</select></label>" +
       '<p class="caption">Used only for Suggest paycheck. Never auto-writes Budget paycheck $.</p>' +
       profileDocumentsHtml(profile) +
-      '<button class="matters-btn profile-door" type="button" data-act="open-matters">What matters to you</button>' +
-      '<p class="caption">A short survey about your goals. Your answers shape the tips on your Dashboard.</p>' +
       profileSharingHtml() +
       profileDataHtml() +
       '<button class="data-btn about-door" type="button" data-act="open-about"><strong>About &amp; Privacy</strong><span class="caption">Backups · what’s stored · tester sharing · version ' + esc(APP_VERSION) + '</span></button>' +
@@ -15524,7 +15523,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       requestAnimationFrame(function () { restoreSheetUi(ui); });
     }
     if (profileHighlightDocId) {
-      var row = modal.querySelector('[data-doc-row="' + profileHighlightDocId + '"]');
+      var row = modal.querySelector('[data-doc-row="' + esc(profileHighlightDocId) + '"]');
       if (row) {
         row.classList.add("is-highlight");
         if (row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
@@ -15684,7 +15683,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       steps.push({ id: "worth", n: 3, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
     }
     steps.push({ id: "paystub", n: 4, title: "Add to the Vault", done: hasStub || docs, go: "ob-cl-go-vault" });
-    steps.push({ id: "survey", n: 5, title: "Complete the welcome survey", done: surveyDone, go: "ob-finish-survey" });
+    /* v37.5.64: the long welcome survey is no longer a setup step. */
+    void surveyDone;
     steps.forEach(function (st) { st.skipped = !!(ob.skipped || {})[st.id] && !st.done; });
     return steps;
   }
@@ -15719,7 +15719,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="notif-item' + (s.done ? " is-done" : "") + '">' +
         '<span class="notif-mark" aria-hidden="true">' + (s.done ? "✓" : "") + "</span>" +
         '<span class="notif-text">' + esc(s.title) + "</span>" +
-        (s.done ? "" : '<button class="notif-skip" type="button" data-act="ob-cl-skip" data-id="' + s.id + '">Skip</button>' +
+        /* v37.5.64 follow-up (owner): per-row "Skip" is a quiet × (same handler). */
+        (s.done ? "" : '<button class="notif-skip-x" type="button" data-act="ob-cl-skip" data-id="' + esc(s.id) + '" aria-label="Skip" title="Skip">×</button>' +
           '<button class="notif-go" type="button" data-act="' + s.go + '">Go</button>') + "</div>";
     });
     var skipped = p.steps.filter(function (s) { return s.skipped; });
@@ -15728,7 +15729,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       skipped.forEach(function (s) {
         html += '<div class="notif-item is-skipped"><span class="notif-mark" aria-hidden="true">–</span>' +
           '<span class="notif-text">' + esc(s.title) + '</span>' +
-          '<button class="notif-skip" type="button" data-act="ob-cl-restore" data-id="' + s.id + '">Restore</button></div>';
+          '<button class="notif-skip" type="button" data-act="ob-cl-restore" data-id="' + esc(s.id) + '">Restore</button></div>';
       });
     }
     if (p.complete) html += '<button class="planner-apply notif-dismiss" type="button" data-act="ob-dismiss">Dismiss</button>';
@@ -15838,6 +15839,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function onboardFlow(ob) {
+    /* v37.5.64 (review U3): first run is welcome + consent, then Budget. The long survey below is kept
+     * dormant (no entry point since the v37.5.64 follow-up). */
+    if (!(ob && ob.retake)) {
+      /* v37.5.64 (follow-up): no intro survey at all. Welcome + consent, then Budget; the Finish setup
+       * checklist handles income and pay frequency in context. */
+      return welcomeSeen() ? ["welcome2"] : ["welcome", "welcome2"];
+    }
     var screens = [
       "welcome", "welcome2", "name", "pay", "birthday", "pets", "serious", "confidence", "stress",
       "best", "worst", "wants", "fears", "decide", "education", "advisor", "margin", "insurance",
@@ -15889,6 +15897,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function surveyReady(screen, a) {
     if (screen === "name" || screen === "best" || screen === "worst" || screen === "welcome" || screen === "welcome2" || screen === "privacy") return true;
     if (screen === "pay") return !!a.payFrequency;
+    if (screen === "takehome") return true;
     if (screen === "birthday") return !!a.birthday;
     if (screen === "serious") return a.serious === "today" || Number(a.serious) >= 1;
     if (screen === "confidence") return Number(a.confidence) >= 1 && Number(a.confidence) <= 10;
@@ -16221,7 +16230,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (screen === "welcome2") {
         html += '<button class="text-btn" type="button" data-act="ob-back">Back</button>';
       } else if (!hasRealData()) {
-        html += '<button class="text-btn" type="button" data-act="ob-demo">Show me a demo</button>';
+        html += '<button class="primary onboard-primary onboard-demo" type="button" data-act="ob-demo">Try sample data</button>';
       }
       if (cloudCfg() && screen === "welcome" && !cloudSignedIn()) html += '<button class="text-btn" type="button" data-act="acct-open-signin">I have an account · Sign in</button>';
       html += "</div>";
@@ -16234,6 +16243,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (screen === "pay") {
       html += "<h2>How often do you get paid?</h2>" + surveyChoicesHtml(ONBOARD_PAY_CHOICES, a.payFrequency, false);
       html += surveyActions(back, surveyReady(screen, a));
+    } else if (screen === "takehome") {
+      html += "<h2>Take-home per paycheck</h2>" +
+        '<label class="field">Take-home pay<input name="obTakeHome" type="text" inputmode="decimal" autocomplete="off" value="' +
+        esc(Number(a.takeHome) > 0 ? String(a.takeHome) : "") + '" placeholder="$0.00"></label>' +
+        '<p class="caption">Optional. What lands in your bank account each payday, after taxes. It fills your paychecks on Budget.</p>' +
+        '<div class="onboard-actions">' + back +
+        '<button class="primary" type="button" data-act="ob-next">Start my budget</button></div>';
     } else if (screen === "birthday") {
       html += "<h2>Birthday</h2>" +
         '<label class="field">Birthday<input name="obBirthday" type="date" min="1920-01-01" max="' +
@@ -16315,7 +16331,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (screen === "privacy") {
       html += '<div class="onboard-privacy"><p class="onboard-lock" aria-hidden="true">🔒</p>' +
         "<h2>What testers share</h2>" +
-        '<p class="onboard-sharing">As a Paper Trail tester, you share app data with your tester code to help find bugs and improve Paper Trail. That includes your survey answers and percentages like savings rate, plus dollar amounts and Vault details (document count and types). You can turn off dollar amounts and Vault details in Profile › Data sharing.</p></div>' +
+        '<p class="onboard-sharing">Only invited testers who enter a tester code in Profile › Data sharing share app data. Without a code, nothing leaves this device. Testers share percentages like savings rate; dollar amounts and Vault details stay off unless they switch them on.</p></div>' +
         '<div class="onboard-actions">' + back +
         '<button class="primary" type="button" data-act="ob-survey-finish">Sounds good</button></div>';
     } else {
@@ -16447,8 +16463,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       host.innerHTML = list.map(function (s) {
         return '<div class="snap-row"><div class="snap-meta"><strong>' + esc(snapWhen(s.at)) + '</strong><span class="caption">' +
           esc(s.reason || "") + " · v" + esc(String(s.version || "").replace(/^37\.5\./, "")) + " · " + (s.tx || 0) + " transactions · " + Math.max(1, Math.round((s.bytes || 0) / 1024)) + " KB</span></div>" +
-          '<button class="text-btn" type="button" data-act="snap-restore" data-id="' + s.id + '">Restore</button>' +
-          '<button class="text-btn" type="button" data-act="snap-download" data-id="' + s.id + '">Download</button></div>';
+          '<button class="text-btn" type="button" data-act="snap-restore" data-id="' + esc(s.id) + '">Restore</button>' +
+          '<button class="text-btn" type="button" data-act="snap-download" data-id="' + esc(s.id) + '">Download</button></div>';
       }).join("");
     });
   }
@@ -16561,8 +16577,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!auth) return go(null);
     return cloudFreshToken().then(go);
   }
+  var cloudSignedOutAt = 0;
   function cloudSaveSession(j) {
     if (!j || !j.access_token) return null;
+    /* v37.5.64: a refresh that was already in flight when the user signed out must not sign them back in. */
+    if (j.__refresh && !cloudSession()) return null;
     var s = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600), user: j.user || (cloudSession() || {}).user };
     cloudJson(CLOUD_SESSION_KEY, s);
     return s;
@@ -16579,7 +16598,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!s || !s.access_token) return Promise.reject(new Error("Signed out"));
     if ((s.expires_at || 0) - Date.now() / 1000 > 90) return Promise.resolve(s.access_token);
     return cloudFetch("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: s.refresh_token } })
-      .then(function (j) { return cloudSaveSession(j).access_token; })
+      .then(function (j) {
+        if (j) j.__refresh = true;
+        var saved = cloudSaveSession(j);
+        if (!saved) { var so = new Error("Signed out"); so.deadSession = true; throw so; }
+        return saved.access_token;
+      })
       .catch(function (e) { if (e.status === 400 || e.status === 401 || isDeadSessionErr(e)) { cloudJson(CLOUD_SESSION_KEY, null); e.deadSession = true; } throw e; });
   }
   function cloudRefreshUser() {
@@ -16720,13 +16744,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cfg = cloudCfg(); if (!cfg || !tok) return;
     try { fetch(cfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: cfg.anonKey, Authorization: "Bearer " + tok } }).catch(function () {}); } catch (e) {}
   }
-  function openEmailCode(email, purpose) {
+  function openEmailCode(email, purpose, notSent) {
     email = String(email || "").trim().toLowerCase();
     pendingOtp = { email: email, purpose: purpose || "signin" };
     openCloudSheet(purpose === "delete" ? "Confirm account deletion" : (purpose === "signup" ? "Confirm your email" : "Enter your email code"),
       (purpose === "signup"
         ? '<p class="caption">We sent a confirmation email to <strong>' + esc(email) + '</strong>. Type the 6-digit code from it here. (Opening its link works too; then sign in.) Check spam if it’s not there in a minute.</p>'
-        : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>') +
+        : notSent
+          ? '<p class="caption">We couldn’t send a new code to <strong>' + esc(email) + '</strong> just yet. If one arrived in the last minute, type it here.</p>'
+          : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>') +
       (purpose === "delete" ? '<p class="caption acct-del-note"><strong>Heads up:</strong> the email is titled “Your sign-in link” and says “Your sign-in code”. That’s the right one: typing that code here confirms the deletion. Don’t tap the link in it.</p>' : '') +
       (purpose === "delete" ? '<p class="caption">This permanently deletes your account and every cloud backup. The books on this device stay unless you erase them in Profile.</p>' : '') +
       '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
@@ -16760,7 +16786,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var me = cloudSync().deviceId;
       host.innerHTML = (rows || []).length ? rows.map(function (r) {
         return '<div class="snap-row"><div class="snap-meta"><strong>' + esc(snapWhen(Date.parse(r.created_at))) + '</strong><span class="caption">' + (r.device_id === me ? "this device" : "another device") +
-          " · " + (r.tx_count || 0) + " transactions · " + Math.max(1, Math.round((r.bytes || 0) / 1024)) + ' KB</span></div><button class="text-btn" type="button" data-act="acct-restore-version" data-id="' + r.id + '">Restore</button></div>';
+          " · " + (r.tx_count || 0) + " transactions · " + Math.max(1, Math.round((r.bytes || 0) / 1024)) + ' KB</span></div><button class="text-btn" type="button" data-act="acct-restore-version" data-id="' + esc(r.id) + '">Restore</button></div>';
       }).join("") : '<p class="caption">No cloud versions yet.</p>';
     }).catch(function (e) { acctErr(e.message); });
   }
@@ -16847,7 +16873,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         /* v37.5.63: a 429 here (code asked for under a minute ago) used to be easy to miss. Open the code sheet
          * anyway with the wait message in it: the code from the last minute still works, or tap Send a new code later. */
         if (e.status === 429) {
-          openEmailCode(em2, "delete");
+          openEmailCode(em2, "delete", true);
           acctErr("Please wait about a minute before asking for another code. If we emailed you a code in the last minute, type it here.");
           return;
         }
@@ -16882,8 +16908,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         .catch(function (e) { acctErr(/aal2/i.test(e.message || "") ? "This account still has an old authenticator attached. Email us and we'll remove it." : e.message); });
     }
     if (act === "acct-signout") {
-      cloudFetch("/auth/v1/logout", { method: "POST" }, true).catch(function () {});
-      cloudJson(CLOUD_SESSION_KEY, null); cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
+      /* v37.5.64 (review M1): sign out this device only, with the token we already hold. No refresh on this path,
+       * so a refreshed session can't be written back after it's cleared. */
+      var soS = cloudSession(), soCfg = cloudCfg();
+      cloudJson(CLOUD_SESSION_KEY, null);
+      cloudSignedOutAt = Date.now();
+      if (soS && soS.access_token && soCfg) {
+        try { fetch(soCfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: soCfg.anonKey, Authorization: "Bearer " + soS.access_token } }).catch(function () {}); } catch (e) {}
+      } cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
       showToast("Signed out. Your books stay on this device.", 3500); render(); return;
     }
     if (act === "acct-first-yes") { cloudSync({ paused: false }); closeModal(); var pl = cloudPayload(); return (pl ? cloudUpload(pl) : Promise.resolve()).then(function () { render(); showToast("Backed up to your account", 3000); }).catch(function (e) { showToast(e.message, 4000); }); }
@@ -16912,7 +16944,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }).catch(function (e) {
       cloudSync({ paused: false });
       if (e.status === 404 || /function|schema cache|not find/i.test(e.message || "")) {
-        return acctErr("In-app deletion isn't switched on yet. Email us from the Privacy Policy's contact address and we'll delete your account within 30 days.");
+        return acctErr("In-app deletion isn't switched on yet. Email support.papertrail@gmail.com from your account's email address and we'll delete your account within 30 days.");
       }
       acctErr(e.message);
     });
@@ -16922,7 +16954,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * "Agree & continue" sheet on startup when the accepted version isn't the current one. The record (version +
    * time) lives in the books, in its own localStorage key (survives erase/demo), and in the signed-in user's own
    * auth metadata (PUT /auth/v1/user with their token; never a service key). */
-  var POLICY_VERSION = "1.0", POLICY_URL = "privacy.html", POLICY_KEY = "PaperTrail.policyConsent";
+  var POLICY_VERSION = "1.1", POLICY_URL = "privacy.html", POLICY_KEY = "PaperTrail.policyConsent";
   function policyConsent() {
     var c = cloudJson(POLICY_KEY);
     if (c && c.version) return c;
@@ -16972,7 +17004,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="policy-gate-inner"><h2>' + (had ? "Our Privacy Policy changed" : "Before you continue") + '</h2>' +
       (had ? '<p class="caption">You agreed to version ' + esc(had.version) + '. This is version ' + POLICY_VERSION + '.</p>' : '') +
       '<ul class="about-list"><li>Your books stay on this device unless you create an account for cloud backup.</li>' +
-      '<li>Testers share rates and percentages with their tester code; envelope names, merchants and notes never leave.</li>' +
+      '<li>Nothing is shared unless you enter a tester code. Testers share rates and percentages; envelope names, merchants and notes never leave.</li>' +
       '<li>No ads, no tracking, never sold. Export or delete anytime.</li><li>For people 18 and older. Estimates, not advice.</li></ul>' +
       '<label class="consent-row"><input type="checkbox" id="policy-gate-box"> <span>I agree to the <button type="button" class="link-btn" data-act="policy-open">Privacy Policy</button>.</span></label>' +
       '<button class="primary" type="button" data-act="policy-gate-agree" id="policy-gate-agree" disabled>Agree &amp; continue</button></div>';
@@ -17073,6 +17105,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (host) host.remove();
       return;
     }
+    /* v37.5.64 follow-up: a first-run user parked on an old question screen (name/pay/...) skips to Budget. */
+    if (!ob.retake && onboardFlow(ob).indexOf(ob.screen) < 0) { finishSurveyToBudget(); return; }
     if (!host) {
       host = document.createElement("section");
       host.id = "onboard";
@@ -17190,6 +17224,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ob = onboarding();
     var host = document.getElementById("onboard");
     if (!host) return;
+    var thEl = host.querySelector('[name="obTakeHome"]');
+    if (thEl) {
+      var thRaw = String(thEl.value || "").replace(/[^0-9.]/g, "");
+      var thN = Number(thRaw);
+      ob.answers.takeHome = thRaw && isFinite(thN) && thN > 0 && thN < 1e7 ? Math.round(thN * 100) / 100 : "";
+    }
     var nameEl = host.querySelector('[name="obName"]');
     if (nameEl) ob.answers.name = String(nameEl.value || "").trim().slice(0, 40);
     var bday = host.querySelector('[name="obBirthday"]');
@@ -17245,7 +17285,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function surveyIsPartial() {
     var ob = state && state.onboarding;
-    return !!(ob && ob.surveySkipped && !ob.surveyCompletedAt && ob.status !== "survey");
+    /* v37.5.64 follow-up: the intro survey is gone, so nothing is ever "partial" (no Finish survey nudges). */
+    return false && !!(ob && ob.surveySkipped && !ob.surveyCompletedAt && ob.status !== "survey");
   }
   function skipSurveyToBudget() {
     var ob = onboarding();
@@ -17659,7 +17700,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="pf-warn" role="alert"><p><strong>Pay frequency may not match your stubs.</strong></p>' +
       '<p class="caption">Your stubs are about ' + g.days + " days apart, which looks " + esc(lab(g.id)) + ", but Profile says " + esc(lab(cur)) +
       ". Projections use the Profile setting.</p>" +
-      '<button class="planner-apply" type="button" data-act="pf-switch" data-freq="' + g.id + '">Switch to ' + esc(lab(g.id)) + "</button></div>";
+      '<button class="planner-apply" type="button" data-act="pf-switch" data-freq="' + esc(g.id) + '">Switch to ' + esc(lab(g.id)) + "</button></div>";
   }
 
   function setupNudgeHtml() {
@@ -17686,12 +17727,63 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     ob.error = "";
     state.tab = "budget";
     saveState();
-    try { sendTesterPayload(buildTesterPayload("survey")); } catch (err) {}
     render();
   }
 
   /* Feed survey answers into the existing profile + this month's income lines.
-   * Take-home is no longer asked, so paycheck lines stay $0. Never invent an amount. */
+   * v37.5.64: take-home (optional) fills the paycheck lines only when this month is untouched. Never invent an amount. */
+  /* v37.5.64 follow-up: the intro survey is gone, so "Add your income" on the Finish setup checklist asks
+   * pay frequency + take-home right here. It only fills paychecks when this month has no income amounts yet
+   * (never overwrites real books); otherwise it goes straight to the full Income details. */
+  var quickIncome = { freq: "" };
+  function quickIncomeHtml() {
+    var cur = quickIncome.freq || (state.profile && state.profile.payFrequency) || "biweekly";
+    var h = '<div class="sheet quick-income" id="quick-income"><div class="sheet-top"><h3>Add your income</h3>' +
+      '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<p class="kicker">How often do you get paid?</p><div class="qi-freq">';
+    ONBOARD_PAY_CHOICES.forEach(function (c) {
+      h += '<button type="button" class="pill' + (c.id === cur ? " on" : "") + '" data-act="ob-qi-freq" data-value="' + esc(c.id) +
+        '" aria-pressed="' + (c.id === cur) + '">' + esc(c.label) + "</button>";
+    });
+    h += "</div>" +
+      '<label class="field">Take-home per paycheck<input id="qi-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="$0.00"></label>' +
+      '<p class="form-error" id="qi-error" role="alert"></p>' +
+      '<button class="primary" type="button" data-act="ob-qi-save">Add paychecks</button>' +
+      '<button class="text-btn qi-details" type="button" data-act="ob-qi-details">Full income details ›</button></div>';
+    return h;
+  }
+  function openQuickIncome() {
+    captureModalReturnScreenTop();
+    quickIncome.freq = "";
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = quickIncomeHtml();
+    armSheetA11y(modal);
+  }
+  function saveQuickIncome() {
+    var el = document.getElementById("qi-amount"), err = document.getElementById("qi-error");
+    var raw = String((el && el.value) || "").replace(/[^0-9.]/g, ""), n = Number(raw);
+    if (!raw || !isFinite(n) || n <= 0 || n >= 1e7) { if (err) err.textContent = "Type your take-home pay per paycheck."; return; }
+    n = Math.round(n * 100) / 100;
+    var freq = quickIncome.freq || (state.profile && state.profile.payFrequency) || "biweekly";
+    var choice = onboardPayChoice(freq) || onboardPayChoice("biweekly");
+    state.profile = migrateProfile(state.profile, state.foo, state.compensation);
+    state.profile.payFrequency = choice.id;
+    state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+    state.compensation.paychecksPerYear = checksForFrequency(choice.id);
+    var month = ensureMonth(state.year, state.month);
+    if (!(month.incomes || []).some(function (i) { return Number(i.amount) > 0; })) {
+      var days = choice.id === "weekly" ? [1, 8, 15, 22] : choice.perMonth === 2 ? [1, 15] : [1];
+      month.incomes = [];
+      for (var i = 0; i < choice.perMonth; i++) {
+        month.incomes.push({ id: nextId(), name: "Paycheck " + (i + 1), amount: n, date: isoDate(month.year, month.month, days[i] || 1) });
+      }
+    }
+    saveState();
+    closeModal();
+    onTab("budget");
+  }
+
   function applyOnboardAnswers() {
     var ob = onboarding();
     var a = ob.answers;
@@ -17716,7 +17808,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         month.incomes.push({
           id: nextId(),
           name: "Paycheck " + (i + 1),
-          amount: 0,
+          amount: Number(a.takeHome) > 0 ? Number(a.takeHome) : 0,
           date: isoDate(month.year, month.month, days[i] || 1)
         });
       }
@@ -17808,6 +17900,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           policyAccept("welcome");
         }
         ob.error = "";
+        /* v37.5.64 follow-up: welcome2 (consent) is the last first-run screen; go straight to Budget. */
+        if (ob.screen === "welcome2" && !ob.retake) { finishSurveyToBudget(); return; }
         ob.screen = ob.screen === "welcome" ? "welcome2" : "name";
         saveState();
         renderOnboarding();
@@ -17831,6 +17925,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }
       }
       ob.error = "";
+      /* v37.5.64: the last setup question goes straight to Budget (no tester-sharing page on first run). */
+      if (!ob.retake && i === flow.length - 1) { finishSurveyToBudget(); return; }
       var next = flow[Math.min(flow.length - 1, i + 1)];
       if (next === "serious" && seriousAges(ob.answers.birthday || birthdayISO()) == null) {
         ob.screen = "birthday";
@@ -18004,6 +18100,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
     } else if (act === "ob-cl-go-worth") {
       onTab("worth");
+    } else if (act === "ob-qi-freq") {
+      var qv = actEl && actEl.getAttribute("data-value");
+      if (onboardPayChoice(qv)) {
+        quickIncome.freq = qv;
+        [].forEach.call(document.querySelectorAll("#quick-income [data-act=ob-qi-freq]"), function (b) {
+          var on = b.getAttribute("data-value") === qv; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+        });
+      }
+    } else if (act === "ob-qi-save") {
+      saveQuickIncome();
+    } else if (act === "ob-qi-details") {
+      closeModal(); onTab("budget"); openIncomeStatement();
+    } else if (act === "ob-cl-go-income" && !(ensureMonth(state.year, state.month).incomes || []).some(function (q) { return Number(q.amount) > 0; })) {
+      closeModal();
+      onTab("budget");
+      openQuickIncome();
     } else if (act === "ob-cl-go-income") {
       /* v37.5.59.63: income step opens the Income statement (salary, deductions, pay stub upload), not a paycheck editor. */
       closeModal();
@@ -18076,7 +18188,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="profile-section">Estimates</p>' +
       "<p>" + ESTIMATE_DISCLAIMER + "</p>" +
       '<p class="profile-section">Tester data sharing</p>' +
-      "<p>Testers share app data with their tester code to help find bugs and improve Paper Trail. Rates and changes (savings rate, average tax, year-over-year changes, plan vs. spent % per envelope, numbered, never named), grade, feature use, and survey answers are always included. Dollar amounts and Vault details (document count and types) are included unless you turn them off. Tester sharing never includes envelope names, merchant names, transaction notes, account numbers, or file contents.</p>" +
+      "<p>Only invited testers who type in a tester code share app data; without a code, nothing is sent. Testers share rates and changes (savings rate, average tax, year-over-year changes, plan vs. spent % per envelope, numbered, never named), grade, and feature use. Dollar amounts and Vault details (document count and types) stay off unless the tester turns them on. Tester sharing never includes envelope names, merchant names, transaction notes, account numbers, or file contents.</p>" +
       "<p>" + (TESTER_ENDPOINT ? "Sharing is connected." : "Not connected yet: nothing has left this device. Shares wait on this device until it connects.") + "</p>" +
       '<button class="data-btn" type="button" data-act="about-go" data-to="sharing"><strong>Go to Profile › Data sharing</strong><span class="caption">Switches · Preview what’s shared</span></button>' +
       '<p class="profile-section">No ads, no tracking</p>' +
@@ -18089,9 +18201,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="data-btn" type="button" data-act="about-go" data-to="danger"><strong>Go to the danger zone</strong><span class="caption">Erase all data · Clear this month’s spending</span></button>';
     html += '<p class="profile-section">Intro</p>' +
       (surveyIsPartial() ? '<button class="data-btn" type="button" data-act="ob-finish-survey"><strong>Finish survey</strong><span class="caption">Pick up where you left off · your answers so far are saved</span></button>' : "") +
-      '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>' +
-      '<button class="data-btn" type="button" data-act="view-survey"><strong>View survey results</strong><span class="caption">Your saved answers, question by question</span></button>' +
-      '<button class="data-btn" type="button" data-act="retake-survey"><strong>Retake survey</strong><span class="caption">Pre-filled with your answers · budget, income and net worth stay as they are</span></button>';
+      '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>';
     if (ob.status === "active" && ob.hidden) {
       html += '<p class="profile-section">Setup</p>' +
         '<button class="data-btn" type="button" data-act="ob-show"><strong>Show setup checklist</strong><span class="caption">Back on the Budget tab</span></button>';
@@ -18332,7 +18442,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* ---- v37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.63";
+  var APP_VERSION = "37.5.64";
   /* v37.5.59.60: offline / home-screen. sw.js caches the app shell per APP_VERSION and fetches index/app.js
    * network-first, so close-and-reopen still picks up a new version whenever there's a connection. */
   try {
@@ -18930,11 +19040,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (/^[a-z0-9-]{1,40}$/.test(k) && n > 0) usage[k] = Math.floor(n);
       });
     }
+    /* v37.5.64 (review C1): sharing needs explicit enrollment — a code the user typed. Legacy auto-assigned
+     * codes are not enrollment. Dollar and Vault switches default OFF and reset off for anyone not enrolled. */
+    var code = normalizeTesterCode(s.code);
+    var enrolled = s.enrolled === true && !!code;
     return {
-      code: normalizeTesterCode(s.code),
-      shareIncomeDollars: s.shareIncomeDollars !== false,
-      shareOtherDollars: s.shareOtherDollars !== false,
-      shareVaultDetails: s.shareVaultDetails !== false,
+      code: enrolled ? code : "",
+      enrolled: enrolled,
+      shareIncomeDollars: enrolled && s.shareIncomeDollars === true,
+      shareOtherDollars: enrolled && s.shareOtherDollars === true,
+      shareVaultDetails: enrolled && s.shareVaultDetails === true,
       usage: usage,
       lastWeeklyAt: typeof s.lastWeeklyAt === "string" ? s.lastWeeklyAt : "",
       lastMonthKey: typeof s.lastMonthKey === "string" ? s.lastMonthKey : "",
@@ -18960,11 +19075,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return TESTER_CODE_RE.test(code) ? code : "";
   }
 
-  /* Local assignment only (no server yet): random PT-001…PT-999. */
-  function assignTesterCode() {
-    var n = 1 + Math.floor(Math.random() * 999);
-    return "PT-" + ("00" + n).slice(-3);
-  }
 
   function countFeatureUse(act) {
     if (!act || !/^[a-z0-9-]{1,40}$/.test(act)) return;
@@ -19082,7 +19192,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } catch (err) { out.grade = null; }
     out.streaks = { noSpendDays: hasExpenseHistory() ? currentNoSpendStreak() : null };
     out.featureUsage = JSON.parse(JSON.stringify(testerShare().usage));
-    out.survey = testerSurveyBlock();
+    /* v37.5.64 follow-up (owner): no survey fields in tester payloads. */
     return out;
   }
 
@@ -19224,10 +19334,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function buildTesterPayload(trigger) {
     var ts = testerShare();
-    if (!ts.code) {
-      ts.code = assignTesterCode();
-      saveState();
-    }
     var month = ensureMonth(state.year, state.month);
     var payload = {
       schema: TESTER_SCHEMA,
@@ -19296,6 +19402,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.59.98: every payload goes into the ordered queue, then the queue flushes oldest first. */
   function sendTesterPayload(payload) {
     if (!payload || typeof payload !== "object") return Promise.resolve({ status: "skipped" });
+    if (!testerReady()) { purgeTesterQueueIfNotEnrolled(); return Promise.resolve({ status: "skipped", reason: "not-enrolled" }); }
     if (!payload.id) payload.id = testerPayloadId();
     var n = queueTesterPayload(payload);
     if (!TESTER_ENDPOINT) return Promise.resolve({ status: "queued", reason: "not-connected", queued: n });
@@ -19326,7 +19433,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   var testerFlushing = null;
   /* Oldest first, one at a time. Stops at the first failure and keeps the rest in order; retries back off
    * 1 min, doubling, up to 1 hour. Opt-outs are scrubbed from the queue right before every flush. */
+  function purgeTesterQueueIfNotEnrolled() {
+    if (testerShare().enrolled) return;
+    try { localStorage.removeItem(TESTER_QUEUE_KEY); localStorage.removeItem(TESTER_BACKOFF_KEY); } catch (err) {}
+  }
+
   function flushTesterQueue(force) {
+    if (!testerReady()) { purgeTesterQueueIfNotEnrolled(); return Promise.resolve({ status: "skipped", reason: "not-enrolled" }); }
     if (!TESTER_ENDPOINT || typeof fetch !== "function") return Promise.resolve({ status: "queued", reason: "no-endpoint" });
     if (typeof navigator !== "undefined" && navigator.onLine === false) return Promise.resolve({ status: "queued", reason: "offline" });
     if (testerFlushing) return testerFlushing;
@@ -19360,6 +19473,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* What matters: one share when the sheet closes, at most once a day. */
   function maybeSendMattersPayload() {
+    /* v37.5.64 follow-up (owner): no surveys, so no "What matters" payloads either. */
+    return;
     if (!testerReady()) return;
     var ts = testerShare(), day = testerTodayIso();
     if (ts.lastMattersDay === day) return;
@@ -19370,7 +19485,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function testerReady() {
     var ob = state.onboarding;
-    /* v37.5.59.98: demo books never share. */
+    var ts = testerShare();
+    /* v37.5.64: only explicitly enrolled testers (typed code) share. v37.5.59.98: demo books never share. */
+    if (!ts.enrolled || !ts.code) return false;
     return !(ob && (ob.status === "survey" || ob.demo));
   }
 
@@ -19437,18 +19554,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var queued = readTesterQueue().length;
     return '<div class="profile-sharing" id="profile-sharing">' +
       '<p class="profile-section">Data sharing</p>' +
-      '<p class="caption">Testers share app data to help find bugs and improve Paper Trail. Rates and percentages (like savings rate and how it moves year to year) are always included. Dollar amounts and Vault details are included unless you switch them off below.</p>' +
+      '<p class="caption">Testers share app data to help find bugs and improve Paper Trail. Rates and percentages (like savings rate and how it moves year to year) are always included. Nothing is shared unless you enter a tester code you were given. Dollar amounts and Vault details stay off unless you switch them on below.</p>' +
       '<label class="field">Tester code' +
       '<input data-act="tester-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="6" placeholder="PT-001" value="' + esc(ts.code) + '"></label>' +
-      (ts.code ? "" : '<button class="text-btn tester-assign" type="button" data-act="tester-assign">Assign me a code</button>') +
       '<p class="caption" id="tester-code-hint">' + (ts.code
         ? "Sent with every share, along with the app version and date."
-        : "Format PT-001. Type the code you were given, or assign one.") + "</p>" +
+        : "Only for invited testers. Type the PT-### code you were given; without one, nothing is shared.") + "</p>" +
       '<div class="tester-always">' +
       '<p class="tester-kicker">Always shared · rates and percentages</p>' +
-      '<p class="caption">Savings rates (Basic and True), average tax, marginal tax brackets, year-over-year changes, plan vs. spent % by category, and each category’s share of spending — plus your grade, streaks, how often you use each feature, and your survey answers. This group stays on for every tester.</p>' +
+      '<p class="caption">Savings rates (Basic and True), average tax, marginal tax brackets, year-over-year changes, plan vs. spent % by category, and each category’s share of spending — plus your grade, streaks, and how often you use each feature. This group is shared only once you enter a tester code.</p>' +
       "</div>" +
-      '<p class="tester-kicker">Shared unless you turn it off · dollar amounts and Vault details</p>' +
+      '<p class="tester-kicker">Off unless you turn it on · dollar amounts and Vault details</p>' +
       testerToggleHtml("shareIncomeDollars", "Income dollars", "Salary, bonus, side gig, other income, 401k match, taxes, take-home, and paycheck amounts.", ts.shareIncomeDollars) +
       testerToggleHtml("shareOtherDollars", "Other dollar amounts", "Budget and spending totals by category, net worth, and debts.", ts.shareOtherDollars) +
       testerToggleHtml("shareVaultDetails", "Vault details", "How many documents you have and their types — not the files.", ts.shareVaultDetails) +
@@ -19476,8 +19592,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       ["Categories (% only)", (a.categories || []).length + ""],
       ["Grade", a.grade && a.grade.score != null ? a.grade.score + (a.grade.bandTitle ? " · " + a.grade.bandTitle : "") : "—"],
       ["No-spend streak", a.streaks && a.streaks.noSpendDays != null ? a.streaks.noSpendDays + " days" : "—"],
-      ["Feature uses tracked", Object.keys(a.featureUsage || {}).length + " features"],
-      ["Survey answers", Object.keys((a.survey && a.survey.welcome) || {}).length + Object.keys((a.survey && a.survey.whatMatters) || {}).length + ""]
+      ["Feature uses tracked", Object.keys(a.featureUsage || {}).length + " features"]
     ];
     return rows;
   }
@@ -19790,15 +19905,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var doc = findProfileDoc(id);
     if (!doc) return;
     function showBlob(blob, fallbackUrl) {
-      var url = fallbackUrl || ((blob && window.URL && URL.createObjectURL) ? URL.createObjectURL(blob) : "");
-      if (!url) return;
+      /* v37.5.64 (review C2): never hand the browser a data: URL or a blob whose type we didn't verify. */
+      if (!blob && fallbackUrl) blob = dataUrlToBlob(fallbackUrl);
+      if (!blob) return;
+      var allowed = (window.PaperTrailExport && PaperTrailExport.DOC_MIMES) || [];
+      if (allowed.indexOf(blob.type) < 0) blob = blob.slice(0, blob.size, "application/octet-stream");
+      var url = (window.URL && URL.createObjectURL) ? URL.createObjectURL(blob) : "";
+      if (!/^blob:/.test(url)) return;
       var modal = document.getElementById("modal");
-      var mime = (blob && blob.type) || doc.mime || "";
-      var isImage = /^image\//.test(mime) || /\.(png|jpe?g|gif|webp|heic)$/i.test(doc.fileName || "");
+      var mime = blob.type;
+      var isImage = /^image\/(png|jpeg|webp|heic)$/.test(mime);
+      var isPdf = mime === "application/pdf";
       var body = isImage
-        ? '<img class="doc-preview-img" alt="' + esc(doc.fileName || "Document") + '" src="' + url + '">'
+        ? '<img class="doc-preview-img" alt="' + esc(doc.fileName || "Document") + '" src="' + esc(url) + '">'
         : '<p class="caption">' + esc(doc.fileName || "File") + '</p>' +
-          '<a class="planner-apply" href="' + url + '" target="_blank" rel="noopener">Open file</a>';
+          '<a class="planner-apply" href="' + esc(url) + '"' + (isPdf ? ' target="_blank" rel="noopener"' : ' download="' + esc(doc.fileName || "file") + '"') + '>' + (isPdf ? "Open file" : "Download file") + '</a>';
       modal.hidden = false;
       modal.innerHTML = '<div class="sheet doc-preview-sheet">' +
         "<h3>" + esc(doc.fileName || "Paper") + "</h3>" + body +
@@ -20072,7 +20193,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       { sel: "#month-bar .icon-btn", title: "Year and Profile", text: "The calendar button picks the year. The gear opens Profile and settings." }
     ],
     spend: [
-      { sel: "[data-act=add-spend]", title: "Add a transaction", text: "Tap Add, or the + button, to log spending or income." },
+      { sel: "[data-act=add-spend]", title: "Add a transaction", text: "The + button logs spending or income." },
       { sel: ".search-field", title: "Search", text: "Search this month’s transactions by payee or envelope." },
       { sel: ".swipe-hint, .tx-row, .row", title: "Edit or delete", text: "Tap a row to edit it. Swipe a row left to reveal delete." }
     ]
@@ -20113,6 +20234,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       phone.appendChild(el);
     }
     var last = tourState.i === steps.length - 1;
+    /* v37.5.64 (review U2): never float over an open sheet (Add keypad, Profile). CSS hides it too. */
+    var modalEl = document.getElementById("modal");
+    el.hidden = !!(modalEl && !modalEl.hidden);
     el.innerHTML = '<div class="tour-card"><p class="kicker">Quick tour · ' + (tourState.i + 1) + " of " + steps.length + "</p>" +
       "<strong>" + esc(step.title) + "</strong><p>" + esc(step.text) + "</p>" +
       '<div class="tour-actions">' + (last ? '<button class="text-btn" type="button" data-tour="close">Close</button>' : "") +
@@ -21237,12 +21361,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act.indexOf("ob-") === 0 || act.indexOf("recover-") === 0 || act === "snap-restore" || act === "snap-download") { handleOnboardAct(act, actEl); return; }
     if (act === "tester-preview") { openTesterPreview(); return; }
     if (act === "tester-preview-back") { openProfileAt("profile-sharing"); return; }
-    if (act === "tester-assign") {
-      testerShare().code = assignTesterCode();
-      saveState();
-      openProfileAt("profile-sharing");
-      return;
-    }
     if (act === "tester-toggle") {
       var tsField = actEl.getAttribute("data-field");
       if (tsField === "shareIncomeDollars" || tsField === "shareOtherDollars" || tsField === "shareVaultDetails") {
@@ -21256,8 +21374,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "show-intro") { showWelcomeSplash(); openIntroSheet(0); return; }
     if (act === "intro-next") { openIntroSheet(1); return; }
     if (act === "intro-prev") { openIntroSheet(0); return; }
-    if (act === "view-survey") { openSurveyResults(); return; }
-    if (act === "retake-survey") { startSurveyRetake(); return; }
+    if (act === "view-survey") { return; }
+    /* v37.5.64 follow-up (owner): no survey of any kind; retake/results code stays dormant with no entry point. */
+    if (act === "retake-survey") { return; }
     if (act === "about-back") { openProfile(); return; }
     if (act === "about-go") {
       var aboutTo = actEl.getAttribute("data-to");
@@ -21535,7 +21654,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         saveState();
         closeModal();
         render();
-        var nwBtn = document.querySelector('[data-act="edit-line"][data-id="' + callId + '"]');
+        var nwBtn = document.querySelector('[data-act="edit-line"][data-id="' + esc(callId) + '"]');
         if (nwBtn) nwBtn.click();
       } else {
         state.tab = "stats"; state.statsDoor = "dash";
@@ -23039,14 +23158,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var typed = String(el.value || "").trim();
       var code = normalizeTesterCode(typed);
       if (code) {
-        testerShare().code = code;
+        var tsE = testerShare();
+        tsE.code = code;
+        tsE.enrolled = true;
+        state.testerShare = tsE;
         saveState();
         if (event.type === "change") el.value = code;
         if (codeHint) codeHint.textContent = "Sent with every share, along with the app version and date.";
       } else if (!typed) {
-        testerShare().code = "";
+        var tsx = testerShare();
+        tsx.code = ""; tsx.enrolled = false;
+        tsx.shareIncomeDollars = tsx.shareOtherDollars = tsx.shareVaultDetails = false;
         saveState();
-        if (codeHint) codeHint.textContent = "Format PT-001. Type the code you were given, or assign one.";
+        purgeTesterQueueIfNotEnrolled();
+        if (codeHint) codeHint.textContent = "Only for invited testers. Type the PT-### code you were given; without one, nothing is shared.";
       } else if (codeHint) {
         codeHint.textContent = "Use the format PT-001 (PT, a dash, three digits). Not saved yet.";
       }
