@@ -16,13 +16,13 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <a class="back" href="./">‹ Back to Paper Trail</a>
 <main id="policy">
 <h1>Paper Trail Privacy Policy</h1>
-<p><strong>Policy version:</strong> 1.1 · <strong>Effective:</strong> October 26, 2026 · <strong>Contact:</strong> support.papertrail@gmail.com</p>
+<p><strong>Policy version:</strong> 1.2 · <strong>Effective:</strong> October 30, 2026 · <strong>Contact:</strong> support.papertrail@gmail.com</p>
 <p>Paper Trail is an independent budgeting app ("we", "us" means the person who builds and runs it). This policy says, in plain English, what the app keeps, what leaves your device, and what you can do about it.</p>
 <h2>1. The short version</h2>
 <ul>
-<li>Your books live on your device. You don't need an account.</li>
-<li>If you create an account, a copy of your books is backed up to your private cloud account. Vault files stay on your device.</li>
-<li>Only invited testers who type in a tester code share app data. Without a code, nothing is sent. Dollar amounts and Vault details are off unless a tester turns them on.</li>
+<li>You need a Paper Trail account to use the app. Your books live on your device.</li>
+<li>A copy of your books is backed up to your private cloud account. Vault files stay on your device.</li>
+<li>The only place your data goes is your own account backup, stored with Supabase. We don't share your data with anyone else.</li>
 <li>No ads, no third-party analytics, no tracking cookies, and we never sell your data.</li>
 <li>You can export or erase everything at any time.</li>
 </ul>
@@ -38,42 +38,19 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 - Settings: name, birthday, ZIP, pay frequency, dark mode, plan, setup checklist.
 - Automatic backup copies on the device, so you can recover from a bad save.</p>
 <p><strong>Pay stubs and documents are read on your device.</strong> When you add a pay stub or document, the app reads it in your browser. The file is not uploaded for processing.</p>
-<p>If your device is lost or the browser data is cleared and you have no backup, we can't recover the data. Save a backup now and then (Profile › Data).</p>
-<h2>4. Optional account and cloud backup</h2>
-<p>An account is optional. If you create one:
-- <strong>Sign-in:</strong> your email and password are handled by our hosting provider, Supabase (see §8). We never see your password. Every sign-in also asks for a 6-digit code sent to your email (two-step sign-in). Our database checks this on the server: a session that signed in with only a password can't read, change, or delete your backups, so a password alone can't open your account. Because the code goes to your email, keep your email account secure too.
+<p>If your device is lost or the browser data is cleared, sign in again and your books come back from your account backup. Vault files are not backed up, so keep your own copies of important papers.</p>
+<h2>4. Your account and cloud backup</h2>
+<p>An account is required to use Paper Trail. With your account:
+- <strong>Sign-in:</strong> your email and password are handled by our hosting provider, Supabase (see §8). We never see your password. When you create an account we email you a 6-digit code once to confirm your email address; after that you sign in with your email and password, and you stay signed in on that device until you tap Sign out. Our database only opens backups for accounts with a confirmed email. Use a strong password you don't use elsewhere, and keep your email account secure, since password resets go to it.
 - <strong>What's backed up:</strong> your saved books, including the details on each Vault card. <strong>The Vault files themselves are not uploaded.</strong> Each backup also records the time, device ID, app version, transaction count and size.
-- <strong>When:</strong> when you open the app and a few seconds after each change. You can pause backup on a device.
+- <strong>When:</strong> when you open the app and a few seconds after each change. If you erase a device's books but keep your cloud backups, backup pauses on that device until you turn it back on.
 - <strong>How many:</strong> the server keeps your last 10 versions.
 - <strong>Who can read it:</strong> row-level security means your account can read only its own rows. We don't look at your books except to fix a problem you report to us, and only with your permission.
-- <strong>Two devices:</strong> if a backup from another device differs from this one, the app asks which to keep. It never overwrites either side on its own.</p>
-<h2>5. Tester data sharing</h2>
-<p>Nothing is shared unless you type in a tester code we gave you (like PT-001). If you do, the app sends data tied to that code to a private Google Sheet that only we can see. The data goes to a Google Apps Script web app that accepts only tester codes we've listed.</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>What's shared</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Shared once you enter a tester code</strong></td>
-<td>Savings rates, average tax, tax brackets, year-over-year changes, plan vs. spent %, each envelope's share of spending (numbered, never named), your grade, and how often you use features</td>
-</tr>
-<tr>
-<td><strong>Off unless you turn it on</strong> (Profile › Data sharing)</td>
-<td>Income dollar amounts, other dollar amounts, and Vault details (number of documents and their types, not the files)</td>
-</tr>
-<tr>
-<td><strong>Never shared</strong></td>
-<td>Envelope names, merchant names, transaction notes, account numbers, file contents, your name, phone, birthday, and ZIP</td>
-</tr>
-</tbody>
-</table>
-<p>You can preview exactly what's shared in Profile › Data sharing.</p>
+- <strong>Two devices:</strong> your account's copy always wins. When you sign in or open the app, the device loads the newest version from your account. Before replacing a device's books, the app saves them as an automatic backup on that device. A book with no transactions never replaces account books that have them.</p>
+<h2>5. No data sharing</h2>
+<p>Paper Trail doesn't share your data. There is no tester sharing, no usage tracking and no feature counting. Apart from the web host loading the app (§8), the only service that receives your data is Supabase, which stores your account and cloud backups (§4).</p>
 <h2>6. No surveys</h2>
-<p>Paper Trail doesn't ask you survey questions. Your pay frequency and take-home pay, if you add them, stay in your books on your device.</p>
+<p>Paper Trail doesn't ask you survey questions. Your pay frequency and take-home pay, if you add them, stay in your books.</p>
 <h2>7. No ads, no tracking, no selling</h2>
 <ul>
 <li>No ads, no third-party analytics, no crash reporting, and no third-party scripts. The app's code and fonts are served with the app.</li>
@@ -83,8 +60,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <h2>8. Services we use</h2>
 <ul>
 <li><strong>GitHub Pages</strong> hosts the app files. Like any web host, it may log your IP address and browser when you load the page.</li>
-<li><strong>Supabase</strong> runs accounts and cloud backup (only if you create an account).</li>
-<li><strong>Google (Apps Script and Sheets)</strong> receives tester data (only if you have a tester code).</li>
+<li><strong>Supabase</strong> runs accounts and cloud backup.</li>
 </ul>
 <h2>9. Bank linking and automatic tracking (not yet)</h2>
 <p>Paper Trail does <strong>not</strong> connect to your bank today. We plan to add:
@@ -93,17 +69,16 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <p>Before either one goes live, we'll update this policy and ask for your consent. Neither will be turned on without you choosing it.</p>
 <h2>10. Your choices: export and delete</h2>
 <ul>
-<li><strong>Export:</strong> an Excel workbook, a monthly PDF report, or a full backup file you can restore later (Profile › Data).</li>
+<li><strong>Export:</strong> an Excel workbook, a monthly PDF report, or a copy of all your data as a .json file (Profile › Data › Export my data).</li>
 <li><strong>Delete on device:</strong> "Erase all data" in the danger zone at the bottom of Profile removes your books and the backup copies on this device.</li>
 <li><strong>Delete in the cloud:</strong> when you erase while signed in, the app offers to delete your cloud backups too.</li>
 <li><strong>Delete your account:</strong> Profile › Account › Delete my account. We email you a 6-digit code to confirm, then your account and every cloud backup are deleted. You can also email support.papertrail@gmail.com and we'll do it for you.</li>
-<li><strong>Tester data:</strong> email support.papertrail@gmail.com with your tester code and we'll delete your rows from the tester sheet. Clear your tester code or switch dollar sharing off anytime in Profile › Data sharing.</li>
 </ul>
 <h2>11. Security</h2>
 <ul>
 <li>All traffic uses HTTPS.</li>
 <li>Row-level security protects cloud backups. Only the public key is in the app.</li>
-<li>Two-step sign-in (a code emailed to you) is required for every account and enforced by our server, not just the app. After a password reset, you sign in again with your new password and a new code.</li>
+<li>After a password reset, every device is signed out and you sign in again with your new password. Deleting your account always needs a fresh code emailed to you.</li>
 </ul>
 <p>No system is perfectly secure. Use a strong password and keep your device locked. If we learn of a breach that affects your data, we'll tell you.</p>
 <h2>12. Age requirement</h2>

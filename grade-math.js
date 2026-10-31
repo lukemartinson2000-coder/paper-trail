@@ -116,7 +116,6 @@
       ]
     }
   };
-  var DEBT_TYPES = ["creditCard", "student", "auto", "personal", "mortgage", "other"];
   var SAVINGS_LINES = {
     "emergency fund": 1,
     house: 1,
@@ -241,13 +240,6 @@
     return 6;
   }
 
-  function autoAprCutoff(age) {
-    if (age == null) return null;
-    if (age >= 50) return 0;
-    if (age >= 40) return 8;
-    if (age >= 30) return 9;
-    return 10;
-  }
 
   /* v37.5.60 (owner, Money Guy rules by age and loan type): tier red = FOO Step 3, yellow = within 2 points under a
    * red cutoff (mortgage: 6%+, never red), green otherwise. Credit cards and consumer debt are always red; car loans
@@ -1685,7 +1677,6 @@
     assert(ranked.bestSave.loan.name.length > 0 && ranked.fastest.loan.name.length > 0, "payoff rank names", errors);
     runLedgerTests(errors);
     runShareCardTests(errors);
-    runPayStubBasisTests(errors);
     return errors;
   }
 
@@ -5420,11 +5411,6 @@
     assert(blankText.indexOf("Nothing on the books yet") > 0 && !/NaN|Infinity|undefined/.test(blankText), "blank wrap ledger guidance, NaN-safe", errors);
   }
 
-
-  /* v37.5.59.3 pay-stub year basis: actual YTD + capped projection; no stub × checks. */
-  /* Pay-stub fixture tests run privately (they use a real pay stub). */
-  function runPayStubBasisTests(errors) {}
-  function runGrossBasisTests(errors) {}
 
   function runLedgerTests(errors) {
     var near = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005; };

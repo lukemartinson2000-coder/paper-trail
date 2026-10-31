@@ -1,8 +1,8 @@
-/* Paper Trail service worker (v37.5.64). Caches the app shell per version so the app opens offline and from
+/* Paper Trail service worker (v37.5.65). Caches the app shell per version so the app opens offline and from
  * the home screen. index.html is network-first (3 s timeout): with a connection, closing and reopening the app
  * always loads the newest version; offline, the last cached copy is used. Other files are versioned (?v=) and
  * served cache-first, app.js included. Old version caches are deleted on activate. Data stays in localStorage, never in here. */
-var VERSION = "37.5.64";
+var VERSION = "37.5.65";
 var CACHE = "pt-shell-" + VERSION;
 var SHELL = [
   "./", "index.html", "manifest.webmanifest?v=27",
