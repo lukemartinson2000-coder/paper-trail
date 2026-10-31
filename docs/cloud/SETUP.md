@@ -14,6 +14,8 @@ Accounts stay hidden until `cloud-config.js` is filled in. Nothing here needs th
       "email must be confirmed", keeps anon denied, and makes deletion need a code emailed in the last 15 minutes.
       (002 and 003 are kept for history; 004 supersedes their rules.)
 3. **Authentication → Sign In / Providers → Email**: keep Email enabled with "Confirm email" on.
+   **Secure email change**: either setting works. On (recommended), a change sends a code to the current and the
+   new address and the app asks for both; off, only the new address gets a code.
    Set **Email OTP length to 6**.
 4. **Authentication → Emails → SMTP Settings**: turn on custom SMTP (the built-in sender is limited to a few
    emails an hour and only reaches your own team). Use the support mailbox with an app password; keep that
@@ -22,7 +24,9 @@ Accounts stay hidden until `cloud-config.js` is filled in. Nothing here needs th
    `qa-scratch/v37565/email-templates/` (copies are kept outside the repo):
    - **Confirm signup** (sign-up): subject `Confirm your Paper Trail email`, body `confirm-signup.html`.
    - **Magic Link** (account deletion): keep the subject `Your sign-in link` (the app's delete screen names it), body `magic-link.html`.
-   Both show the 6-digit `{{ .Token }}` large and say "Enter this code in Paper Trail. If you requested more than one
+   - **Change Email Address** (Profile › Account › Change email, v37.5.67+): subject `Confirm your Paper Trail email change`,
+     body `change-email.html` (shows `{{ .Token }}`, `{{ .Email }}` and `{{ .NewEmail }}`).
+   All three show the 6-digit `{{ .Token }}` large and say "Enter this code in Paper Trail. If you requested more than one
    code, use the newest email." They must **not** contain `{{ .ConfirmationURL }}`: one way to verify, so nobody lands
    on the wrong screen. Each new request replaces the old code. If someone opens an old link anyway, the app shows
    "Email confirmed. Sign in to continue" or "That link expired. Use the newest code we emailed you, or tap Resend code."

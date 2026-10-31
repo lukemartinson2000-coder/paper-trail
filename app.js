@@ -13837,7 +13837,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       });
   }
   function cloudRefreshUser() {
-    return cloudFetch("/auth/v1/user", {}, true).then(function (u) { var s = cloudSession(); if (s) { s.user = u; cloudJson(CLOUD_SESSION_KEY, s); } return u; });
+    return cloudFetch("/auth/v1/user", {}, true).then(function (u) { var s = cloudSession(); if (s && u && u.id && u.email) { s.user = u; cloudJson(CLOUD_SESSION_KEY, s); } return u; });
   }
 
   /* --- payload: saved books minus any inline file data --- */
@@ -13943,6 +13943,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       w.appendChild(b);
     });
   }
+  /* Sign-up with an email that already has a (confirmed) account. Supabase answers 200 with an empty
+   * identities list and sends nothing (email-enumeration protection), so say so here and offer Sign in. */
+  function acctExists(email) {
+    var el = document.getElementById("acct-err"); if (!el) return;
+    el.innerHTML = '<span class="acct-exists">This email already has a Paper Trail account. Sign in instead.</span> ' +
+      '<button type="button" class="link-btn" data-act="acct-open-signin" data-email="' + esc(email) + '">Sign in</button> · ' +
+      '<button type="button" class="link-btn" data-act="acct-forgot">Forgot password?</button>';
+  }
   function acctErr(msg) { var el = document.getElementById("acct-err"); if (el) el.textContent = msg || ""; }
   function acctVal(id) { var el = document.getElementById(id); return el ? String(el.value || "").trim() : ""; }
 
@@ -13959,8 +13967,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="caption" id="acct-status">' + esc(sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."))) + '</p>' +
       (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Sync now</button>') +
       ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
-      '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up.</p>' +
-      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div>';
+      ' <button type="button" data-act="acct-email-start">Change email</button>' +
+      '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up. We never see your password and will never ask for it. Exports download to this device; we never email your data.</p>' +
+      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn" type="button" data-act="acct-signout-all">Sign out of all devices</button> <button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div>';
   }
   /* An account is required. Signed out (with accounts configured) the app sits behind an opaque
    * gate and the auth sheet can't be dismissed; first run opens Create account, a device with local-only books opens
@@ -14017,10 +14026,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (authIntroStep === 3 && modal && (modal.hidden || !modal.classList.contains("acct-open"))) openSignIn("signup");
   }
-  function openSignIn(mode) {
+  function openSignIn(mode, email) {
     var up = mode === "signup";
     openCloudSheet(up ? "Create account" : "Sign in",
-            '<label class="field"><span>Email</span><input id="acct-email" type="email" autocomplete="email" inputmode="email"></label>' +
+            '<label class="field"><span>Email</span><input id="acct-email" type="email" autocomplete="email" inputmode="email"' + (email ? ' value="' + esc(email) + '"' : '') + '></label>' +
       '<label class="field"><span>Password</span><input id="acct-pass" type="password" autocomplete="' + (up ? "new-password" : "current-password") + '"' + (up ? ' data-signup-check="1"' : '') + '></label>' +
       (up ? '<label class="field"><span>Confirm password</span><input id="acct-pass2" type="password" autocomplete="new-password" data-signup-check="1"></label>' +
         '<p class="caption" id="acct-pass-hint">At least 8 characters.</p>' +
@@ -14049,22 +14058,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cfg = cloudCfg(); if (!cfg || !tok) return;
     try { fetch(cfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: cfg.anonKey, Authorization: "Bearer " + tok } }).catch(function () {}); } catch (e) {}
   }
-  function openEmailCode(email, purpose, notSent) {
+  /* Shown on every code step: Gmail SMTP can be slow, and the sender is named so it can be found in spam. */
+  var CODE_WAIT_HTML = '<p class="caption acct-code-wait">Your code can take a minute or two. Check spam or junk too, the email comes from support.papertrail@gmail.com.</p>';
+  function openEmailCode(email, purpose, notSent, resent) {
     email = String(email || "").trim().toLowerCase();
     pendingOtp = { email: email, purpose: purpose || "signin" };
     if (purpose === "signup") { try { localStorage.setItem("PaperTrail.lastSignupEmail", email); } catch (e) {} }
     openCloudSheet(purpose === "delete" ? "Confirm account deletion" : (purpose === "signup" ? "Confirm your email" : "Enter your email code"),
       (purpose === "signup"
-        ? '<p class="caption">We sent a confirmation email to <strong>' + esc(email) + '</strong>. Type the 6-digit code from it here. Check spam if it’s not there in a minute.</p><p class="caption">If you asked for more than one code, use the newest email. Each new request replaces the old code.</p>'
+        ? (resent ? '<p class="caption acct-resent">This email started signing up before but was never confirmed. We sent a new code to <strong>' + esc(email) + '</strong>.</p>'
+          : '<p class="caption">We sent a confirmation email to <strong>' + esc(email) + '</strong>. Type the 6-digit code from it here.</p>') + '<p class="caption">If you asked for more than one code, use the newest email. Each new request replaces the old code.</p>'
         : notSent
           ? '<p class="caption">We couldn’t send a new code to <strong>' + esc(email) + '</strong> just yet. If one arrived in the last minute, type it here.</p>'
-          : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>. It can take a minute; check spam too.</p>') +
+          : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(email) + '</strong>.</p>') + CODE_WAIT_HTML +
       (purpose === "delete" ? '<p class="caption acct-del-note"><strong>Heads up:</strong> the email is titled “Your sign-in link” and says “Your sign-in code”. That’s the right one: typing that code here confirms the deletion. Don’t tap the link in it.</p>' : '') +
       (purpose === "delete" ? '<p class="caption">This permanently deletes your account and every cloud backup. The books on this device stay unless you erase them in Profile.</p>' : '') +
       '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
       '<div class="acct-actions"><button class="primary' + (purpose === "delete" ? " danger" : "") + '" type="button" data-act="acct-otp-verify">' + (purpose === "delete" ? "Delete my account" : "Continue") + '</button>' +
       '<button class="text-btn" type="button" data-act="acct-otp-resend" id="acct-resend">Resend code</button>' +
-      (purpose === "signup" ? '<button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>' : '') + '</div>');
+      (purpose === "signup" ? '<button class="text-btn" type="button" data-act="acct-open-signup">Wrong email? Start over</button><button class="text-btn" type="button" data-act="acct-open-signin">I already have an account</button>' : '') + '</div>');
   }
   /* A superseded or expired code points to the newest email; Resend code has a short cooldown. */
   var CODE_REJECTED_MSG = "That code didn’t work or expired. Use the code from the newest email. Each new request replaces the old code.";
@@ -14096,7 +14108,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function openLinkExpired(email) {
     pendingOtp = email ? { email: email, purpose: "signup" } : null;
     openCloudSheet("That link expired",
-      '<p class="acct-expired">That link expired. Use the newest code we emailed you, or tap Resend code.</p>' +
+      '<p class="acct-expired">That link expired. Use the newest code we emailed you, or tap Resend code.</p>' + CODE_WAIT_HTML +
       '<label class="field"><span>Email</span><input id="acct-email" type="email" autocomplete="email" inputmode="email" value="' + esc(email || "") + '"></label>' +
       '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
       '<div class="acct-actions"><button class="primary" type="button" data-act="acct-otp-verify">Continue</button>' +
@@ -14140,7 +14152,106 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* One auth request at a time; re-taps are ignored and the tapped button is disabled meanwhile. */
   var acctBusy = false;
-  var ACCT_GUARDED = { "acct-signin": 1, "acct-signup": 1, "acct-otp-resend": 1, "acct-otp-verify": 1, "acct-delete-start": 1, "acct-forgot": 1, "acct-set-password": 1 };
+  /* Change email (Profile › Account). PUT /auth/v1/user {email} emails a 6-digit code to the new address.
+   * With Supabase "Secure email change" on, the current address gets its own code too: the first verify
+   * answers 200 with no session ("…confirm link sent to the other email") and the app asks for the second.
+   * The account id never changes, so cloud books, sync state and this device's books stay as they are. */
+  var pendingEmailChange = null;
+  function acctEmail() { var s = cloudSession(); return String((s && s.user && s.user.email) || "").trim().toLowerCase(); }
+  function normEmail(v) { return String(v || "").replace(/\s+/g, "").toLowerCase(); }
+  function openChangeEmail(prefill) {
+    pendingEmailChange = null;
+    openCloudSheet("Change email",
+      '<p class="caption">You sign in with <strong>' + esc(acctEmail()) + '</strong>. We’ll email a 6-digit code to the new address. Your current email keeps working until you confirm the change.</p>' +
+      '<label class="field"><span>New email</span><input id="acct-new-email" type="email" autocomplete="email" inputmode="email" value="' + esc(prefill || "") + '"></label>' +
+      '<label class="field"><span>Type it again</span><input id="acct-new-email2" type="email" autocomplete="off" inputmode="email"></label>' +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-email-send">Send code</button>' +
+      '<button class="text-btn" type="button" data-act="acct-email-cancel">Cancel</button></div>');
+  }
+  function openEmailChangeCode(stage) {
+    var pc = pendingEmailChange; if (!pc) return;
+    pc.stage = stage;
+    openCloudSheet("Confirm your new email",
+      (stage === "other"
+        ? '<p class="caption acct-email-other"><strong>One more code.</strong> For your safety we also emailed a code to your current address, <strong>' + esc(pc.from) + '</strong>. Type the code from the email you haven’t used yet.</p>'
+        : '<p class="caption">We emailed a 6-digit code to <strong>' + esc(pc.to) + '</strong>. Type it here. If your current address gets a code too, you’ll type that one next.</p>' +
+          '<p class="caption">If no code arrives, that address may already have a Paper Trail account. Try a different email.</p>') +
+      CODE_WAIT_HTML +
+      '<label class="field"><span>6-digit code</span><input id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>' +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-email-verify">Confirm</button>' +
+      '<button class="text-btn" type="button" data-act="acct-email-resend" id="acct-resend">Resend code</button>' +
+      '<button class="text-btn" type="button" data-act="acct-email-cancel">Cancel</button></div>');
+  }
+  function emailChangeErr(e) {
+    var m = String((e && e.message) || "");
+    if (e && e.status === 422 && /already|registered|exists/i.test(m)) return "That email already has a Paper Trail account. Use a different email.";
+    if (/already been registered|email_exists|already exists/i.test(m)) return "That email already has a Paper Trail account. Use a different email.";
+    if (/invalid format|validate email/i.test(m)) return "That email address doesn’t look right. Check it and try again.";
+    return m || "Something went wrong. Try again.";
+  }
+  function emailChangeDone(from, to) {
+    pendingEmailChange = null;
+    var s = cloudSession(); if (s && s.user) { s.user.email = to; cloudJson(CLOUD_SESSION_KEY, s); }
+    try { localStorage.setItem("PaperTrail.lastSignupEmail", to); } catch (e) {}
+    openCloudSheet("Email changed",
+      '<p class="acct-confirmed"><strong>Email changed.</strong> You now sign in with <strong>' + esc(to) + '</strong>. Your password, books and cloud backups are unchanged.</p>' +
+      '<p class="caption">' + esc(from) + ' no longer signs in to Paper Trail.</p>' +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="acct-email-done">Done</button></div>');
+    try { render(); } catch (e) {}
+  }
+  function requestEmailChange(to) {
+    return cloudFetch("/auth/v1/user?redirect_to=" + authRedirect(), { method: "PUT", body: { email: to } }, true);
+  }
+  /* Yearly "keep a copy" prompt (v37.5.67). The account email is the only way back in, so once a year,
+   * on app open during January 5–10 (local time), explain that, suggest filling in Net worth and Income for
+   * the new year, offer Export my data (.json) and require a checkbox before Continue.
+   * Per account and per year: the acknowledged date lives locally and in the user's metadata (backup_ack_at),
+   * so a device that sees this year's date stays quiet. Closing with ✕ (or a quick link) without the tick
+   * asks again on the next open inside the window. */
+  var BACKUP_ACK_KEY = "PaperTrail.backupAck.v1", backupPromptShown = false;
+  function backupAckStore() { try { return JSON.parse(localStorage.getItem(BACKUP_ACK_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function backupAckRec(patch) {
+    var s = cloudSession(), id = s && s.user && s.user.id; if (!id) return {};
+    var all = backupAckStore(), rec = all[id] || {};
+    if (patch) { Object.keys(patch).forEach(function (k) { rec[k] = patch[k]; }); all[id] = rec; try { localStorage.setItem(BACKUP_ACK_KEY, JSON.stringify(all)); } catch (e) {} }
+    return rec;
+  }
+  function backupAckTime() {
+    var s = cloudSession(), md = (s && s.user && s.user.user_metadata) || {};
+    return Math.max(Date.parse(backupAckRec().ackAt || "") || 0, Date.parse(md.backup_ack_at || "") || 0);
+  }
+  function backupPromptDue() {
+    var now = new Date();
+    if (now.getMonth() !== 0 || now.getDate() < 5 || now.getDate() > 10) return false;
+    var t = backupAckTime();
+    return cloudSignedIn() && !(t && new Date(t).getFullYear() === now.getFullYear());
+  }
+  function maybeBackupPrompt() {
+    if (backupPromptShown || !backupPromptDue()) return;
+    var m = document.getElementById("modal"); if (m && !m.hidden) return;
+    backupPromptShown = true;
+    var yr = new Date().getFullYear();
+    openCloudSheet("Keep a copy of your data",
+      '<p class="caption">Your account email, <strong>' + esc(acctEmail()) + '</strong>, is the only way back into your Paper Trail data. We can’t recover an account if you lose access to that email, and we don’t use recovery questions.</p>' +
+      '<p class="caption">New year, fresh copy. First make sure your Net worth and Income are filled out for ' + yr + ', then download a copy of everything and keep it somewhere safe.</p>' +
+      '<p class="backup-links"><button type="button" class="link-btn" data-act="acct-backup-door" data-door="worth">Net worth ›</button> · <button type="button" class="link-btn" data-act="acct-backup-door" data-door="statement">Income ›</button></p>' +
+      '<button class="data-btn" type="button" data-act="export-backup"><strong>Export my data</strong><span class="caption">A .json file, saved to this device</span></button>' +
+      '<label class="consent-row"><input type="checkbox" id="backup-ack-box"> <span>I understand I may lose all my saved data if I lose access to my email</span></label>' +
+      '<div class="acct-actions"><button class="primary" type="button" id="backup-ack-go" data-act="acct-backup-ack" disabled>Continue</button></div>');
+    var box = document.getElementById("backup-ack-box"), go = document.getElementById("backup-ack-go");
+    if (box && go) box.addEventListener("change", function () { go.disabled = !box.checked; if (box.checked) acctErr(""); });
+  }
+  function signOutThisDevice(msg, skipServer) {
+    /* Sign out this device only, with the token we already hold. No refresh on this path,
+     * so a refreshed session can't be written back after it's cleared. */
+    var soS = cloudSession(), soCfg = cloudCfg();
+    cloudJson(CLOUD_SESSION_KEY, null);
+    if (!skipServer && soS && soS.access_token && soCfg) {
+      try { fetch(soCfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: soCfg.anonKey, Authorization: "Bearer " + soS.access_token } }).catch(function () {}); } catch (e) {}
+    } cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
+    showToast(msg, 4000); render(); return;
+  }
+  var ACCT_GUARDED = { "acct-signout-all-go": 1, "acct-email-send": 1, "acct-email-verify": 1, "acct-email-resend": 1, "acct-signin": 1, "acct-signup": 1, "acct-otp-resend": 1, "acct-otp-verify": 1, "acct-delete-start": 1, "acct-forgot": 1, "acct-set-password": 1 };
   var COMMON_PW = ["password", "password1", "password12", "password123", "passw0rd", "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000",
     "qwerty12", "qwerty123", "qwertyuiop", "iloveyou", "abc12345", "abcd1234", "letmein1", "welcome1", "admin123", "sunshine", "football", "baseball", "monkey123", "princess", "trustno1", "papertrail"];
   function weakPassword(pw) {
@@ -14164,8 +14275,66 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return r;
   }
   function handleCloudActRaw(act, el) {
-    if (act === "acct-open-signin") return openSignIn("signin");
+    if (act === "acct-open-signin") return openSignIn("signin", (el && el.getAttribute && el.getAttribute("data-email")) || "");
     if (act === "acct-open-signup") return openSignIn("signup");
+    if (act === "acct-email-start") { if (!cloudSignedIn()) return openSignIn("signin"); return openChangeEmail(""); }
+    if (act === "acct-backup-door") {
+      closeModal(); state.tab = "stats"; state.statsDoor = (el && el.getAttribute("data-door")) || "worth";
+      state.worthDetails = false; state.statementDetails = false; saveState(); render(); return;
+    }
+    if (act === "acct-backup-ack") {
+      if (!(document.getElementById("backup-ack-box") || {}).checked) return acctErr("Tick the box to continue.");
+      var at = new Date().toISOString();
+      backupAckRec({ ackAt: at });
+      var sb = cloudSession(); if (sb && sb.user) { sb.user.user_metadata = sb.user.user_metadata || {}; sb.user.user_metadata.backup_ack_at = at; cloudJson(CLOUD_SESSION_KEY, sb); }
+      cloudFetch("/auth/v1/user", { method: "PUT", body: { data: { backup_ack_at: at } } }, true).catch(function () {});
+      closeModal(); render(); showToast("Thanks. We’ll remind you again in a year.", 3500);
+      return;
+    }
+    if (act === "acct-email-done") return openProfile();
+    if (act === "acct-email-cancel") {
+      var cx = pendingEmailChange; pendingEmailChange = null; openProfile();
+      if (cx) showToast("Email not changed. You still sign in with " + cx.from + ".", 4000);
+      return;
+    }
+    if (act === "acct-email-send") {
+      var to = normEmail(acctVal("acct-new-email")), to2 = normEmail(acctVal("acct-new-email2")), from = acctEmail();
+      if (!to) return acctErr("Enter your new email address.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return acctErr("That email address doesn’t look right. Check it and try again.");
+      if (to === from) return acctErr("That’s already your email. Enter a different one.");
+      if (to !== to2) return acctErr("The two emails don’t match. Check for a typo.");
+      acctErr("…");
+      return requestEmailChange(to).then(function (u) {
+        if (u && normEmail(u.email) === to) { /* project auto-confirms: already changed */
+          var s0 = cloudSession(); if (s0) { s0.user = u; cloudJson(CLOUD_SESSION_KEY, s0); }
+          return emailChangeDone(from, to);
+        }
+        pendingEmailChange = { from: from, to: to, stage: "new" };
+        openEmailChangeCode("new"); resendCooldown();
+      }).catch(function (e) { acctErr(emailChangeErr(e)); });
+    }
+    if (act === "acct-email-resend") {
+      var pr = pendingEmailChange; if (!pr) return;
+      if (pr.stage === "other") return acctErr("Both codes were sent together. Use the newest email at " + pr.from + ". To start over, tap Cancel.");
+      return requestEmailChange(pr.to).then(function () { acctErr("New code sent. Only the newest one works."); resendCooldown(); })
+        .catch(function (e) { acctErr(emailChangeErr(e)); });
+    }
+    if (act === "acct-email-verify") {
+      var pv = pendingEmailChange; if (!pv) return acctErr("Start again from Profile › Account › Change email.");
+      var code = acctVal("acct-code").replace(/\D/g, "");
+      if (code.length < 6) return acctErr("Enter the 6-digit code.");
+      /* GoTrue finds the pending change by either address and checks the code against both. */
+      return cloudFetch("/auth/v1/verify", { method: "POST", body: { type: "email_change", email: pv.stage === "other" ? pv.from : pv.to, token: code } })
+        .then(function (j) {
+          if (j && j.access_token) {
+            cloudSaveSession(j);
+            return cloudRefreshUser().catch(function () {}).then(function () { return emailChangeDone(pv.from, pv.to); });
+          }
+          if (j && /other email/i.test(String(j.msg || j.message || ""))) return openEmailChangeCode("other");
+          throw new Error(CODE_REJECTED_MSG);
+        }, function (e) { if (e.status === 429 || e.offline) throw e; throw new Error(CODE_REJECTED_MSG); })
+        .catch(function (e) { acctErr(e.message); });
+    }
     if (act === "acct-signin" || act === "acct-signup") {
       var email = acctVal("acct-email").toLowerCase(), pass = (document.getElementById("acct-pass") || {}).value || "";
       if (!/^\S+@\S+\.\S+$/.test(email)) return acctErr("Enter your email address.");
@@ -14187,13 +14356,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           return afterSignIn();
         }
         if (act === "acct-signin") throw new Error("Sign-in failed. Try again.");
+        var u = (j && j.user) || j || {};
+        if (Array.isArray(u.identities) && u.identities.length === 0) return acctExists(email);
+        /* An older, never-confirmed sign-up: Supabase resends the code; say it is a new one. */
+        var made = Date.parse(u.created_at || "");
         /* The confirmation email carries a 6-digit code too; typing it here signs you in directly. */
-        openEmailCode(email, "signup");
+        openEmailCode(email, "signup", false, made > 0 && Date.now() - made > 120000);
       }).catch(function (e) {
         if (/not confirmed/i.test(e.message)) {
           /* Account exists but the email was never confirmed: resend the sign-up code and ask for it. */
           return cloudFetch("/auth/v1/resend?redirect_to=" + authRedirect(), { method: "POST", body: { type: "signup", email: email } })
-            .then(function () { openEmailCode(email, "signup"); }, function () { openEmailCode(email, "signup", true); });
+            .then(function () { openEmailCode(email, "signup", false, true); }, function () { openEmailCode(email, "signup", true); });
         }
         acctErr(/invalid/i.test(e.message) ? "That email and password don’t match." : e.message);
       });
@@ -14226,8 +14399,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "acct-delete-start") {
       var me = cloudSession(), em2 = me && me.user && me.user.email;
       if (!em2) return;
-      if (!window.confirm("Delete your Paper Trail account and all cloud backups?\n\nWe'll email you a code to confirm.")) return;
-      return sendEmailCode(em2).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) {
+      if (!window.confirm("Delete your Paper Trail account and all cloud backups?\n\nWant a copy first? Cancel, then use Profile › Data › Export my data.\n\nWe'll email you a code to confirm.")) return;
+      /* The address may have changed on another device; send the code to the account's current email. */
+      return cloudRefreshUser().catch(function () {}).then(function () { em2 = acctEmail() || em2; return sendEmailCode(em2); }).then(function () { openEmailCode(em2, "delete"); }).catch(function (e) {
         /* A 429 here (code asked for under a minute ago) used to be easy to miss. Open the code sheet
          * anyway with the wait message in it: the code from the last minute still works, or tap Send a new code later. */
         if (e.status === 429) {
@@ -14264,15 +14438,36 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         })
         .catch(function (e) { acctErr(/aal2/i.test(e.message || "") ? "This account still has an old authenticator attached. Email us and we'll remove it." : e.message); });
     }
-    if (act === "acct-signout") {
-      /* Sign out this device only, with the token we already hold. No refresh on this path,
-       * so a refreshed session can't be written back after it's cleared. */
-      var soS = cloudSession(), soCfg = cloudCfg();
-      cloudJson(CLOUD_SESSION_KEY, null);
-      if (soS && soS.access_token && soCfg) {
-        try { fetch(soCfg.url.replace(/\/$/, "") + "/auth/v1/logout?scope=local", { method: "POST", headers: { apikey: soCfg.anonKey, Authorization: "Bearer " + soS.access_token } }).catch(function () {}); } catch (e) {}
-      } cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
-      showToast("Signed out. Your books stay on this device.", 3500); render(); return;
+    if (act === "acct-signout") return signOutThisDevice("Signed out. Your books stay on this device.");
+    if (act === "acct-signout-all") {
+      return openCloudSheet("Sign out of all devices",
+        '<p class="caption">This signs you out everywhere, including this device. Your data stays safe in your account. Sign in again with your email and password.</p>' +
+        '<div class="acct-actions"><button class="primary" type="button" data-act="acct-signout-all-go">Sign out everywhere</button>' +
+        '<button class="text-btn" type="button" data-act="acct-signout-all-cancel">Cancel</button></div>');
+    }
+    if (act === "acct-signout-all-cancel") return openProfile();
+    if (act === "acct-signout-local") { closeModal(); return signOutThisDevice("Signed out on this device. Other devices are still signed in."); }
+    if (act === "acct-signout-all-go") {
+      acctErr("…");
+      /* Revoke every refresh token for this account (all devices), then drop this device's session
+       * the same way Sign out does. Books stay on this device and in the cloud. */
+      return cloudFetch("/auth/v1/logout?scope=global", { method: "POST" }, true)
+        .then(function () { closeModal(); signOutThisDevice("Signed out on all devices. Your books stay on this device and in your account.", true); })
+        .catch(function (e) {
+          if (e.offline) {
+            acctErr("");
+            var er = document.getElementById("acct-err");
+            if (er) er.innerHTML = 'You look offline, so other devices are still signed in. Try again when you’re connected, or <button type="button" class="link-btn" data-act="acct-signout-local">sign out this device only</button>.';
+            return;
+          }
+          if (e.status === 429) return acctErr("Too many tries. Wait a minute, then try again.");
+          if (e.deadSession || e.status === 401 || e.status === 403 || isDeadSessionErr(e)) {
+            /* The session had already ended: nothing left to revoke from here. */
+            if (!cloudSession()) return; /* cloudSessionDied already cleared it and opened sign-in */
+            closeModal(); signOutThisDevice("You were already signed out. Sign in again to keep backing up.", true); return;
+          }
+          acctErr(e.message);
+        });
     }
     if (act === "acct-resume") { cloudSync({ paused: false }); return firstSync(); }
     if (act === "acct-sync-now") { return cloudSyncNow("manual").then(render); }
@@ -14425,7 +14620,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openEmailConfirmed(linkEmail);
       return;
     }
-    if (cloudSignedIn() && !loadFailure) cloudSyncNow("open");
+    if (cloudSignedIn() && !loadFailure) {
+      cloudSyncNow("open");
+      /* Pick up an email changed on another device, so Profile and the delete code use the current address. */
+      var bootEmail = acctEmail();
+      cloudRefreshUser().then(function () { if (acctEmail() !== bootEmail) { try { render(); } catch (e) {} } }).catch(function () {}).then(function () { setTimeout(maybeBackupPrompt, 1500); });
+    }
   }
 
   /* Only real books (transactions, more than one month, or Vault items) trip the guard — the blank
@@ -15400,7 +15600,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.65";
+  var APP_VERSION = "37.5.67";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

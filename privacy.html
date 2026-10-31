@@ -16,7 +16,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <a class="back" href="./">‹ Back to Paper Trail</a>
 <main id="policy">
 <h1>Paper Trail Privacy Policy</h1>
-<p><strong>Policy version:</strong> 1.2 · <strong>Effective:</strong> October 30, 2026 · <strong>Contact:</strong> support.papertrail@gmail.com</p>
+<p><strong>Policy version:</strong> 1.2 · <strong>Effective:</strong> October 30, 2026 · <strong>Clarified:</strong> October 31, 2026 (wording only, no change to what we collect) · <strong>Contact:</strong> support.papertrail@gmail.com</p>
 <p>Paper Trail is an independent budgeting app ("we", "us" means the person who builds and runs it). This policy says, in plain English, what the app keeps, what leaves your device, and what you can do about it.</p>
 <h2>1. The short version</h2>
 <ul>
@@ -24,6 +24,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <li>A copy of your books is backed up to your private cloud account. Vault files stay on your device.</li>
 <li>The only place your data goes is your own account backup, stored with Supabase. We don't share your data with anyone else.</li>
 <li>No ads, no third-party analytics, no tracking cookies, and we never sell your data.</li>
+<li>We never see your password and will never ask for it. The only emails we send are sign-up, email-change and account-deletion codes and password resets.</li>
 <li>You can export or erase everything at any time.</li>
 </ul>
 <h2>2. Who this applies to</h2>
@@ -42,6 +43,11 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <h2>4. Your account and cloud backup</h2>
 <p>An account is required to use Paper Trail. With your account:
 - <strong>Sign-in:</strong> your email and password are handled by our hosting provider, Supabase (see §8). We never see your password. When you create an account we email you a 6-digit code once to confirm your email address; after that you sign in with your email and password, and you stay signed in on that device until you tap Sign out. Our database only opens backups for accounts with a confirmed email. Use a strong password you don't use elsewhere, and keep your email account secure, since password resets go to it.
+- <strong>Your password:</strong> we never see or store your password; Supabase keeps only a scrambled (hashed) form of it. We will never ask for your password by email, text, or through support. If anyone asks, it isn't us.
+- <strong>Emails we send:</strong> the only emails we send are one-time 6-digit codes (to confirm your email at sign-up, to confirm an email change, and to confirm deleting your account) and password-reset messages. They come from support.papertrail@gmail.com. We don't send newsletters or marketing.
+- <strong>Losing access to your email:</strong> your account email is the only way back into your data; we don't use recovery questions or codes. Each year in early January (January 5–10) the app reminds you to download a copy (Export my data) and asks you to confirm you understand this. The date you confirmed is saved with your account.
+- <strong>Changing your email:</strong> Profile › Account › Change email. We email a 6-digit code to the new address (and, for your safety, may send one to your current address too). Your current email keeps working until the change is confirmed. Your account, password and backups stay the same.
+- <strong>Email already in use:</strong> if you try to create an account with an email that already has one, the app tells you so and offers Sign in or Forgot password. It doesn't send a new account email.
 - <strong>What's backed up:</strong> your saved books, including the details on each Vault card. <strong>The Vault files themselves are not uploaded.</strong> Each backup also records the time, device ID, app version, transaction count and size.
 - <strong>When:</strong> when you open the app and a few seconds after each change. If you erase a device's books but keep your cloud backups, backup pauses on that device until you turn it back on.
 - <strong>How many:</strong> the server keeps your last 10 versions.
@@ -69,7 +75,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <p>Before either one goes live, we'll update this policy and ask for your consent. Neither will be turned on without you choosing it.</p>
 <h2>10. Your choices: export and delete</h2>
 <ul>
-<li><strong>Export:</strong> an Excel workbook, a monthly PDF report, or a copy of all your data as a .json file (Profile › Data › Export my data).</li>
+<li><strong>Export:</strong> an Excel workbook, a monthly PDF report, or a copy of all your data as a .json file (Profile › Data › Export my data). Exports are downloaded to your device by you. We never email your data to you or to anyone else.</li>
 <li><strong>Delete on device:</strong> "Erase all data" in the danger zone at the bottom of Profile removes your books and the backup copies on this device.</li>
 <li><strong>Delete in the cloud:</strong> when you erase while signed in, the app offers to delete your cloud backups too.</li>
 <li><strong>Delete your account:</strong> Profile › Account › Delete my account. We email you a 6-digit code to confirm, then your account and every cloud backup are deleted. You can also email support.papertrail@gmail.com and we'll do it for you.</li>
@@ -78,7 +84,7 @@ a{color:#2f6b4f} .back{display:inline-block;margin-bottom:12px}
 <ul>
 <li>All traffic uses HTTPS.</li>
 <li>Row-level security protects cloud backups. Only the public key is in the app.</li>
-<li>After a password reset, every device is signed out and you sign in again with your new password. Deleting your account always needs a fresh code emailed to you.</li>
+<li>After a password reset, every device is signed out and you sign in again with your new password. You can also sign out of all devices yourself from Profile › Account › Sign out of all devices. Deleting your account always needs a fresh code emailed to you.</li>
 </ul>
 <p>No system is perfectly secure. Use a strong password and keep your device locked. If we learn of a breach that affects your data, we'll tell you.</p>
 <h2>12. Age requirement</h2>
