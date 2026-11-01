@@ -4897,25 +4897,39 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (hsaSeen) { add("5498sa", "5498-SA · HSA", "HSA contributions"); add("1099sa", "1099-SA · HSA", "HSA withdrawals"); }
     return out;
   }
-  function dashTaxList(year) {
-    var d = dashState(), rec = d.taxDocs[String(year)] || (d.taxDocs[String(year)] = { auto: {}, custom: [] });
-    if (!rec.auto) rec.auto = {};
-    if (!Array.isArray(rec.custom)) rec.custom = [];
-    var rows = dashTaxSuggestions(year).map(function (s) {
-      var a = rec.auto[s.key] || {};
-      return { key: s.key, name: s.name, why: s.why, done: !!a.done, received: a.received || "", docId: a.docId || "", custom: false };
+  /* v37.5.71 (owner): the checklist is yours alone. Nothing is suggested or auto-added; you add, rename and
+   * delete every item, and a deleted item stays deleted (it lives only in rec.custom, which syncs with the books).
+   * One-time move: a suggested form you had already ticked, dated or linked to a Vault doc becomes your own item,
+   * so nothing you entered is lost; untouched suggestions simply stop appearing. */
+  function dashTaxMigrateAuto(year, rec) {
+    if (!rec.auto) return;
+    var names = {};
+    try { dashTaxSuggestions(year).forEach(function (s) { names[s.key] = s.name; }); } catch (e) {}
+    Object.keys(rec.auto).forEach(function (key) {
+      var a = rec.auto[key] || {};
+      if (!a.done && !a.received && !a.docId) return;
+      var form = { w2: "W-2", "1098": "1098", "1098e": "1098-E", "5498": "5498", "1099": "1099", "5498sa": "5498-SA · HSA", "1099sa": "1099-SA · HSA" }[String(key).split(":")[0]];
+      var nm = names[key] || form || String(key);
+      rec.custom.push({ id: "tx-" + nextId(), name: nm, done: !!a.done, received: a.received || "", docId: a.docId || "" });
     });
+    delete rec.auto;
+    setTimeout(saveState, 0); /* keep the one-time move in the saved (and synced) books */
+  }
+  function dashTaxList(year) {
+    var d = dashState(), rec = d.taxDocs[String(year)] || (d.taxDocs[String(year)] = { custom: [] });
+    if (!Array.isArray(rec.custom)) rec.custom = [];
+    dashTaxMigrateAuto(year, rec);
+    var rows = [];
     rec.custom.forEach(function (c) { rows.push({ key: "c:" + c.id, id: c.id, name: c.name, why: "Your item", done: !!c.done, received: c.received || "", docId: c.docId || "", custom: true }); });
     return { year: year, rows: rows, rec: rec };
   }
   function dashTaxRowRef(year, key) {
     var L = dashTaxList(year);
-    if (key.indexOf("c:") === 0) return L.rec.custom.filter(function (c) { return "c:" + c.id === key; })[0] || null;
-    return L.rec.auto[key] || (L.rec.auto[key] = {});
+    return L.rec.custom.filter(function (c) { return "c:" + c.id === key; })[0] || null;
   }
   function dashTaxRowsHtml(year) {
     var L = dashTaxList(year), html = "";
-    if (!L.rows.length) html += '<p class="caption">No tax forms suggested yet. Add your own below.</p>';
+    if (!L.rows.length) html += '<p class="caption">Your checklist is empty. Add the forms you’re waiting for (W-2, 1099, 1098…) with + Add item.</p>';
     L.rows.forEach(function (r) {
       var doc = r.docId ? findProfileDoc(r.docId) : null;
       html += '<div class="dash-tax-row' + (r.done ? " done" : "") + '">' +
@@ -4926,7 +4940,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
   function openDashTaxSheet(year) {
-    var html = '<p class="caption">Tax year ' + year + '. Check off each form when it arrives. Suggestions come from your pay stubs and Net worth lines.</p>' +
+    var html = '<p class="caption">Tax year ' + year + '. Your own list: add each form you’re waiting for, check it off when it arrives, tap Details to rename or delete it.</p>' +
       '<div class="dash-tax-list">' + dashTaxRowsHtml(year) + "</div>" +
       '<div class="dash-tax-year"><button type="button" class="text-btn" data-dash="tax-year" data-year="' + (year - 1) + '">‹ ' + (year - 1) + '</button>' +
       '<button type="button" class="text-btn" data-dash="tax-add" data-year="' + year + '">+ Add item</button>' +
@@ -4947,7 +4961,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       field("Received", "taxReceived", r ? r.received : "", "date") +
       '<label class="field">Vault document<select name="taxDoc">' + opts + "</select></label>" +
       '<input type="hidden" name="taxYear" value="' + year + '"><input type="hidden" name="taxKey" value="' + esc(key) + '">';
-    if (r && r.custom) html += deleteBtnHtml("", "Delete item", ' data-dash="tax-del" data-year="' + year + '" data-key="' + esc(key) + '"');
+    if (r) html += deleteBtnHtml("", "Delete item", ' data-dash="tax-del" data-year="' + year + '" data-key="' + esc(key) + '"');
     openSheet(key === "new" ? "Add tax item" : "Tax form", html, "dash-save-tax");
   }
 
@@ -5226,7 +5240,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* v37.5.70 free-tier graphs under the net worth / income trend. */
   function dashExtraGraphsHtml() {
-    return dashSpendByCategoryHtml() + dashSavingsTrendHtml() + dashZeroStreakHtml();
+    return dashSpendByCategoryHtml() + dashSavingsTrendHtml();
   }
   function dashBarsHtml(rows, fmt) {
     var max = rows.reduce(function (m, r) { return Math.max(m, Math.abs(r.v) || 0); }, 0) || 1;
@@ -5262,33 +5276,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var rec = state.months && state.months[ymKey(cym.year, m)];
       if (!rec) continue;
       var r = null; try { r = dashSavingsRate(rec); } catch (e) {} /* same plan-based rate as the headline */
-      if (r && r.rate != null && isFinite(r.rate)) pts.push({ m: m, v: r.rate });
+      if (r && r.rate != null && isFinite(r.rate)) pts.push({ m: m, v: r.rate, s: Number(r.savings) || 0, t: Number(r.takeHome) || 0 });
     }
     var html = '<section class="dash-card dash-srtrend" id="dash-srtrend"><p class="dash-k">Savings rate trend (planned) · ' + cym.year + "</p>";
     if (!pts.length) return html + '<p class="dash-big mono">—</p><p class="caption">Shows once a month has planned pay.</p></section>';
     var last = pts[pts.length - 1], max = Math.max.apply(null, pts.map(function (p) { return p.v; }).concat([0.0001]));
-    var bars = '<div class="dash-cols" role="img" aria-label="Savings rate by month">' + pts.map(function (p) {
+    /* v37.5.71: weighted average = total planned savings ÷ total planned take-home across the months shown
+     * (not the mean of the monthly rates), the same plan basis as the headline. Dashed line across every month. */
+    var sumS = 0, sumT = 0;
+    pts.forEach(function (p) { sumS += p.s; sumT += p.t; });
+    var avg = sumT > 0 ? sumS / sumT : null;
+    var avgLine = avg == null ? "" : '<span class="dash-avg-line" id="dash-sr-avg" data-avg="' + avg.toFixed(6) + '" style="bottom:calc(16px + (100% - 16px) * ' + Math.min(1, Math.max(0, Math.round(Math.max(0, avg) / max * 1000) / 1000)) + ')"><span class="dash-avg-lbl">avg ' + pctWhole(avg) + "</span></span>";
+    var bars = '<div class="dash-cols" role="img" aria-label="Savings rate by month' + (avg == null ? "" : ", weighted average " + pctWhole(avg)) + '">' + avgLine + pts.map(function (p) {
       return '<span class="dash-col" title="' + esc(MONTH_NAMES[p.m - 1] + " " + pctWhole(p.v)) + '"><span class="dash-col-fill" style="height:' + Math.max(3, Math.round(Math.max(0, p.v) / max * 100)) + '%"></span><span class="dash-col-lbl">' + MONTH_NAMES[p.m - 1].slice(0, 1) + "</span></span>";
     }).join("") + "</div>";
     return html + '<p class="dash-big mono">' + pctWhole(last.v) + ' <span class="caption">' + MONTH_NAMES[last.m - 1] + "</span></p>" + bars +
-      '<p class="plain-line">How much of your take-home went to retirement saving each month this year.</p></section>';
-  }
-  function dashZeroStreakHtml() {
-    var all = Object.keys(state.months || {}).map(function (k) { return state.months[k]; }).filter(function (m) { return m && m.year && m.month; })
-      .sort(function (a, b) { return (a.year * 12 + a.month) - (b.year * 12 + b.month); });
-    var run = 0, best = 0, prev = null;
-    all.filter(function (m) { return m.closedAt; }).forEach(function (m) {
-      var ok = monthStampEarned(m, sums(m)), idx = m.year * 12 + m.month;
-      run = ok ? (prev != null && idx === prev + 1 ? run + 1 : 1) : 0;
-      prev = ok ? idx : null; best = Math.max(best, run);
-    });
-    var html = '<section class="dash-card dash-streak" id="dash-streak"><p class="dash-k">Months closed at $0</p>' +
-      '<p class="dash-big mono">' + run + (run === 1 ? " month" : " months") + ' <span class="caption">in a row</span></p>';
-    html += '<div class="dash-dots" role="img" aria-label="Recent months closed at $0">' + all.slice(-12).map(function (m) {
-      var ok = m.closedAt && monthStampEarned(m, sums(m));
-      return '<span class="dash-dot' + (ok ? " on" : m.closedAt ? " miss" : "") + '" title="' + esc(MONTH_NAMES[m.month - 1] + " " + m.year) + '">' + MONTH_NAMES[m.month - 1].slice(0, 1) + "</span>";
-    }).join("") + "</div>";
-    return html + '<p class="plain-line">Months you wrapped up with every dollar given a job' + (best > run ? " · best run " + best : "") + ".</p></section>";
+      '<p class="plain-line">How much of your planned take-home went to savings each month this year.' + (avg == null ? "" : " Dashed line = weighted average " + pctWhole(avg) + " (total planned savings ÷ total planned take-home).") + "</p></section>";
   }
   /* v37.5.70 Dashboard folds: every card starts collapsed to its title + one headline; the small
    * explanations (plain lines, captions, ? help) show only when a card is opened. In-memory per session. */
@@ -5311,6 +5314,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         b.type = "button"; b.className = "dash-fold"; b.setAttribute("data-dash", "fold"); b.setAttribute("data-id", id);
         head.appendChild(b);
       }
+      /* v37.5.71: the Net worth / Income chart and the loan payoff projection stay visible when a card is folded. */
+      Array.prototype.forEach.call(sec.querySelectorAll(":scope > .trend-chips, :scope > .nw-scrubber, :scope > .chart-legend, :scope > .debt-green"), function (x) { x.classList.add("dash-keep"); });
       var open = !!dashFoldOpen[id], fb = head.querySelector(".dash-fold");
       sec.classList.toggle("dash-folded", !open);
       if (fb) { fb.setAttribute("aria-expanded", String(open)); fb.setAttribute("aria-label", (open ? "Collapse " : "Expand ") + (head.textContent || "section").replace(/[?▾▴]/g, "").trim()); fb.textContent = open ? "▴" : "▾"; }
@@ -5457,7 +5462,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ref = { id: "tx-" + nextId(), name: nm }; L.rec.custom.push(ref);
       } else {
         ref = dashTaxRowRef(y, key);
-        if (ref && data.taxName != null && key.indexOf("c:") === 0) ref.name = String(data.taxName).trim() || ref.name;
+        if (ref && data.taxName != null) ref.name = String(data.taxName).trim() || ref.name;
       }
       if (ref) { ref.received = data.taxReceived || ""; if (ref.received) ref.done = true; ref.docId = data.taxDoc || ""; }
     }
@@ -16416,7 +16421,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.70";
+  var APP_VERSION = "37.5.71";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

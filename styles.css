@@ -5229,7 +5229,7 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .dash-foldable .dash-head{cursor:pointer}
 .dash-fold{margin-left:auto;background:none;border:0;padding:4px 6px;min-width:32px;min-height:28px;font:600 calc(13px * var(--fs-scale)) var(--ui);color:var(--muted);cursor:pointer}
 .grade-hero-top.dash-head,.dash-foldable>h3.dash-head{display:flex;align-items:center;gap:6px}
-.dash-folded>:not(.dash-head):not(.dash-headline){display:none!important}
+.dash-folded>:not(.dash-head):not(.dash-headline):not(.dash-keep){display:none!important}
 .dash-folded .dash-headline .caption,.dash-folded .dash-headline .plain-line,.dash-folded .help-q{display:none!important}
 .dash-folded .dash-headline{margin-bottom:0}
 /* v37.5.70 free-tier graphs */
@@ -5244,10 +5244,6 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .dash-col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;position:relative}
 .dash-col-fill{display:block;width:100%;max-width:22px;border-radius:4px 4px 0 0;background:var(--moss)}
 .dash-col-lbl{position:absolute;bottom:-16px;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
-.dash-dots{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
-.dash-dot{width:22px;height:22px;border-radius:50%;border:1.5px dashed var(--rule);display:flex;align-items:center;justify-content:center;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
-.dash-dot.on{border:1.5px solid var(--stamp,var(--moss));background:var(--stamp,var(--moss));color:#fff}
-.dash-dot.miss{border-style:solid;border-color:var(--muted)}
 .dash-two-stat{grid-template-columns:1fr 1fr}
 .dash-two-stat .dash-mid,.dash-two-stat .caption{display:block}
 /* v37.5.70 Pay sheet: full ZIP on phones; deduction lines on two rows with a $ / % switch. */
@@ -5273,3 +5269,7 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 /* v37.5.70 big-dollar inputs: fixed width, tabular digits, no reflow while typing */
 input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:clip;white-space:nowrap}
 .debt-sb-fields .field,#debt-edit .field{min-width:0}
+
+/* v37.5.71 savings trend: weighted average line */
+.dash-avg-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--ink);opacity:.75;pointer-events:none;z-index:2}
+.dash-avg-lbl{position:absolute;right:0;bottom:3px;font-size:11px;line-height:1.2;padding:0 4px;border-radius:4px;background:var(--paper);color:var(--ink)}
