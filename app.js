@@ -1160,7 +1160,7 @@
   function deleteEnvelope(month, id) {
     var cat = month.categories.filter(function (c) { return c.id === id; })[0];
     if (!cat) return;
-    if (cat.system === "checking" || cat.system === "savings") { window.alert(cat.system === "savings" ? "Savings is built in (it holds Checking), so it can’t be deleted. You can rename it." : "Checking is built in, so it can’t be deleted. You can rename it."); return; }
+    if (cat.system === "checking" || cat.system === "savings") { window.alert(cat.system === "savings" ? "Savings is built in (it holds Checking), so it can’t be deleted. You can rename it." : "Checking is locked: it can’t be renamed or deleted, because savings and wrap-up depend on it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
@@ -1186,7 +1186,7 @@
   function deleteLine(month, lineId) {
     var found = findLine(month, lineId);
     if (!found) return;
-    if (found.line.system === "checking") { window.alert("Checking is built in, so it can’t be deleted. You can rename it."); return; }
+    if (found.line.system === "checking") { window.alert("Checking is locked: it can’t be renamed or deleted, because savings and wrap-up depend on it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.lineId === lineId; });
     }).length;
@@ -4054,6 +4054,8 @@
   /* Built-in "Checking" line (v37.5.70, owner): a protected, renamable, never-deletable LINE inside the built-in
    * Savings group (also never deletable). Wrap-up parks leftover dollars here (or covers an over-assigned month from
    * it) as a budget assignment only — no transaction, no Net Worth change. */
+  /* v37.5.72 (owner): Checking stays locked; one short note says why. */
+  var CHECKING_LOCK_NOTE = '<p class="caption checking-lock-note"><span aria-hidden="true">🔒</span> Checking is locked: it can’t be renamed or deleted, because savings and month wrap-up depend on it.</p>';
   function checkingLine(month) {
     var hit = null;
     (month.categories || []).forEach(function (c) {
@@ -4090,7 +4092,6 @@
       if (!lines.length) lines = [{ id: mk("checking"), name: old.name || "Checking", assigned: Number(old.assigned) || 0 }];
       lines.forEach(function (l, i) {
         if (i === 0 && !lines.some(function (x) { return x.system === "checking"; })) l.system = "checking";
-        if (l.system === "checking" && old.name && old.name !== "Checking" && l.name === "Checking") l.name = old.name; /* keep a rename */
         l.sortOrder = sav.lines.length; ids[l.id] = 1; sav.lines.push(l);
       });
       (month.transactions || []).forEach(function (t) {
@@ -4101,6 +4102,8 @@
       changed = true;
     });
     var ck = null; cats.forEach(function (c) { (c.lines || []).forEach(function (l) { if (l.system === "checking" && !ck) ck = { c: c, l: l }; }); });
+    /* v37.5.72 (owner): Checking is locked: always named "Checking" (an earlier rename goes back). */
+    if (ck && ck.l.name !== "Checking") { ck.l.name = "Checking"; changed = true; }
     if (!ck) {
       sav.lines.push({ id: mk("checking"), name: "Checking", system: "checking", assigned: 0, sortOrder: sav.lines.length }); changed = true;
     } else if (ck.c !== sav) { /* a Checking line dragged into another group goes back to Savings */
@@ -4199,6 +4202,35 @@
       }, reduce || !first ? 0 : 280);
     }, hold);
   }
+  /* v37.5.72 (owner): received more than planned → one quiet, dismissible offer to raise planned income so the extra
+   * dollars can get a job. Hand-editing still works; "Not now" hides it for that month. */
+  function extraIncomeAmount(month, totals) {
+    if (!month || month.closedAt || month.extraIncomeDismissed) return 0;
+    var d = roundCents((Number(totals.received) || 0) - (Number(totals.income) || 0));
+    return d >= 1 ? d : 0;
+  }
+  function extraIncomeNudgeHtml(month, totals) {
+    var d = extraIncomeAmount(month, totals);
+    if (!d) return "";
+    return '<div class="extra-inc-nudge" role="status"><p>You received <b class="mono moss">' + esc(money(d)) + "</b> more than planned. Add it to your budget so it gets a job?</p>" +
+      '<div class="extra-inc-btns"><button type="button" class="link-btn" data-act="extra-income-dismiss">Not now</button>' +
+      '<button type="button" class="primary small" data-act="extra-income-add">Add ' + esc(money(d)) + " to income</button></div></div>";
+  }
+  function extraIncomeAnswer(add) {
+    var month = monthRecord(), d = extraIncomeAmount(month, sums(month));
+    if (add && d) {
+      month.incomes = month.incomes || [];
+      var line = month.incomes.filter(function (i) { return i.extraIncome; })[0];
+      if (line) line.amount = roundCents((Number(line.amount) || 0) + d);
+      else {
+        var now = new Date(), last = new Date(month.year, month.month, 0).getDate();
+        var day = now.getFullYear() === month.year && now.getMonth() + 1 === month.month ? now.getDate() : last;
+        month.incomes.push({ id: nextId(), name: "Extra income", amount: d, date: isoDate(month.year, month.month, day), extraIncome: true });
+      }
+      showToast("Added " + money(d) + " to income. Give it a job below.");
+    } else month.extraIncomeDismissed = true;
+    saveState(); render();
+  }
   /* After a wrap-up rolls into a new month that's still empty, ask once: copy the plan, or start blank. */
   function monthIsUntouchedPlan(m) {
     if (!m || (m.transactions || []).length) return false;
@@ -4218,7 +4250,7 @@
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet plan-copy-sheet" data-from="' + esc(ymKey(fromRec.year, fromRec.month)) + '" data-to="' + esc(key) + '">' +
       "<h3>Copy " + esc(from) + "’s budget to " + esc(to) + "?</h3>" +
-      '<p class="empty">Brings over ' + esc(from) + "’s planned amounts and income lines. No transactions come along, and Checking stays as it is.</p>" +
+      '<p class="empty">Brings over ' + esc(from) + "’s planned amounts and income lines exactly as they are. No transactions come along.</p>" +
       '<div class="sheet-actions"><button type="button" data-act="plan-copy-blank">Start blank</button>' +
       '<button class="primary" type="button" data-act="plan-copy-yes">Copy budget</button></div></div>';
     armSheetA11y(modal);
@@ -4231,7 +4263,7 @@
     state.planCopyAsked = state.planCopyAsked || {};
     state.planCopyAsked[key] = copy ? "copy" : "blank";
     if (monthIsUntouchedPlan(dest)) {
-      if (copy && from) copyPlanFromTo(from, toYM); // same copy new months use; Checking starts at $0 there
+      if (copy && from) copyPlanFromTo(from, toYM); // exact copy: income lines, every line's planned amount, Checking too
       else if (!copy && dest) {
         (dest.categories || []).forEach(function (c) {
           if (c.system === "checking") return;
@@ -4337,7 +4369,6 @@
       '<h2 class="sr-only">Budget</h2>' +
       demoBannerHtml() +
       (function () { var n = uncategorizedTxs(month).length; return n ? '<button type="button" class="uncat-banner" data-act="tab" data-tab="spend"><span class="door-badge door-badge-alert">' + n + "</span> " + (n === 1 ? "1 transaction needs" : n + " transactions need") + " a category · Pick envelopes ›</button>" : ""; })() +
-      onboardChecklistHtml() +
       fooBudgetStripHtml(month) +
       "";
     /* Income folds to one line (open state saved). */
@@ -4373,6 +4404,7 @@
       html += '<button class="add-line income-add" type="button" data-act="add-income">+ Add paycheck</button>';
     }
     html += "</div>";
+    html += extraIncomeNudgeHtml(month, totals);
     html +=
       '<p class="section-label">Envelopes ' + helpQ("Tap a line’s name or assigned amount to change it. Hold an envelope’s name to edit it; ⇅ at the top reorders envelopes and moves lines between them. Stamp rule: income > 0 and leftover exactly $0. On an empty month, copy last month’s assigned dollars and paychecks. Spending never copies.") + '</p>';
     var ordered = sortedCategories(month);
@@ -5075,7 +5107,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<div class="dash-snap" id="dash-snap">' +
       '<div><span class="lbl">Grade</span><b>' + (grade ? grade.score : "—") + "</b></div>" +
       '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + "</b></div>" +
-      '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel((dm.extra > 0 ? dm.withX : dm.base).months)) : "—") + "</b></div></div>";
+      '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel(dm.withX.months)) : "—") + "</b></div></div>";
     if (grade) {
       html += (isPremium() ? premiumGradeHeroHtml(grade) : gradeGlimpseHtml(grade)).replace("</section>", '<p class="plain-line">One number for how your money habits are set up. 100 is perfect.</p></section>');
       if (SHELVED_FEATURES.fooNextStep) html += nextActionHtml(grade);
@@ -5093,11 +5125,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // This year: income, savings rate and average tax in one tile.
     var inc = dashIncome(), yr = inc ? inc.year : currentYearMonth().year;
     var avg = inc ? inc.avgTax : null;
+    /* v37.5.72 (owner): take-home here is the planned figure (this month's planned take-home × 12), the same basis as the
+     * savings rate below, so the two never disagree. */
+    var dsrY = dashSavingsRate();
+    var planTH = dsrY && dsrY.takeHome > 0 ? roundCents(dsrY.takeHome * 12) : 0;
+    if (planTH > 0) inc = { year: yr, gross: inc ? inc.gross : null, takeHome: planTH, avgTax: avg,
+      source: (dsrY.basis === "pay" ? "Take-home: your Pay plan" : "Take-home: this month’s planned paychecks × 12") + (inc && inc.gross != null ? " · gross: " + inc.source : "") };
     html += '<section class="dash-card dash-year" id="dash-year"><p class="dash-k">This year · ' + yr + "</p>";
     if (inc) {
       html += '<div class="dash-two"><div><span class="caption">Gross pay</span><strong class="mono">' + (inc.gross != null ? moneyWhole(inc.gross) : "—") + "</strong></div>" +
-        '<div><span class="caption">Take-home</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
-        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement). Take-home = gross − taxes − pre-tax deductions − post-tax per-check lines × checks in the year. With no pay stub, the typed what-if is used; with neither, this year’s Budget paychecks are projected to 12 months. Estimate, not a guarantee.") + "</p>";
+        '<div><span class="caption">Take-home · planned</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
+        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement); with no pay stub, the typed what-if. Take-home (planned) = this month’s planned take-home × 12, the same figure the savings rate uses (or your Pay plan when no paychecks are planned). Estimate, not a guarantee.") + "</p>";
     } else html += '<p class="caption">Add a paycheck to estimate this year.</p>';
     /* v37.5.70: one savings rate (take-home based) + average tax; the Basic / True rate displays are gone. */
     var dsr = dashSavingsRate();
@@ -5193,6 +5231,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<span>3-year estimate · ' + last.year + "</span><span class=\"mono\">" + (pw ? "Net worth " + moneyWhole(pw.rows[pw.rows.length - 1].total) : "Income " + moneyWhole(pi.rows[pi.rows.length - 1].total)) +
         ' <span class="chev" aria-hidden="true">' + (dashEstOpen ? "▴" : "▾") + "</span></span></button>" +
         (dashEstOpen ? '<div class="dash-est-body">' + (pw ? estimatedSectionHtml("worth") : estimatedSectionHtml("income")) + "</div>" : "") +
+        (pw ? '<p class="caption dash-est-why">' + esc(nwProjAssumeLine(pw)) + "</p>" : "") +
         "</section>";
     }
     if (isPremium() && worthHasData()) { try { html += taxTriangleHtml({ paycheckStrip: false, context: "worth" }).replace('<p class="section-label">Tax triangle</p>', ""); } catch (e) {} }
@@ -6343,24 +6382,80 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  /* "How you compare" lives in the annual Wrapped as slides; it asks for a birthday there. */
-  function compareWrapSlides() {
-    var GM = window.GradeMath, peers = peerCompare();
-    if (!GM.compareDeck) return [];
-    var deck = GM.compareDeck({ ageYears: GM.ageYears(birthdayISO()), zip: state.compensation && state.compensation.zipCode,
-      income: peers.youIncome, netWorth: peers.youNetWorth, debt: peers.youDebt, plan: isPremium() ? "premium" : "free" });
-    if (deck.needsBirthday) {
-      return [{ id: "cmp-bday", kicker: "How you compare", title: "When’s your birthday?", sub: "We compare you with people your age. Age is never guessed, and it stays on this device.", askBirthday: true }];
+  /* v37.5.72 (owner): "You vs the median American" in the annual Wrapped. Real data only:
+   * Federal Reserve Survey of Consumer Finances 2025 (released Oct 9, 2026; 2025 dollars).
+   * - Net worth medians by age of the family's reference person: SCF 2025 report, Table 2.
+   * - Income medians and every percentile point: computed by Paper Trail from the SCF 2025 public summary extract
+   *   (SCFP2025.csv, weighted by WGT), rounded to $100. Points are the 5th, 10th … 95th percentiles.
+   *   The extract matches the report (under 35: $32,820 vs $33.0k; all families $216,100 vs $215.9k; income $82,162 vs $82.2k).
+   * SCF income is the family's total income before taxes for the year before the survey (2024).
+   * Percentiles are labelled estimates; nothing past the 5th or 95th. No birthday = all families. */
+  var SCF25_BANDS = [
+    { id: "under35", label: "under 35", min: 0, max: 34 }, { id: "35-44", label: "35–44", min: 35, max: 44 },
+    { id: "45-54", label: "45–54", min: 45, max: 54 }, { id: "55-64", label: "55–64", min: 55, max: 64 },
+    { id: "65-74", label: "65–74", min: 65, max: 74 }, { id: "75plus", label: "75 and up", min: 75, max: 200 }
+  ];
+  var SCF25_NW_MEDIAN = { under35: 33000, "35-44": 155600, "45-54": 253700, "55-64": 411900, "65-74": 431300, "75plus": 504900, all: 215900 };
+  var SCF25_PCT = {"NETWORTH":{"under35":[-34700,-11700,-1800,200,3100,6800,11100,16800,23500,32800,48200,65200,77500,105700,145100,213600,268400,351200,476500],"35-44":[-23100,-800,1600,7200,18000,34800,60900,95200,121900,156000,190400,230700,278200,353400,467500,631500,912000,1233600,2382500],"45-54":[-1400,2100,12500,29200,54700,81900,119000,164300,204600,254700,312100,413000,526800,724800,942000,1126300,1552400,2557400,5219000],"55-64":[-100,1700,10600,30100,71800,113300,153000,211600,279400,411300,532300,689500,886200,1163200,1416200,1783900,2471600,3457600,7545000],"65-74":[0,6500,27200,73100,118100,167800,226800,283000,343200,431900,498700,632600,817500,1046200,1312100,1898000,2622900,3656000,7301000],"75plus":[1100,9400,49300,103400,144100,202000,274900,332100,395400,504600,599000,731000,935100,1139600,1417000,2158000,3030000,4188300,6849500],"all":[-8700,200,5100,13100,27900,55200,82200,120500,165600,216100,271400,346500,446700,596000,813000,1084300,1489400,2538500,4937400]},"INCOME":{"under35":[15400,21600,27700,33900,39000,43100,49300,52400,59600,67800,77000,84200,92400,102700,114000,128400,152000,174600,206400],"35-44":[20500,29800,34900,42100,50300,58500,68800,77000,87300,97600,107800,118100,125300,138600,155100,184900,206400,240300,355400],"45-54":[18500,26700,37000,45200,54400,63700,71900,84200,96500,108900,121200,133500,154100,173600,195100,223900,267000,336900,612100],"55-64":[16400,24600,33900,40100,48300,57500,64700,71900,82200,92400,107800,126300,140700,160200,179700,210500,253700,349200,604900],"65-74":[15400,20500,25700,32900,39000,46200,52400,56500,62600,69800,78100,83200,92400,103700,121200,139700,179700,236200,356400],"75plus":[14400,18500,22600,25700,33900,37500,43100,49300,56500,66800,78100,91400,103700,115000,133500,157100,191800,247500,372800],"all":[16300,22600,29800,35900,42100,49300,56500,63700,72900,82200,92400,102700,115000,130400,148900,174600,204400,252600,400500]}};
+  var SCF25_SOURCE_NW = "Source: Federal Reserve, Survey of Consumer Finances 2025, in 2025 dollars. Median from the SCF 2025 report (Table 2); percentile estimated by Paper Trail from SCF 2025 public data.";
+  var SCF25_SOURCE_INC = "Source: Federal Reserve, Survey of Consumer Finances 2025: family income before taxes for 2024, in 2025 dollars. Median and percentile estimated by Paper Trail from SCF 2025 public data.";
+  function scf25Band(age) {
+    if (age == null || !(age >= 0)) return { id: "all", label: "all ages", all: true };
+    return SCF25_BANDS.filter(function (b) { return age >= b.min && age <= b.max; })[0] || SCF25_BANDS[SCF25_BANDS.length - 1];
+  }
+  function ordinalNum(n) { var v = n % 100; return n + (v >= 11 && v <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"); }
+  /* Percentile from the 5th…95th points, straight line between points, rounded to the nearest 5. */
+  function scf25Percentile(pts, x) {
+    if (!pts || !pts.length || !isFinite(x)) return null;
+    if (x < pts[0]) return { below: true, label: "below the 5th percentile" };
+    if (x >= pts[pts.length - 1]) return { above: true, label: "above the 95th percentile" };
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (x >= pts[i] && x < pts[i + 1]) {
+        var f = pts[i + 1] > pts[i] ? (x - pts[i]) / (pts[i + 1] - pts[i]) : 0;
+        var p = Math.max(5, Math.min(95, Math.round((i + 1 + f)) * 5));
+        if (x < pts[9]) p = Math.min(p, 45); else if (x > pts[9]) p = Math.max(p, 55); /* never round across the median */
+        return { p: p, label: "about the " + ordinalNum(p) + " percentile" };
+      }
     }
-    var band = (deck.ageBand && deck.ageBand.label) || "", incBasis = incomeCompareBasis();
-    return (deck.cards || []).map(function (card) {
-      var isIncome = card.id === "income", sl = { id: "cmp-" + card.id, kicker: "How you compare · " + band, title: card.title || "", help: deck.citation || peers.citation || "" };
-      if (card.locked) { sl.sub = "Subscribe to see how your " + String(card.title || "").toLowerCase() + " compares."; sl.locked = true; }
-      else if (isIncome && !incBasis.comparable) sl.sub = "Medians are gross pay. Add gross pay to your Income statement to compare like with like.";
-      else if (card.teaser && !deck.premium) sl.sub = "You: " + moneyWhole(card.you) + ". The median for " + band + " is on Premium.";
-      else sl.sub = "You: " + moneyWhole(card.you) + " · median for " + band + ": " + moneyWhole(card.peer) + (isIncome ? " (both before tax)" : "") + ".";
-      return sl;
-    });
+    return null;
+  }
+  function cmpWho(band) { return band.all ? "all U.S. families" : "families headed by someone " + band.label; }
+  function cmpSlide(id, what, you, median, pts, band, source, extraNote) {
+    var pc = pts ? scf25Percentile(pts, you) : null;
+    return { id: id, tidy: true, kicker: "You vs the median American",
+      title: pc ? what + ": " + pc.label : what + " vs the median",
+      sub: "You " + moneyWhole(Math.round(you)) + " · median " + moneyWhole(median) + " for " + cmpWho(band) + "." + (extraNote ? " " + extraNote : ""),
+      compare: { you: you, median: median, youText: moneyWhole(Math.round(you)), medText: moneyWhole(median), pct: pc, bandLabel: band.all ? "All ages" : "Age " + band.label },
+      source: source + (band.all ? " No birthday entered, so this compares with all ages." : ""),
+      help: wrapHelp(["Percentiles are estimates for U.S. families (households), placed between the 5th, 10th … 95th percentile points of the SCF 2025 public data."]) };
+  }
+  function compareWrapSlides() {
+    var GM = window.GradeMath, age = GM && GM.ageYears ? GM.ageYears(birthdayISO()) : null, band = scf25Band(age);
+    var out = [], nw = Number(latestNetWorthHeadline().amount) || 0;
+    out.push(cmpSlide("cmp-nw", "Net worth", nw, SCF25_NW_MEDIAN[band.id], SCF25_PCT.NETWORTH[band.id], band, SCF25_SOURCE_NW));
+    var inc = incomeCompareBasis(), incPts = SCF25_PCT.INCOME[band.id], incMed = incPts[9];
+    if (inc.comparable && inc.amount > 0) out.push(cmpSlide("cmp-income", "Income", inc.amount, incMed, incPts, band, SCF25_SOURCE_INC, "Both before tax."));
+    else out.push({ id: "cmp-income", tidy: true, kicker: "You vs the median American", title: "Income vs the median",
+      sub: "Median family income before taxes for " + cmpWho(band) + ": " + moneyWhole(incMed) + ". Add your gross pay on the Income statement to see where you land.",
+      compare: { you: null, median: incMed, medText: moneyWhole(incMed), pct: null, bandLabel: band.all ? "All ages" : "Age " + band.label },
+      source: SCF25_SOURCE_INC + (band.all ? " No birthday entered, so this compares with all ages." : "") });
+    return out;
+  }
+  function cmpVizHtml(c) {
+    var max = Math.max(1, c.median, c.you == null ? 0 : Math.max(0, c.you));
+    function bar(label, val, text, cls) {
+      var w = Math.max(0, Math.min(100, (Math.max(0, val) / max) * 100));
+      return '<div class="cmp-row ' + cls + '"><span class="cmp-lbl">' + esc(label) + '</span><div class="cmp-track"><i style="width:' + w.toFixed(1) + '%"></i></div><span class="cmp-val mono">' + esc(text) + "</span></div>";
+    }
+    var h = '<div class="cmp-viz">' + (c.you != null ? bar("You", c.you, c.youText, "is-you") : "") + bar("Median · " + c.bandLabel.replace(/^Age /, ""), c.median, c.medText, "is-med");
+    if (c.pct) {
+      var at = c.pct.below ? 2 : c.pct.above ? 98 : c.pct.p;
+      var word = c.pct.p ? ordinalNum(c.pct.p) + " percentile" : c.pct.label.charAt(0).toUpperCase() + c.pct.label.slice(1);
+      h += '<div class="cmp-pct" role="img" aria-label="' + esc(word + ", estimate") + '"><div class="cmp-pct-track"><span class="cmp-pct-mid"></span><span class="cmp-pct-dot" style="left:' + at + '%"></span></div>' +
+        '<div class="cmp-pct-scale"><span>0</span><span>50th · median</span><span>100th</span></div>' +
+        '<p class="cmp-pct-note"><b>' + esc(word) + "</b> · " + esc(c.bandLabel) + " · estimate</p></div>";
+    }
+    return h + "</div>";
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest && e.target.closest("[data-cmp-bday]");
@@ -6564,6 +6659,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return svg + marks + "</svg>";
   }
+  /* v37.5.72 (owner): the headline debt-free date is your plan: minimums + your extra, with each paid-off minimum rolled
+   * into the next loan, the same simulation as the "paid off" dates on each loan row. Minimums-only is a small labelled aside. */
+  function debtMinOnlyLine(M) {
+    if (!M.base || M.base.months === M.withX.months) return "";
+    return '<p class="caption debt-minonly">At minimums only, no rollover: ' + esc(debtMonthLabel(M.base.months)) + "</p>";
+  }
   /* Dashboard card. */
   function debtCardHtml() {
     var M = debtCalcModel();
@@ -6571,8 +6672,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!M.loans.length) return h + '<p class="plain-line">No loans yet. Add one to see when you could be debt-free.</p><button type="button" class="primary small" data-act="debt-open">Add a loan</button></section>';
     if (!M.plan.length) return h + '<p class="plain-line">Add a rate and minimum payment to a loan to see your debt-free date.</p></section>';
     h += '<div class="debt-tops"><div><span class="lbl">Monthly minimums</span><b class="mono">' + moneyWhole(M.minTotal) + '</b></div>' +
-      '<div><span class="lbl">Debt-free at minimums</span><b>' + esc(debtMonthLabel(M.base.months)) + "</b></div></div>";
-    if (M.extra > 0) h += '<p class="debt-green">With your extra ' + moneyWhole(M.extra) + "/mo: <b>" + esc(debtMonthLabel(M.withX.months)) + "</b></p>";
+      '<div><span class="lbl">Debt-free</span><b>' + esc(debtMonthLabel(M.withX.months)) + "</b></div></div>";
+    h += debtMinOnlyLine(M);
     h += '<p class="plain-line">' + (M.extra > 0 ? "Paying " + moneyWhole(M.extra) + " extra each month saves about " + moneyWhole(M.saves) + " in interest." : "Tap to see how a little extra each month speeds this up.") + "</p>";
     return h + "</section>";
   }
@@ -6587,14 +6688,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (M.plan.length) {
       h += '<div class="debt-tops three"><div><span class="lbl">Monthly minimums</span><b class="mono">' + moneyWhole(M.minTotal) + "</b></div>" +
-        '<div><span class="lbl">Debt-free at minimums</span><b>' + esc(debtMonthLabel(M.base.months)) + "</b>" + (M.extra > 0 ? '<span class="debt-green small">' + esc(debtMonthLabel(M.withX.months)) + " with extra</span>" : "") + "</div>" +
-        '<div><span class="lbl">Total interest</span><b class="mono">' + moneyWhole(M.base.interest) + "</b>" + (M.extra > 0 ? '<span class="debt-green small">Extra saves ' + moneyWhole(M.saves) + "</span>" : "") + "</div></div>";
+        '<div><span class="lbl">Debt-free</span><b>' + esc(debtMonthLabel(M.withX.months)) + "</b></div>" +
+        '<div><span class="lbl">Total interest</span><b class="mono">' + moneyWhole(M.withX.interest) + "</b>" + (M.saves > 0 ? '<span class="debt-green small">Saves ' + moneyWhole(M.saves) + " vs minimums</span>" : "") + "</div></div>";
+      h += debtMinOnlyLine(M);
       h += debtChartSvg(M);
       h += '<p class="caption debt-key">Faded line = minimums only · dashed = with extra · numbers = payoff order</p>';
     } else {
       h += '<p class="caption">Check a loan with a rate and minimum to draw the plan.</p>';
     }
-    h += '<label class="field debt-extra">Extra per month<input type="text" inputmode="decimal" data-debt-input="extra" value="' + (M.extra ? Math.round(M.extra) : "") + '" placeholder="$0"></label>';
+    h += '<label class="field debt-extra">Extra per month<input type="text" inputmode="decimal" autocomplete="off" data-commas="1" class="mono money-fixed" data-debt-input="extra" value="' + (M.extra ? commaMoneyText(String(Math.round(M.extra))) : "") + '" placeholder="0"></label>';
     if (M.plan.length && M.extra > 0) {
       var first = M.withX.order[0];
       h += '<p class="debt-insight">Paying ' + moneyWhole(M.extra) + " extra a month makes you debt-free " + (M.monthsSooner ? formatDuration(M.monthsSooner) + " sooner" : "about the same time") +
@@ -6657,6 +6759,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { months: m, interest: roundCents(interest), paid: roundCents(paid), series: series, capped: bal > 0.005 };
   }
   function debtSbNum(v) { var t = String(v == null ? "" : v).replace(/[^0-9.]/g, ""); var n = parseFloat(t); return isFinite(n) ? n : 0; }
+  /* v37.5.72 (owner): "you save" amounts (interest saved) show whole dollars; payments and balances keep cents. */
   /* v37.5.70 (owner): the sandbox takes a TERM, not a payment. Standard amortized payment, rounded UP to the cent so
    * the loan is paid off within the term (the last payment is a little smaller). 0% APR = balance ÷ months. */
   function loanPaymentForTerm(balance, apr, months) {
@@ -6718,7 +6821,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div><span class="lbl">Total paid</span><b class="mono">' + formatMoney(R.paid, 2) + "</b></div></div>";
     if (M.withX && !M.base.tooLow && !M.base.capped) {
       var sooner = M.base.months - M.withX.months, saved = roundCents(M.base.interest - M.withX.interest);
-      h += '<p class="debt-green">Extra ' + moneyWhole(M.extra) + "/mo: paid off " + (sooner > 0 ? formatDuration(sooner) + " sooner" : "about the same time") + ", saves " + formatMoney(Math.max(0, saved), 2) + " in interest.</p>";
+      h += '<p class="debt-green">Extra ' + moneyWhole(M.extra) + "/mo: paid off " + (sooner > 0 ? formatDuration(sooner) + " sooner" : "about the same time") + ", saves " + moneyWhole(Math.max(0, saved)) + " in interest.</p>";
       h += '<p class="caption">Without the extra: ' + esc(debtMonthLabel(M.base.months)) + " · " + formatMoney(M.base.interest, 2) + " interest.</p>";
     } else if (M.withX && M.base.tooLow) {
       h += '<p class="caption">Your payment alone doesn’t cover the interest; the extra is what pays it down.</p>';
@@ -6735,7 +6838,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return '<div class="sheet-top"><h3>Try a loan</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
       '<p class="caption">Play with one loan. Nothing here is saved to your books.</p>' +
-      '<div class="debt-sb-fields">' + f("bal", "Balance", "$0") + f("apr", "Interest rate (APR %)", "0%") + '<div class="field debt-sb-term"><span>Term</span><div class="debt-sb-term-row"><input type="text" inputmode="numeric" data-debt-sb="term" value="' + esc(sb.term || "") + '" placeholder="' + (sb.unit === "months" ? "60" : "5") + '" aria-label="Term in ' + (sb.unit === "months" ? "months" : "years") + '">' +
+      '<div class="debt-sb-fields">' + f("bal", "Balance", "$0") + f("apr", "Interest rate (APR %)", "0%") + '<div class="field debt-sb-term"><span>Term</span><div class="debt-sb-term-row"><input type="text" inputmode="numeric" data-debt-sb="term" value="' + esc(sb.term || "") + '" placeholder="" autocomplete="off" aria-label="Term in ' + (sb.unit === "months" ? "months" : "years") + '">' +
         '<div class="pay-seg" role="group" aria-label="Term unit"><button type="button" class="pay-seg-b' + (sb.unit === "months" ? "" : " on") + '" data-debt="sb-unit" data-to="years" aria-pressed="' + (sb.unit !== "months") + '">Years</button><button type="button" class="pay-seg-b' + (sb.unit === "months" ? " on" : "") + '" data-debt="sb-unit" data-to="months" aria-pressed="' + (sb.unit === "months") + '">Months</button></div></div></div>'  + f("extra", "Extra per month (optional)", "$0") + "</div>" +
       '<div id="debt-sb-out" aria-live="polite">' + debtSandboxOutHtml() + "</div>" +
       '<div class="sheet-actions"><button type="button" data-debt="sb-back">Back</button><button type="button" class="primary" data-debt="sb-save">Save as a loan</button></div>' +
@@ -6869,8 +6972,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!k) return;
     var p = debtPlan(), id = el.getAttribute("data-id");
     if (k === "extra") {
-      if (e.type !== "change") return;
+      /* v37.5.72: live like the other dollar fields; the sheet repaints and the caret stays where you were typing. */
+      if (e.type === "change") return;
       p.extra = Math.max(0, Number(String(el.value).replace(/[^0-9.]/g, "")) || 0);
+      saveState();
+      var typed = el.value, pos = el.selectionStart == null ? typed.length : el.selectionStart;
+      refreshDebtCalc();
+      var ni = document.querySelector('#debt-sheet [data-debt-input="extra"]');
+      if (ni) { ni.value = typed; ni.focus(); try { ni.setSelectionRange(pos, pos); } catch (err) {} }
+      return;
     } else if (k === "strategy") p.strategy = el.value;
     else if (k === "on") { if (el.checked) delete p.off[id]; else p.off[id] = true; }
     else if (k === "ignore") { if (el.checked) p.ignore[id] = true; else delete p.ignore[id]; }
@@ -6878,6 +6988,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     refreshDebtCalc();
   }
   document.addEventListener("change", debtInput, true);
+  document.addEventListener("input", function (e) { if (e.target && e.target.getAttribute && e.target.getAttribute("data-debt-input") === "extra") debtInput(e); });
 
   function payoffResultsHtml(loans, extra) {
     var GM = window.GradeMath;
@@ -6887,14 +6998,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var one = rank.bestSave;
       html += '<p class="payoff-headline"><strong>' + esc(one.loan.name) +
         "</strong> saves the most interest and pays off fastest — " +
-        money(one.insight.interestSaved) + " interest, " +
+        moneyWhole(one.insight.interestSaved) + " interest, " +
         formatDuration(one.insight.savedMonths) + " sooner, payoff ~" +
         formatPayoffDate(one.insight.extraMonths) + ".</p>";
     } else {
       if (rank.bestSave) {
         var saved = rank.bestSave;
         html += '<p class="payoff-headline"><span class="caption">Saves most interest</span><br><strong>' +
-          esc(saved.loan.name) + "</strong> · " + money(saved.insight.interestSaved) +
+          esc(saved.loan.name) + "</strong> · " + moneyWhole(saved.insight.interestSaved) +
           " saved · " + formatDuration(saved.insight.savedMonths) + " cut</p>";
       }
       if (rank.fastest) {
@@ -7770,16 +7881,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * 2022 dollars) and BEA personal saving rate (FRED A072RC1A156NBEA, annual). Never invented. */
   var wrapMode = "year";
   var wrapQuarter = null; // { year, q }
-  var SCF2022_NW = [ // Fed SCF 2022, Table 2, median net worth (2022 dollars), by age of reference person
-    { label: "under 35", min: 0, max: 34, median: 39000 },
-    { label: "35–44", min: 35, max: 44, median: 135600 },
-    { label: "45–54", min: 45, max: 54, median: 247200 },
-    { label: "55–64", min: 55, max: 64, median: 364500 },
-    { label: "65–74", min: 65, max: 74, median: 409900 },
-    { label: "75 and up", min: 75, max: 200, median: 335600 }
-  ];
   var BEA_SAVING_RATE = { rate: 0.054, year: 2025 }; // BEA annual personal saving rate, 2025 (FRED A072RC1A156NBEA)
-  var SCF_SOURCE = "Federal Reserve, Survey of Consumer Finances 2022, Table 2: median family net worth by age of the family’s reference person (2022 dollars). It is household (family) net worth, not one person’s.";
   var BEA_SOURCE = "U.S. Bureau of Economic Analysis, personal saving rate, " + BEA_SAVING_RATE.year + " annual: " + Math.round(BEA_SAVING_RATE.rate * 1000) / 10 +
     "% (saving ÷ disposable, after-tax income; FRED series A072RC1A156NBEA). It is a national figure; no age-band saving rate is published, so it isn’t split by age.";
 
@@ -8047,32 +8149,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return { id: "a-pastyou", tidy: true, kicker: "You vs past you", title: title, sub: sub, graph: graph, help: wrapHelp(help) };
   }
-  function annualMedian(year, facts) {
-    var age = gm().ageYears ? gm().ageYears(birthdayISO()) : null;
-    if (age == null) {
-      return { id: "a-median", tidy: true, kicker: "You vs the median American", title: "Add your birthday to compare", sub: "Profile › Birthday. Your age is never guessed.",
-        help: wrapHelp([SCF_SOURCE, BEA_SOURCE]) };
-    }
-    var band = SCF2022_NW.filter(function (bb) { return age >= bb.min && age <= bb.max; })[0] || SCF2022_NW[SCF2022_NW.length - 1];
-    var nw = latestNetWorthHeadline().amount;
-    var ratio = band.median > 0 ? nw / band.median : null;
-    var rel = ratio == null ? "" : ratio >= 2 ? Math.round(ratio) + "× the median" : ratio >= 1 ? Math.round((ratio - 1) * 100) + "% above the median" : Math.round(ratio * 100) + "% of the median";
-    var sr = facts.savingsRate;
-    return { id: "a-median", tidy: true, kicker: "You vs the median American",
-      title: "Net worth " + rel,
-      sub: "Savings rate " + wrapRatePct(sr) + " vs U.S. " + Math.round(BEA_SAVING_RATE.rate * 100) + "%",
-      graph: { type: "pair", bars: [{ label: "You", value: Math.max(0, nw), text: moneyWhole(Math.round(nw)), ink: "var(--moss)" }, { label: "Median, " + band.label, value: band.median, text: moneyWhole(band.median), ink: "var(--plum)" }] },
-      help: wrapHelp(["Net worth: yours " + moneyWhole(Math.round(nw)) + " vs the median for families headed by someone " + band.label + ": " + moneyWhole(band.median) + ".", SCF_SOURCE,
-        "Savings rate: your Basic rate " + wrapRatePct(sr) + " (retirement budget lines ÷ take-home) vs the U.S. personal saving rate.", BEA_SOURCE]) };
-  }
   var ANNUAL_KICKERS = { hook: "Your year, on paper", "spent-saved": "Follow the money", merchants: "Your regulars", "g-added": "Building it",
-    "g-contrib": "Money making money", "savings-rate": "Pay yourself first", foo: "Level check", grade: "Report card", close: "Frame it" };
+    "g-contrib": "Money making money", "savings-rate": "Pay yourself first", close: "Frame it" };
   function annualOrder(slides, facts, month) {
     var by = {}, cats = [];
     slides.forEach(function (sl) { if (!sl) return; if (String(sl.id).indexOf("category-") === 0) cats.push(sl); else by[sl.id] = sl; });
     var out = [by.hook, by["spent-saved"], by["g-networth"] || by["g-networth-empty"],
-      annualBestWorst(month.year), annualPastYou(month.year), annualMedian(month.year, facts)]
-      .concat(cats).concat([by.merchants, by["savings-rate"], by["g-added"], by["g-contrib"], by.foo, by.grade, by.close]);
+      annualBestWorst(month.year), annualPastYou(month.year)]
+      .concat(cats).concat([by.merchants, by["savings-rate"], by["g-added"], by["g-contrib"], by.close]);
     return out.filter(Boolean);
   }
   function wrapProgressHtml(list) {
@@ -8139,7 +8223,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else if (merged) deck.slides.splice(cmpAt >= 0 ? cmpAt : Math.max(0, deck.slides.length - 1), 0, merged);
     }
     if (deck.premium && !isQ) deck.slides = annualOrder(deck.slides, facts, month); // V37.5.59.52
-    deck.slides = deck.slides.filter(Boolean).map(function (sl) {
+    /* v37.5.72 (owner): no Report card or Level check (FOO steps) slides in Wrapped. */
+    deck.slides = deck.slides.filter(function (sl) { var id = String(sl && sl.id || ""); return id && id !== "grade" && id !== "foo" && id.indexOf("foo-") !== 0; });
+    deck.slides = deck.slides.map(function (sl) {
       var t = wrapTidy(sl, facts);
       if (!isQ && ANNUAL_KICKERS[t.id]) t.kicker = ANNUAL_KICKERS[t.id];
       if (!isQ && (t.id === "g-networth" || t.id === "g-networth-empty")) t.kicker = "The big number · " + month.year;
@@ -8171,6 +8257,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (slide.chart && slide.chart.type === "donut" && slide.chart.slices && slide.chart.slices.length) {
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
+    if (slide.compare) html += cmpVizHtml(slide.compare);
+    if (slide.source) html += '<p class="wrap-source">' + esc(slide.source) + "</p>";
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.progress) html += wrapProgressHtml(slide.progress);
     if (slide.askBirthday) html += '<div class="field wrap-bday"><span id="cmp-bday-lbl">Birthday</span>' + dateWheelHtml({ inputId: "cmp-bday-in", value: birthdayISO(), labelId: "cmp-bday-lbl" }) + '</div><button class="wrap-soft-btn" type="button" data-cmp-bday="1">Save and compare</button>';
@@ -8247,7 +8335,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var copy = "Extra " + money(extra) + "/mo → paid off ~" +
       formatDuration(insight.savedMonths) + " sooner";
-    if (insight.interestSaved > 0) copy += " / interest saved " + money(insight.interestSaved);
+    if (insight.interestSaved > 0) copy += " / interest saved " + moneyWhole(insight.interestSaved);
     copy += ". Current payoff " + formatPayoffDate(current) + " (" + formatDuration(current) + ").";
     return copy;
   }
@@ -10878,13 +10966,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     state.months[destKey] = {
       year: destYM.year,
       month: destYM.month,
-      /* Derive paycheck count/dates from biweekly schedule, not prior month's 3 lines. */
-      incomes: biweeklyIncomesForMonth(destYM.year, destYM.month, amt).map(function (inc) { inc.autoCopy = true; return inc; }),
+      /* v37.5.72 (owner): income lines come over exactly as planned last month: same names, amounts and number of
+       * lines (Freelance, Base, Tips… or renamed paychecks), on the same day of the month. Only an empty source month
+       * falls back to the paycheck schedule. */
+      incomes: ((src.incomes || []).length ? (src.incomes || []).map(function (inc) {
+        var d = Number(String(inc.date || "").slice(8, 10)) || 1, last = new Date(destYM.year, destYM.month, 0).getDate();
+        var out = { id: nextId(), name: inc.name || "Paycheck", amount: Number(inc.amount) || 0, date: isoDate(destYM.year, destYM.month, Math.min(d, last)), autoCopy: true };
+        if (inc.source) out.source = inc.source;
+        return out;
+      }) : biweeklyIncomesForMonth(destYM.year, destYM.month, amt).map(function (inc) { inc.autoCopy = true; return inc; })),
       categories: sortedCategories(src).map(function (cat, i) {
         return {
           id: nextId(),
           name: cat.name,
-          assigned: cat.system === "checking" ? 0 : catAssigned(cat),
+          assigned: catAssigned(cat),
           sortOrder: i,
           autoCopy: true,
           system: cat.system || undefined,
@@ -10895,7 +10990,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             return {
               id: nextId(),
               name: line.name,
-              assigned: line.system === "checking" ? 0 : Number(line.assigned) || 0, /* wrap-up top-ups/covers are one-offs */
+              assigned: Number(line.assigned) || 0, /* v37.5.72 (owner): every line, Checking included, copies its planned amount as-is */
               sortOrder: li,
               autoCopy: true,
               system: line.system || undefined
@@ -11040,7 +11135,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
       '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
       (cat.system === "savings" ? '<p class="caption">Savings is built in: rename it if you like, but it can’t be deleted. It holds your Checking line, where wrap-up parks leftover dollars.</p>'
-        : cat.system === "checking" ? '<p class="caption">Checking is built in: rename it if you like, but it can’t be deleted. Wrap-up uses it for leftover dollars.</p>'
+        : cat.system === "checking" ? CHECKING_LOCK_NOTE
         : deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"')),
       "save-category");
   }
@@ -11757,8 +11852,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (month.incomes || []).map(function (i) { return '<option value="' + esc(i.id) + '"' + (String(d.incomeId) === String(i.id) ? " selected" : "") + ">" + esc(i.name || "Income") + "</option>"; }).join("") + "</select></label>";
     } else {
       var picked = (d.legs || []).filter(function (l) { return l.lineId; });
-      h += '<p class="sheet-label">Budget Item(s)</p><button type="button" class="ed-items" data-ed="picker">' +
-        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>';
+      h += '<p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker">' +
+        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>' +
+        (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
       if (picked.length > 1) {
         /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
          * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
@@ -11782,16 +11878,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (edUi.picker && !inc) {
       var q = edUi.q.toLowerCase(), sel = {};
       (d.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
-      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget Item(s)</h3><button type="button" class="primary small ed-picker-close" data-ed="picker-done">' + (function () { var n = (d.legs || []).filter(function (l) { return l.lineId; }).length; return n > 1 ? "Close · " + n + " selected" : "Close"; })() + "</button></div>" +
-        ((d.legs || []).filter(function (l) { return l.lineId; }).length > 1 ? '<p class="caption ed-picker-hint">You’ll split the amount on the next screen.</p>' : "") +
+      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>' + (edUi.multi ? "Split across items" : "Budget item") + '</h3></div>' +
+        '<p class="caption ed-picker-hint">' + (edUi.multi ? "Tick 2 to " + ED_SPLIT_MAX + " items, then tap Split. You’ll type each amount next." : "Tap an item to choose it, or tick 2 to " + ED_SPLIT_MAX + " boxes to split.") + "</p>" +
+        (edUi.capNote ? '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>" : "") +
         '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q) + '">';
       var lastCat = null;
       edLines(month).forEach(function (x) {
         if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
         if (x.cat !== lastCat) { h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>"; lastCat = x.cat; }
-        h += '<button type="button" class="ed-item' + (sel[x.line.id] ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '" aria-pressed="' + !!sel[x.line.id] + '">' +
-          '<span class="ed-check">' + (sel[x.line.id] ? "✓" : "") + "</span><span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>";
+        var on = edUi.multi && !!sel[x.line.id];
+        h += '<div class="ed-item-row' + (on ? " on" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
+          "<span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>" +
+          '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + on + '" aria-label="Split with ' + esc(x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
       });
+      var nSel = edUi.multi ? (d.legs || []).filter(function (l) { return l.lineId; }).length : 0;
+      h += '<div class="ed-picker-foot"><button type="button" class="primary ed-picker-close" data-ed="picker-done">' + (nSel > 1 ? "Split · " + nSel + " items" : "Close") + "</button></div>";
       h += "</div>";
     }
     h += "</form>";
@@ -11802,11 +11903,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
+  var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
+  function edToggleLeg(parts) {
+    var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+    if (legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; return; }
+    legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
+    if (legs.length === 2) legs[0].amount = 0;
+    spendDraft.legs = legs;
+  }
   function edAllocStatus() {
     var total = roundCents(Number(spendDraft.amount) || 0), sum = roundCents(edAllocLegs().reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), left = roundCents(total - sum);
     var cls = !(total > 0) ? "" : left === 0 ? "ok" : left < 0 ? "over" : "left";
-    var tail = !(total > 0) ? "Enter the amount first" : left === 0 ? "✓ Fully allocated" : left > 0 ? formatMoney(left, 2) + " remaining" : "Over by " + formatMoney(-left, 2);
-    return '<span class="mono">' + formatMoney(sum, 2) + "</span> of <span class=\"mono\">" + formatMoney(total, 2) + '</span> allocated · <strong class="' + cls + '">' + tail + "</strong>";
+    var big = !(total > 0) ? "Enter the amount first" : left < 0 ? "Over by " + formatMoney(-left, 2) : "Left to allocate " + formatMoney(left, 2) + (left === 0 ? " ✓" : "");
+    return '<strong class="ed-left ' + cls + '" data-left="' + left.toFixed(2) + '">' + big + '</strong><span class="caption"><span class="mono">' + formatMoney(sum, 2) + "</span> of <span class=\"mono\">" + formatMoney(total, 2) + "</span> allocated</span>";
   }
   function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
   function edSyncAmount() {
@@ -11829,8 +11938,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else if (/^\d+$/.test(k)) { s = (s + k).replace(/^0+/, ""); if (s.length > 9) s = edUi.amt; }
       edUi.amt = s; edSyncAmount();
     }
-    else if (a === "picker") { edUi.picker = true; edUi.pad = false; }
-    else if (a === "picker-done") edUi.picker = false;
+    else if (a === "picker") { edUi.picker = true; edUi.pad = false; edUi.capNote = false; edUi.multi = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length > 1; }
+    else if (a === "split") { edUi.picker = true; edUi.pad = false; edUi.multi = true; edUi.capNote = false; }
+    else if (a === "split-mode") {
+      edUi.multi = !edUi.multi;
+      var keep = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+      if (!edUi.multi && keep.length > 1) { keep = [keep[0]]; keep[0].amount = spendDraft.amount; spendDraft.legs = keep; }
+    }
+    else if (a === "picker-done") { edUi.picker = false; edUi.capNote = false; edUi.multi = false; }
     else if (a === "fill" || a === "even") {
       var al = edAllocLegs(), tot = roundCents(Number(spendDraft.amount) || 0);
       if (a === "fill") {
@@ -11841,9 +11956,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         al.forEach(function (l, j) { l.amount = (base + (j < c - base * al.length ? 1 : 0)) / 100; });
       }
     }
-    else if (a === "item") {
+    else if (a === "tick" && !edUi.multi) {
+      /* First tick starts checkbox mode with just that item ticked; a plain tap is still the one-item quick pick. */
+      edUi.multi = true;
+      spendDraft.legs = [];
+      edToggleLeg(String(b.getAttribute("data-key")).split(":"));
+    }
+    else if (a === "item" || a === "tick") {
       var parts = String(b.getAttribute("data-key")).split(":"), legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       var has = legs.filter(function (l) { return l.lineId === parts[1]; })[0];
+      /* v37.5.72 (owner): one budget item by default; a tap picks it and closes the picker. Splitting is the deliberate
+       * "Split across items" path, which keeps the picker open for more picks. */
+      if (!edUi.multi) {
+        spendDraft.legs = [{ id: (has && has.id) || nextId(), categoryId: parts[0], lineId: parts[1], amount: spendDraft.amount, refund: 0, note: "" }];
+        edUi.picker = false;
+        renderEdAdd(month);
+        return;
+      }
+      edUi.capNote = false;
+      if (!has && legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; renderEdAdd(month); return; }
       if (has) legs = legs.filter(function (l) { return l !== has; });
       else legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
       if (legs.length === 1) legs[0].amount = spendDraft.amount;
@@ -14007,7 +14138,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
-  /* V37.5.15 Welcome survey, guided setup, Budget checklist ----
+  /* V37.5.15 Welcome survey (the Budget setup checklist was removed in v37.5.72) ----
    * A brand-new device (no saved Paper Trail data) opens the welcome survey on empty books.
    * Existing saved data never sees the survey (loadState marks it done). The app ships no sample data;
    * onboarding.demo only marks books from older versions' demo, which get the "Start my own budget" exit. */
@@ -14068,17 +14199,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       status: "survey",
       screen: "welcome",
       answers: { name: "", payFrequency: "", birthday: "" },
-      needsWorth: true,
-      skipped: {},
-      hidden: false,
       demo: false
     };
     return s;
   }
 
   function migrateOnboarding(raw) {
-    // Saved data without an onboarding record = an existing user: never show the survey or checklist.
-    if (!raw || typeof raw !== "object") return { status: "done", legacy: true, skipped: {} };
+    // Saved data without an onboarding record = an existing user: never show the survey.
+    if (!raw || typeof raw !== "object") return { status: "done", legacy: true };
     var ob = raw;
     if (ob.status !== "survey" && ob.status !== "active" && ob.status !== "done") ob.status = "done";
     if (!ob.answers || typeof ob.answers !== "object") ob.answers = { name: "", payFrequency: "", birthday: "" };
@@ -14097,8 +14225,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (ob.screen === "see") ob.screen = "wants";
     if (onboardFlow(ob).indexOf(ob.screen) < 0) ob.screen = onboardFlow(ob)[0];
-    if (!ob.skipped || typeof ob.skipped !== "object") ob.skipped = {};
-    ob.hidden = !!ob.hidden;
+    /* v37.5.72: the Budget-tab setup checklist is gone; drop its stored keys. */
+    delete ob.skipped; delete ob.hidden; delete ob.clSeen; delete ob.guide; delete ob.needsWorth;
     ob.demo = !!ob.demo;
     return ob;
   }
@@ -14134,75 +14262,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function onboardPayChoice(id) {
     return ONBOARD_PAY_CHOICES.filter(function (c) { return c.id === id; })[0] || null;
-  }
-
-  /* Checklist status (auto): budget done when this month's Left to assign is exactly $0 with income > 0;
-   * Vault done with ≥1 document (or skipped — it's optional); Net Worth done once any balance is entered. */
-  function onboardSteps() {
-    var ob = onboarding();
-    var month = ensureMonth(state.year, state.month);
-    var hasIncome = (month.incomes || []).some(function (i) { return (Number(i.amount) || 0) > 0; });
-    var hasEnvelopes = (month.categories || []).some(function (c) { return catAssigned(c) > 0; });
-    var hasStub = false;
-    try { hasStub = confirmedPayStubs().length > 0; } catch (e) {}
-    if (!hasStub) hasStub = ((state.profile && state.profile.documents) || []).some(function (d) { return d && d.slot === "payStubs"; });
-    var docs = ((state.profile && state.profile.documents) || []).length > 0;
-    var steps = [
-      { id: "envelopes", n: 1, title: "Build your budget", done: hasEnvelopes, go: "ob-cl-go-budget" },
-      { id: "income", n: 2, title: "Add your income", done: hasIncome, go: "ob-cl-go-income" }
-    ];
-    if (ob.needsWorth !== false || worthHasData()) {
-      steps.push({ id: "worth", n: 3, title: "Start your net worth", done: worthHasData(), go: "ob-cl-go-worth" });
-    }
-    steps.push({ id: "paystub", n: 4, title: "Add to the Vault", done: hasStub || docs, go: "ob-cl-go-vault" });
-    steps.forEach(function (st) { st.skipped = !!(ob.skipped || {})[st.id] && !st.done; });
-    return steps;
-  }
-
-  function onboardProgress() {
-    var steps = onboardSteps();
-    var active = steps.filter(function (s) { return !s.skipped; });
-    var done = active.filter(function (s) { return s.done; }).length;
-    var complete = active.every(function (s) { return s.done; });
-    return { steps: steps, active: active, done: done, resolved: done, total: active.length, complete: complete };
-  }
-
-  /* Compact notification-style to-do card. Open by default for a brand-new user's first view, collapsed after. */
-  var checklistOpen = null;
-  var NOTIF_ICON = '<svg class="notif-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"></path></svg>';
-  function onboardChecklistHtml() {
-    var ob = onboarding();
-    if (ob.status !== "active" || ob.hidden) return "";
-    var p = onboardProgress();
-    if (checklistOpen == null) {
-      checklistOpen = !ob.clSeen;
-      if (!ob.clSeen) { ob.clSeen = true; saveState(); }
-    }
-    var open = checklistOpen;
-    var title = p.complete ? "Setup complete" : "Finish setup · " + p.done + " of " + p.total;
-    var html = '<section class="card notif onboard-checklist' + (open ? " open" : "") + '" aria-label="Setup to-do">' +
-      '<button class="notif-head" type="button" data-act="ob-cl-toggle" aria-expanded="' + open + '">' + NOTIF_ICON +
-      '<span class="notif-title">' + esc(title) + '</span><span class="nw-chev" aria-hidden="true"></span></button>' +
-      '<div class="notif-body"><div class="notif-body-in">';
-    p.active.forEach(function (s) {
-      html += '<div class="notif-item' + (s.done ? " is-done" : "") + '">' +
-        '<span class="notif-mark" aria-hidden="true">' + (s.done ? "✓" : "") + "</span>" +
-        '<span class="notif-text">' + esc(s.title) + "</span>" +
-        /* Per-row "Skip" is a quiet × (same handler). */
-        (s.done ? "" : '<button class="notif-skip-x" type="button" data-act="ob-cl-skip" data-id="' + esc(s.id) + '" aria-label="Skip" title="Skip">×</button>' +
-          '<button class="notif-go" type="button" data-act="' + s.go + '">Go</button>') + "</div>";
-    });
-    var skipped = p.steps.filter(function (s) { return s.skipped; });
-    if (skipped.length) {
-      html += '<p class="notif-sub">Skipped</p>';
-      skipped.forEach(function (s) {
-        html += '<div class="notif-item is-skipped"><span class="notif-mark" aria-hidden="true">–</span>' +
-          '<span class="notif-text">' + esc(s.title) + '</span>' +
-          '<button class="notif-skip" type="button" data-act="ob-cl-restore" data-id="' + esc(s.id) + '">Restore</button></div>';
-      });
-    }
-    if (p.complete) html += '<button class="planner-apply notif-dismiss" type="button" data-act="ob-dismiss">Dismiss</button>';
-    return html + "</div></div></section>";
   }
 
   function demoBannerHtml() {
@@ -15476,7 +15535,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (host) host.remove();
       return;
     }
-    /* Signed-in first run goes straight to Budget with the setup checklist (no welcome questions). */
+    /* Signed-in first run goes straight to Budget (no welcome questions). */
     if (host) host.remove();
     finishSurveyToBudget();
   }
@@ -15750,6 +15809,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           (proj.useHist && H.cagr > CAGR_NOTE_ABOVE ? '<br><span class="caption">That is very high. Early years were small, so treat projections that use it with care.</span>' : "") + "</p>"
         : (a.incomeMode === "cagr" ? '<p class="est-history caption">CAGR needs 2 full years of Total income on your Income statement. Using your manual raise for now.</p>' : ""));
   }
+  /* v37.5.72 (owner): one plain line under the 3-year net worth estimate saying what it assumes. */
+  function nwProjAssumeLine(proj) {
+    return "Assumes " + moneyWhole(proj.start) + " today" + (proj.contrib > 0 ? ", plus " + moneyWhole(proj.contrib) + " added each year" : ", nothing added") +
+      ", growing " + Math.round(proj.rate * 100) + "% a year (" + (proj.useHist ? "your history" : "your manual setting") + "). Not a guarantee.";
+  }
   function estimatedSectionHtml(kind) {
     var proj = kind === "income" ? incomeProjection() : netWorthProjection();
     if (!proj) return "";
@@ -15869,58 +15933,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   /* Feed survey answers into the existing profile + this month's income lines.
    * take-home (optional) fills the paycheck lines only when this month is untouched. Never invent an amount. */
-  /* The intro survey is gone, so "Add your income" on the Finish setup checklist asks
-   * pay frequency + take-home right here. It only fills paychecks when this month has no income amounts yet
-   * (never overwrites real books); otherwise it goes straight to the full Income details. */
-  var quickIncome = { freq: "" };
-  function quickIncomeHtml() {
-    var cur = quickIncome.freq || (state.profile && state.profile.payFrequency) || "biweekly";
-    var h = '<div class="sheet quick-income" id="quick-income"><div class="sheet-top"><h3>Add your income</h3>' +
-      '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
-      '<p class="kicker">How often do you get paid?</p><div class="qi-freq">';
-    ONBOARD_PAY_CHOICES.forEach(function (c) {
-      h += '<button type="button" class="pill' + (c.id === cur ? " on" : "") + '" data-act="ob-qi-freq" data-value="' + esc(c.id) +
-        '" aria-pressed="' + (c.id === cur) + '">' + esc(c.label) + "</button>";
-    });
-    h += "</div>" +
-      '<label class="field">Take-home per paycheck<input id="qi-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="$0.00"></label>' +
-      '<p class="form-error" id="qi-error" role="alert"></p>' +
-      '<button class="primary" type="button" data-act="ob-qi-save">Add paychecks</button>' +
-      '<button class="text-btn qi-details" type="button" data-act="ob-qi-details">Full income details ›</button></div>';
-    return h;
-  }
-  function openQuickIncome() {
-    captureModalReturnScreenTop();
-    quickIncome.freq = "";
-    var modal = document.getElementById("modal");
-    modal.hidden = false;
-    modal.innerHTML = quickIncomeHtml();
-    armSheetA11y(modal);
-  }
-  function saveQuickIncome() {
-    var el = document.getElementById("qi-amount"), err = document.getElementById("qi-error");
-    var raw = String((el && el.value) || "").replace(/[^0-9.]/g, ""), n = Number(raw);
-    if (!raw || !isFinite(n) || n <= 0 || n >= 1e7) { if (err) err.textContent = "Type your take-home pay per paycheck."; return; }
-    n = Math.round(n * 100) / 100;
-    var freq = quickIncome.freq || (state.profile && state.profile.payFrequency) || "biweekly";
-    var choice = onboardPayChoice(freq) || onboardPayChoice("biweekly");
-    state.profile = migrateProfile(state.profile, state.foo, state.compensation);
-    state.profile.payFrequency = choice.id;
-    state.compensation = migrateCompensation(state.compensation || defaultCompensation());
-    state.compensation.paychecksPerYear = checksForFrequency(choice.id);
-    var month = ensureMonth(state.year, state.month);
-    if (!(month.incomes || []).some(function (i) { return Number(i.amount) > 0; })) {
-      var days = choice.id === "weekly" ? [1, 8, 15, 22] : choice.perMonth === 2 ? [1, 15] : [1];
-      month.incomes = [];
-      for (var i = 0; i < choice.perMonth; i++) {
-        month.incomes.push({ id: nextId(), name: "Paycheck " + (i + 1), amount: n, date: isoDate(month.year, month.month, days[i] || 1) });
-      }
-    }
-    saveState();
-    closeModal();
-    onTab("budget");
-  }
-
   function applyOnboardAnswers() {
     var ob = onboarding();
     var a = ob.answers;
@@ -15950,59 +15962,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         });
       }
     }
-    ob.needsWorth = !worthHasData();
-  }
-
-  function openOnboardGuide(step, page) {
-    var ob = onboarding();
-    captureModalReturnScreenTop();
-    var p = onboardProgress();
-    var idx = 0;
-    p.steps.forEach(function (s, i) { if (s.id === step) idx = i + 1; });
-    var head = '<p class="kicker onboard-guide-kicker">Step ' + idx + " of " + p.total + "</p>" +
-      '<div class="onboard-bar"><i style="width:' + Math.round((idx / p.total) * 100) + '%"></i></div>';
-    var html = '<div class="sheet onboard-guide" data-guide="' + step + '">' + head;
-    if (step === "budget") {
-      var month = ensureMonth(state.year, state.month);
-      var t = sums(month);
-      html += "<h3>Build your first budget</h3>" +
-        "<p>Give every dollar a job. Tap an envelope line on Budget and type what you plan to spend or save this month.</p>" +
-        '<div class="row"><span>Income this month</span><span class="mono moss">' + money(t.income) + "</span></div>" +
-        '<div class="row"><span>Left to assign</span><span class="mono">' + money(t.leftover) + "</span></div>" +
-        '<p class="caption">' + (t.income > 0
-          ? "Done when Left to assign reads $0.00 — the TRAIL SET stamp appears."
-          : "Start with your paychecks: tap Paycheck 1 under Income and enter your take-home.") + "</p>" +
-        '<div class="sheet-actions"><button type="button" data-act="ob-skip" data-step="budget">Skip for now</button>' +
-        '<button class="primary" type="button" data-act="ob-start" data-step="budget">Let’s go</button></div>';
-    } else if (step === "vault") {
-      html += "<h3>Add documents to your Vault</h3>" +
-        "<p>Keep the papers behind your money in one place. Everything here is optional.</p>" +
-        '<div class="onboard-vault-picks">' +
-        '<button class="planner-apply" type="button" data-act="ob-vault" data-kind="loan">+ Loan</button>' +
-        '<button class="planner-apply" type="button" data-act="ob-vault" data-kind="insurance">+ Insurance</button>' +
-        "</div>" +
-        '<div class="sheet-actions"><button type="button" data-act="ob-skip" data-step="vault">Skip — maybe later</button></div>';
-    } else if (step === "worth") {
-      var pages = [
-        { t: "What you own", b: "Assets: cash in checking and savings, retirement accounts, investments, your home, your car. Use today’s balance or a fair value." },
-        { t: "What you owe", b: "Liabilities: credit cards, student loans, a car loan, a mortgage. Use the payoff balance, not the monthly payment." },
-        { t: "Own − owe = net worth", b: "Your first statement is a starting line, not a grade. Update it once a year and watch the trend." }
-      ];
-      var pg = Math.max(0, Math.min(pages.length - 1, Number(page) || 0));
-      html += "<h3>Your first Net Worth statement</h3>" +
-        '<div class="onboard-walk"><p class="onboard-walk-n">' + (pg + 1) + " / " + pages.length + "</p>" +
-        "<h4>" + esc(pages[pg].t) + "</h4><p>" + esc(pages[pg].b) + "</p></div>" +
-        '<div class="sheet-actions"><button type="button" data-act="ob-skip" data-step="worth">Skip for now</button>' +
-        (pg < pages.length - 1
-          ? '<button class="primary" type="button" data-act="ob-walk" data-page="' + (pg + 1) + '">Next</button>'
-          : '<button class="primary" type="button" data-act="ob-start" data-step="worth">Start my statement</button>') +
-        "</div>";
-    }
-    html += "</div>";
-    var modal = document.getElementById("modal");
-    modal.hidden = false;
-    modal.innerHTML = html;
-    ob.guide = step;
   }
 
   function handleOnboardAct(act, actEl) {
@@ -16030,113 +15989,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.tab = "budget";
       saveState();
       render();
-    } else if (act === "ob-guide") {
-      openOnboardGuide(actEl.getAttribute("data-step") || "budget");
-    } else if (act === "ob-walk") {
-      openOnboardGuide("worth", Number(actEl.getAttribute("data-page")) || 0);
-    } else if (act === "ob-skip") {
-      ob.skipped[actEl.getAttribute("data-step") || ""] = true;
-      ob.guide = "";
-      saveState();
-      closeModal();
-      render();
-    } else if (act === "ob-start") {
-      var step = actEl.getAttribute("data-step");
-      ob.guide = "";
-      if (step === "worth") {
-        state.tab = "stats";
-        state.statsDoor = "worth";
-        state.worthDetails = true;
-      } else {
-        state.tab = "budget";
-      }
-      saveState();
-      closeModal();
-      render();
-    } else if (act === "ob-vault") {
-      var kind = actEl.getAttribute("data-kind");
-      ob.guide = "";
-      closeModal();
-      state.tab = "stats";
-      state.statsDoor = "vault";
-      state.vaultDocId = "";
-      if (kind === "paystub") {
-        vaultPickMode = true;
-      } else {
-        state.profile = migrateProfile(state.profile, state.foo, state.compensation);
-        var card = emptyVaultDoc(kind);
-        var typeLink = suggestDocLink(card.slot);
-        applyDocLink(card, typeLink);
-        card._vaultDraft = true;
-        state.profile.documents.push(card);
-        state.vaultDocId = card.id;
-      }
-      saveState();
-      render();
-    } else if (act === "ob-cl-toggle") {
-      var clCard = actEl.closest(".onboard-checklist");
-      checklistOpen = !checklistOpen;
-      if (clCard) clCard.classList.toggle("open", checklistOpen);
-      actEl.setAttribute("aria-expanded", String(checklistOpen));
-    } else if (act === "ob-cl-skip" || act === "ob-cl-restore") {
-      ob.skipped = ob.skipped || {};
-      var clId = actEl.getAttribute("data-id");
-      if (act === "ob-cl-skip") ob.skipped[clId] = true; else delete ob.skipped[clId];
-      checklistOpen = true;
-      saveState();
-      render();
-    } else if (act === "ob-cl-go-worth") {
-      onTab("worth");
-    } else if (act === "ob-qi-freq") {
-      var qv = actEl && actEl.getAttribute("data-value");
-      if (onboardPayChoice(qv)) {
-        quickIncome.freq = qv;
-        [].forEach.call(document.querySelectorAll("#quick-income [data-act=ob-qi-freq]"), function (b) {
-          var on = b.getAttribute("data-value") === qv; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
-        });
-      }
-    } else if (act === "ob-qi-save") {
-      saveQuickIncome();
-    } else if (act === "ob-qi-details") {
-      closeModal(); onTab("budget"); openIncomeStatement();
-    } else if (act === "ob-cl-go-income" && !(ensureMonth(state.year, state.month).incomes || []).some(function (q) { return Number(q.amount) > 0; })) {
-      closeModal();
-      onTab("budget");
-      openQuickIncome();
-    } else if (act === "ob-cl-go-income") {
-      /* Income step opens the Income statement (salary, deductions, pay stub upload), not a paycheck editor. */
-      closeModal();
-      onTab("budget");
-      var scr0 = document.getElementById("screen"); if (scr0) scr0.scrollTop = 0;
-      openIncomeStatement();
-      [].forEach.call(document.querySelectorAll("#modal, #modal .sheet, #modal .sheet-body"), function (el) { el.scrollTop = 0; });
-    } else if (act === "ob-cl-go-budget") {
-      /* Checklist Go just takes you to Budget (no editor opens); scroll to the right section. */
-      closeModal();
-      onTab("budget");
-      var tgt = document.querySelector(act === "ob-cl-go-income" ? ".income-add" : "[data-act=add-category]");
-      if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: "center" });
-    } else if (act === "ob-cl-go-vault") {
-      closeModal();
-      state.tab = "stats"; state.statsDoor = "vault"; state.vaultDocId = "";
-      saveState(); render();
-    } else if (act === "ob-hide") {
-      ob.hidden = true;
-      saveState();
-      render();
-    } else if (act === "ob-show") {
-      ob.hidden = false;
-      if (ob.status === "done" && !ob.legacy && !ob.demo) ob.status = "active";
-      state.tab = "budget";
-      saveState();
-      closeModal();
-      render();
-    } else if (act === "ob-dismiss") {
-      if (!onboardProgress().complete) return;
-      ob.status = "done";
-      ob.completedAt = new Date().toISOString();
-      saveState();
-      render();
     } else if (act === "ob-leave-demo") {
       if (!window.confirm("Erase the demo and start your own budget?\n\nEvery sample number (and anything you changed while exploring) is removed from this device. This can’t be undone.")) return;
       try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
@@ -16156,7 +16008,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* V37.5.15 About & Privacy (Profile) ---- */
   function openAbout() {
     captureModalReturnScreenTop();
-    var ob = onboarding();
     var html = '<div class="sheet about-sheet">' +
       "<h3>About &amp; Privacy</h3>" +
       '<p class="about-version mono">Paper Trail · version ' + esc(APP_VERSION) + " (browser preview)</p>" +
@@ -16170,7 +16021,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       "<li><strong>Income</strong> — paychecks, income statement, confirmed pay-stub numbers.</li>" +
       "<li><strong>Net worth</strong> — yearly balances and notes.</li>" +
       "<li><strong>Vault documents</strong> — files you add and the details on each card.</li>" +
-      "<li><strong>Settings</strong> — name, birthday, pay frequency, dark mode, plan, setup checklist.</li>" +
+      "<li><strong>Settings</strong> — name, birthday, pay frequency, dark mode, plan.</li>" +
       "</ul>" +
       '<p class="profile-section">Estimates</p>' +
       "<p>" + ESTIMATE_DISCLAIMER + "</p>" +
@@ -16184,10 +16035,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="data-btn" type="button" data-act="about-go" data-to="danger"><strong>Go to the danger zone</strong><span class="caption">Erase all data · Clear this month’s spending</span></button>';
     html += '<p class="profile-section">Intro</p>' +
       '<button class="data-btn" type="button" data-act="show-intro"><strong>Replay the welcome intro</strong><span class="caption">The two stat pages from first launch</span></button>';
-    if (ob.status === "active" && ob.hidden) {
-      html += '<p class="profile-section">Setup</p>' +
-        '<button class="data-btn" type="button" data-act="ob-show"><strong>Show setup checklist</strong><span class="caption">Back on the Budget tab</span></button>';
-    }
     html += '<div class="sheet-actions"><button type="button" data-act="about-back">Back to Profile</button>' +
       '<button class="primary" type="button" data-act="close-modal">Done</button></div></div>';
     var modal = document.getElementById("modal");
@@ -16421,7 +16268,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.71";
+  var APP_VERSION = "37.5.72";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -16761,7 +16608,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var em = parsed && typeof parsed === "object" ? (parsed.edMerge || (parsed.kind === "PaperTrail.edMerge" ? parsed : null)) : null;
     if (!PI) { setDataStatus("Import unavailable. Nothing was changed.", true); return; }
     if (!em || typeof em !== "object" || !em.months || typeof em.months !== "object" || Array.isArray(em.months)) {
-      setDataStatus("Can’t import: that file has no EveryDollar data (edMerge). Nothing was changed.", true);
+      setDataStatus("That file isn’t an EveryDollar export Paper Trail can read, so nothing was imported or changed. Pick the file you exported from EveryDollar and try again.", true);
       return;
     }
     var keys = Object.keys(em.months).filter(function (k) { return /^\d{4}-\d{1,2}$/.test(k); });
@@ -19219,6 +19066,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "debt-open") { openDebtCalc(); }
+    else if (act === "extra-income-add" || act === "extra-income-dismiss") extraIncomeAnswer(act === "extra-income-add");
     else if (act === "plan-copy-yes" || act === "plan-copy-blank") answerPlanCopy(act === "plan-copy-yes");
     else if (act === "close-modal") {
       if (closeSavesSheet(actEl)) return;
@@ -19450,7 +19298,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "edit-line-item") {
       var found = findLine(month, actEl.getAttribute("data-id"));
       if (!found) return;
-      var lineFields = field("Name", "name", found.line.name) +
+      var lineFields = (found.line.system === "checking" ? "" : field("Name", "name", found.line.name)) +
         field(found.cat && /^debt$/i.test(found.cat.name) ? "This month’s payment" : "Assigned",
           "assigned", String(found.line.assigned), "number");
       if (found.cat && /^debt$/i.test(found.cat.name)) {
@@ -19466,7 +19314,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet((found.cat ? found.cat.name + " · " : "") + found.line.name,
         lineFields +
         lineSpendList(month, found.line.id) +
-        (found.line.system === "checking" ? '<p class="caption">Built in (can’t be deleted). Checking balance across months: ' + esc(formatMoney(checkingBalance(month), 2)) + ".</p>"
+        (found.line.system === "checking" ? CHECKING_LOCK_NOTE + '<p class="caption">Checking balance across months: ' + esc(formatMoney(checkingBalance(month), 2)) + ".</p>"
           : deleteBtnHtml("delete-line", "Delete " + esc(found.line.name), ' data-id="' + esc(found.line.id) + '"')) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
@@ -19798,7 +19646,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var editFound = findLine(month, data.id);
       if (editFound) {
         var priorDebtName = editFound.line.name;
-        editFound.line.name = (data.name || "").replace(/^\s+|\s+$/g, "") || editFound.line.name;
+        if (editFound.line.system !== "checking") editFound.line.name = (data.name || "").replace(/^\s+|\s+$/g, "") || editFound.line.name;
         editFound.line.assigned = Number(data.assigned) || 0;
         delete editFound.line.autoCopy;
         if (Object.prototype.hasOwnProperty.call(data, "feedsAccount")) setLineFeed(editFound.line.name, data.feedsAccount || "", priorDebtName);

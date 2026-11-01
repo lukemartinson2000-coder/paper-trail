@@ -2838,8 +2838,7 @@ body.night .onboard-primary { color: rgb(18, 19, 21); }
 .onboard-plan strong { display: block; font-size: calc(17px * var(--fs-scale)); }
 .onboard-plan .caption { display: block; }
 
-/* Budget checklist card */
-.onboard-checklist,
+/* Demo banner */
 .demo-banner {
   margin: 8px 16px 12px;
   padding: 14px 14px 10px;
@@ -2847,73 +2846,9 @@ body.night .onboard-primary { color: rgb(18, 19, 21); }
   border-radius: 10px;
   background: var(--card);
 }
-.onboard-check-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.onboard-check-head .kicker { margin: 0; }
-.onboard-bar {
-  height: 6px;
-  margin: 8px 0 10px;
-  border-radius: 3px;
-  background: var(--rule);
-  overflow: hidden;
-}
-.onboard-bar i {
-  display: block;
-  height: 100%;
-  background: var(--moss);
-  border-radius: 3px;
-}
-.onboard-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-top: 1px solid var(--rule);
-}
-.onboard-mark {
-  flex: 0 0 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1.4px solid var(--muted);
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(13px * var(--fs-scale));
-  font-weight: 700;
-}
-.onboard-step.is-done .onboard-mark {
-  border-color: var(--moss);
-  background: var(--moss);
-  color: #f7f4ee;
-}
-body.night .onboard-step.is-done .onboard-mark { color: rgb(18, 19, 21); }
-.onboard-step.is-done .name { color: var(--muted); text-decoration: line-through; }
-.onboard-step-copy { flex: 1; min-width: 0; }
-.onboard-step-copy .caption { display: block; }
-.onboard-go { flex: 0 0 auto; color: var(--moss); font-weight: 600; }
-.onboard-state { color: var(--moss); font-weight: 600; }
-.onboard-hide { display: block; margin: 4px 0 0 auto; }
 .demo-banner { border-color: var(--plum); }
 .demo-banner p { margin: 4px 0 8px; }
 .demo-banner .kicker { color: var(--plum); }
-
-/* Guided step sheets */
-.onboard-guide p { line-height: 1.45; }
-.onboard-guide-kicker { margin: 0; }
-.onboard-vault-picks { display: grid; gap: 8px; margin: 10px 0; }
-.onboard-walk {
-  margin: 8px 0 4px;
-  padding: 14px;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: var(--card);
-}
-.onboard-walk h4 { margin: 2px 0 6px; font-family: var(--serif); font-size: calc(20px * var(--fs-scale)); }
-.onboard-walk-n { margin: 0; font-size: calc(12px * var(--fs-scale)); color: var(--muted); letter-spacing: 0.6px; }
 
 /* About & Privacy */
 .about-sheet p { line-height: 1.45; }
@@ -2952,8 +2887,6 @@ body.night .plan-test-label { color: #CDB4FF; }
 }
 .empty-card p { margin: 0 0 8px; }
 .empty-card .planner-apply { margin-top: 4px; }
-.onboard-checklist button.onboard-go { color: var(--moss); }
-.onboard-checklist button.onboard-hide { color: var(--muted); }
 .onboard button.onboard-choice { color: var(--ink); }
 .onboard button.onboard-secondary { color: var(--ink); }
 
@@ -4342,33 +4275,6 @@ body.night .fab-add::before,body.night .fab-add::after{background:rgb(12,20,17)}
 .help-card button{width:100%}
 .est-seg-row .sd-seg button[data-ineligible]{opacity:.55}
 
-/* V37.5.59.37 notification-style cards */
-.card.notif{margin:8px 16px;padding:10px 14px;border-radius:16px}
-.notif-head{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:4px 0;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.notif-icon{flex:none;opacity:.8}
-.notif-title{flex:1;font-weight:700;font-size:calc(15px * var(--fs-scale))}
-.notif-head .nw-chev{margin:0 4px 0 0}
-.onboard-checklist.open .nw-chev{transform:rotate(45deg)}
-.notif-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease}
-.onboard-checklist.open .notif-body{grid-template-rows:1fr}
-.notif-body-in{overflow:hidden;min-height:0}
-.notif-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(128,128,128,.2);font-size:calc(14px * var(--fs-scale))}
-.notif-item:first-child{margin-top:6px}
-.notif-mark{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid currentColor;opacity:.6;display:inline-flex;align-items:center;justify-content:center;font-size:calc(12px * var(--fs-scale))}
-.notif-item.is-done .notif-mark{background:var(--moss,#1f7a5a);border-color:var(--moss,#1f7a5a);color:#fff;opacity:1}
-.notif-item.is-done .notif-text{opacity:.55;text-decoration:line-through}
-.notif-text{flex:1;min-width:0}
-.notif-text em{font-style:normal;font-size:calc(11px * var(--fs-scale));opacity:.6;margin-left:4px}
-.notif-go{flex:none;padding:6px 16px;border-radius:99px;border:1.5px solid currentColor;background:transparent;color:inherit;font:600 calc(13px * var(--fs-scale)) system-ui,sans-serif;cursor:pointer}
-.notif-dismiss{width:100%;margin-top:8px}
-.setup-nudge.notif{padding:10px 14px}
-.notif-line{display:flex;align-items:center;gap:10px;margin:0 0 8px!important;font-size:calc(14px * var(--fs-scale))}
-.notif-line .help-q{margin-left:auto}
-.notif-skip{flex:none;padding:6px 8px;border:0;background:none;color:inherit;opacity:.6;font:500 calc(13px * var(--fs-scale)) system-ui,sans-serif;cursor:pointer}
-.notif-go+.notif-skip,.notif-skip+.notif-go{margin-left:0}
-.notif-sub{margin:10px 0 0;font-size:calc(11px * var(--fs-scale));text-transform:uppercase;letter-spacing:.06em;opacity:.55}
-.notif-item.is-skipped .notif-text{opacity:.55}
-
 /* V37.5.59.41 ONE delete style */
 .sheet-delete{display:block;width:100%;min-height:44px;margin:16px 0 4px;padding:10px 14px;border-radius:12px;border:1.5px solid #b3261e;background:transparent;color:#b3261e!important;font:600 calc(15px * var(--fs-scale)) system-ui,sans-serif;text-align:center;cursor:pointer}
 .sheet-delete.inline{display:inline-block;width:auto;min-height:0;margin:0;padding:6px 12px;border-radius:99px;font-size:calc(13px * var(--fs-scale))}
@@ -5006,19 +4912,7 @@ button.danger,.danger-btn{color:var(--danger);border-color:var(--danger)}
 /* The quick tour hides while any sheet/modal is open. */
 .phone:has(#modal:not([hidden])) .tour-coach, .tour-coach[hidden] { display: none !important; }
 
-/* Quick "Add your income" sheet from the Finish setup checklist. */
-.quick-income .qi-freq { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 14px; }
-.quick-income .pill { min-height: 44px; border: 1.5px solid var(--line, #d8d4cc); border-radius: 12px; background: transparent; font: inherit; color: inherit; }
-.quick-income .pill.on { border-color: var(--moss, #1f7a5f); background: var(--moss, #1f7a5f); color: #fff; font-weight: 600; }
-.quick-income .form-error { color: var(--danger, #b3261e); font-weight: 600; margin: 6px 0; }
-.quick-income .form-error:empty { display: none; }
-.quick-income .primary { width: 100%; margin-top: 4px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--moss); background: var(--moss); color: #f7f4ee; font: inherit; font-weight: 700; }
-.quick-income .text-btn { display: block; margin: 12px auto 0; }
 .left-to-budget:empty { display: none; }
-.quick-income .text-btn.qi-details { font-size: 0.85rem; opacity: 0.7; text-decoration: none; margin-top: 10px; }
-/* Quiet × skip on Finish setup rows; 44x44 tap target via negative margin so the row height stays the same. */
-.notif-item .notif-skip-x { width: 44px; height: 44px; margin: -10px 0 -10px auto; padding: 0; border: 0; background: transparent; color: #a8a49c; font-size: calc(20px * var(--fs-scale)); line-height: 44px; text-align: center; cursor: pointer; flex: 0 0 44px; }
-.notif-item .notif-skip-x:hover, .notif-item .notif-skip-x:focus-visible { color: #6f6b64; }
 /* Pay frequency picker at the top of Income Details. */
 .pay-freq-pick { margin: 4px 0 14px; }
 .pay-freq-pick .pill { min-height: 44px; border: 1.5px solid var(--rule, #d8d4cc); border-radius: 12px; background: transparent; font: inherit; color: inherit; }
@@ -5264,6 +5158,10 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .debt-sb-term-row{display:flex;gap:8px;align-items:center}
 .debt-sb-term-row input{flex:1 1 auto;min-width:0}
 .debt-sb-term-row .pay-seg{flex:0 0 auto}
+/* v37.5.72 (owner): Term spans the row and is as big as the other main loan fields; no placeholder. */
+.debt-sb-fields .debt-sb-term{grid-column:1 / -1}
+.debt-sb-term-row input{min-height:48px;font-size:calc(18px * var(--fs-scale));padding:10px 12px}
+.debt-sb-term-row .pay-seg{min-height:48px}
 .debt-sb-pay{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
 .debt-sb-pay b{font-size:1.5rem}
 /* v37.5.70 big-dollar inputs: fixed width, tabular digits, no reflow while typing */
@@ -5273,3 +5171,36 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 /* v37.5.71 savings trend: weighted average line */
 .dash-avg-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--ink);opacity:.75;pointer-events:none;z-index:2}
 .dash-avg-lbl{position:absolute;right:0;bottom:3px;font-size:11px;line-height:1.2;padding:0 4px;border-radius:4px;background:var(--paper);color:var(--ink)}
+
+/* v37.5.72: Wrapped "You vs the median American" bars + percentile track. */
+.cmp-viz{margin:16px 0 6px;display:grid;gap:10px}
+.cmp-row{display:grid;grid-template-columns:118px 1fr 92px;align-items:center;gap:10px}
+.cmp-lbl{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--muted,inherit)}
+.cmp-track{height:14px;border-radius:999px;background:color-mix(in srgb,currentColor 9%,transparent);overflow:hidden}
+.cmp-track i{display:block;height:100%;border-radius:999px;min-width:4px}
+.cmp-row.is-you .cmp-track i{background:var(--moss,#3f7d4e)}
+.cmp-row.is-med .cmp-track i{background:var(--plum,#7a4f7d)}
+.cmp-val{text-align:right;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.cmp-pct{margin-top:10px}
+.cmp-pct-track{position:relative;height:8px;border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--plum,#7a4f7d) 25%,transparent),color-mix(in srgb,var(--moss,#3f7d4e) 45%,transparent))}
+.cmp-pct-mid{position:absolute;left:50%;top:-4px;width:2px;height:16px;background:currentColor;opacity:.35}
+.cmp-pct-dot{position:absolute;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--moss,#3f7d4e);border:3px solid var(--paper,#fff);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.cmp-pct-scale{display:flex;justify-content:space-between;font-size:11px;opacity:.6;margin-top:6px}
+.cmp-pct-note{font-size:14px;margin:8px 0 0}
+.wrap-source{font-size:11px;line-height:1.35;opacity:.62;margin:14px 0 0}
+/* v37.5.72: quiet "received more than planned" offer on Budget. */
+.extra-inc-nudge{margin:10px 0 14px;padding:12px 14px;border:1px dashed color-mix(in srgb,var(--moss,#3f7d4e) 55%,transparent);border-radius:12px;background:color-mix(in srgb,var(--moss,#3f7d4e) 7%,transparent)}
+.extra-inc-nudge p{margin:0 0 10px;font-size:15px;line-height:1.35}
+.extra-inc-btns{display:flex;justify-content:flex-end;align-items:center;gap:14px}
+.debt-minonly{margin:4px 0 8px;opacity:.75}
+/* v37.5.72: picker rows: tap the name for one item, tick boxes (up to 4) to split. */
+.ed-item-row{display:grid;grid-template-columns:1fr 52px;align-items:stretch;border-bottom:1px solid var(--rule)}
+.ed-item-row .ed-item{grid-template-columns:1fr auto;border-bottom:0}
+.ed-item-row.on{background:color-mix(in srgb,var(--moss) 8%,transparent)}
+.ed-tick{display:flex;align-items:center;justify-content:center;border:0;background:none;padding:0;cursor:pointer}
+.ed-tick span{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:2px solid var(--muted);border-radius:6px;color:#fff;font-weight:800;font-size:15px}
+.ed-tick.on span{background:var(--moss);border-color:var(--moss)}
+.ed-cap-note{color:var(--rust,#b5651d);font-weight:600;margin:4px 0}
+.ed-picker-foot{position:sticky;bottom:0;padding:10px 0 4px;background:var(--paper)}
+.ed-picker-foot .ed-picker-close{width:100%;min-height:46px}
+.ed-alloc-status .ed-left{display:block;font:700 calc(18px * var(--fs-scale)) var(--ui);margin-bottom:2px}
