@@ -1160,6 +1160,7 @@
   function deleteEnvelope(month, id) {
     var cat = month.categories.filter(function (c) { return c.id === id; })[0];
     if (!cat) return;
+    if (cat.system === "checking") { window.alert("Checking is built in, so it can’t be deleted. You can rename it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
@@ -1185,6 +1186,7 @@
   function deleteLine(month, lineId) {
     var found = findLine(month, lineId);
     if (!found) return;
+    if (found.line.system === "checking") { window.alert("Checking is built in, so it can’t be deleted. You can rename it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.lineId === lineId; });
     }).length;
@@ -3996,11 +3998,159 @@
     saveState();
   }
 
+  /* Seasonal TRAIL SET emblems (Jan–Dec): 24×24 folded-paper (origami) art — flat facets, fold lines, soft shadow. Inline, no assets. */
+  var STAMP_EMBLEMS = [
+    ["Paper crane", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M2,9 L9,13 L12,20z" fill="#5b8fd1"/><path d="M12,20 L9,13 L15,12z" fill="#3c6fb3"/><path d="M15,12 L22,4 L17,15z" fill="#7fb0ea"/><path d="M15,12 L17,15 L12,20z" fill="#2f5b96"/><path d="M9,13 L5,6 L7,13z" fill="#9cc2f0"/><path d="M9 13L12 20M15 12L12 20" class="fold"/>'],
+    ["Heart", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,7 L8,3.5 L3,6 L3,11 L12,20z" fill="#e0566b"/><path d="M12,7 L16,3.5 L21,6 L21,11 L12,20z" fill="#b83a50"/><path d="M3,11 L12,20 L7,11z" fill="#f07a8c"/><path d="M12 7L12 20M3 11L7 11L12 20" class="fold"/>'],
+    ["Clover", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,11 L8.5,4 L12,2 L15.5,4z" fill="#4fae6a"/><path d="M12,11 L15.5,4 L12,2z" fill="#3a8f53"/><path d="M12,11 L3,9 L3,13.5 L7,15z" fill="#4fae6a"/><path d="M12,11 L3,13.5 L7,15z" fill="#3a8f53"/><path d="M12,11 L21,9 L21,13.5 L17,15z" fill="#62c27d"/><path d="M12,11 L21,13.5 L17,15z" fill="#3a8f53"/><path d="M11.4,11 L12.6,11 L14.5,21 L13.3,21z" fill="#2f7a46"/><path d="M12 11L12 2M12 11L3 13.5M12 11L21 13.5" class="fold"/>'],
+    ["Umbrella", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M2,12 L7,5.5 L7,12z" fill="#4e86d6"/><path d="M7,12 L7,5.5 L12,3.5z" fill="#7aa9ec"/><path d="M7,12 L12,3.5 L12,12z" fill="#3c70bf"/><path d="M12,12 L12,3.5 L17,5.5z" fill="#7aa9ec"/><path d="M12,12 L17,5.5 L17,12z" fill="#3c70bf"/><path d="M17,12 L17,5.5 L22,12z" fill="#4e86d6"/><path d="M12 12v7.5a2 2 0 0 1-4 0" fill="none" stroke="#7a5a3a" stroke-width="1.4" stroke-linecap="round"/><path d="M7 5.5L7 12M12 3.5L12 12M17 5.5L17 12" class="fold"/>'],
+    ["Tulip", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M11.3,13 L12.7,13 L12.7,21.5 L11.3,21.5z" fill="#3f9a5a"/><path d="M12,21 L6,14 L7,13.5z" fill="#5cb874"/><path d="M12,21 L18,14 L17,13.5z" fill="#3f9a5a"/><path d="M6,4 L9,9 L12,4 L12,14 L8,13z" fill="#e86a9a"/><path d="M18,4 L15,9 L12,4 L12,14 L16,13z" fill="#c94a7c"/><path d="M9,9 L12,4 L15,9 L12,14z" fill="#f39bbd"/><path d="M12 4L12 14M9 9L12 14L15 9" class="fold"/>'],
+    ["Sun", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,1 L14,6 L10,6z" fill="#f2a33a"/><path d="M12,23 L14,18 L10,18z" fill="#f2a33a"/><path d="M1,12 L6,10 L6,14z" fill="#f2a33a"/><path d="M23,12 L18,10 L18,14z" fill="#f2a33a"/><path d="M4.2,4.2 L8.6,7.2 L7.2,8.6z" fill="#e88a22"/><path d="M19.8,4.2 L15.4,7.2 L16.8,8.6z" fill="#e88a22"/><path d="M4.2,19.8 L7.2,15.4 L8.6,16.8z" fill="#e88a22"/><path d="M19.8,19.8 L16.8,15.4 L15.4,16.8z" fill="#e88a22"/><path d="M12,6 L18,12 L12,18 L6,12z" fill="#f7c948"/><path d="M12,6 L18,12 L12,12z" fill="#fbdc6e"/><path d="M6,12 L12,18 L12,12z" fill="#e9b52f"/><path d="M6 12L18 12M12 6L12 18" class="fold"/>'],
+    ["Firework star", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,12 L12,2 L14.4,9.3z" fill="#f06b5b"/><path d="M12,12 L14.4,9.3 L22,9.6z" fill="#c94a3d"/><path d="M12,12 L22,9.6 L15.9,14.3z" fill="#f06b5b"/><path d="M12,12 L15.9,14.3 L18.2,21.6z" fill="#c94a3d"/><path d="M12,12 L18.2,21.6 L12,17.2z" fill="#f06b5b"/><path d="M12,12 L12,17.2 L5.8,21.6z" fill="#c94a3d"/><path d="M12,12 L5.8,21.6 L8.1,14.3z" fill="#f06b5b"/><path d="M12,12 L8.1,14.3 L2,9.6z" fill="#c94a3d"/><path d="M12,12 L2,9.6 L9.6,9.3z" fill="#f06b5b"/><path d="M12,12 L9.6,9.3 L12,2z" fill="#c94a3d"/><path d="M12 12L12 2M12 12L22 9.6M12 12L18.2 21.6M12 12L5.8 21.6M12 12L2 9.6" class="fold"/>'],
+    ["Sun hat", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M1,17 L12,13 L23,17 L12,20z" fill="#e3b878"/><path d="M1,17 L12,20 L23,17 L12,18.5z" fill="#c8975a"/><path d="M7,15 L8.5,8 L12,6.5 L12,15.5z" fill="#efc98c"/><path d="M17,15 L15.5,8 L12,6.5 L12,15.5z" fill="#d4a868"/><path d="M7.3,13.6 L16.7,13.6 L17,15 L7,15z" fill="#e0566b"/><path d="M12 6.5L12 15.5" class="fold"/>'],
+    ["Apple", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,7 L6,5.5 L3,10 L5,17 L9,21 L12,19.5z" fill="#e0484d"/><path d="M12,7 L18,5.5 L21,10 L19,17 L15,21 L12,19.5z" fill="#b8333a"/><path d="M3,10 L12,7 L5,17z" fill="#ef6b6e"/><path d="M12,7 L11.6,2 L12.6,2 L12.8,7z" fill="#7a5a3a"/><path d="M12.8,4.5 L17,2.2 L18.5,4.8z" fill="#5cb874"/><path d="M12.8,4.5 L18.5,4.8 L15.5,6z" fill="#3f9a5a"/><path d="M12 7L12 19.5M3 10L12 7L21 10" class="fold"/>'],
+    ["Pumpkin", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,8 L6.5,8 L2,12 L3.5,18 L8,21 L12,20z" fill="#f08a2c"/><path d="M12,8 L17.5,8 L22,12 L20.5,18 L16,21 L12,20z" fill="#d26d17"/><path d="M6.5,8 L9,14 L8,21 L3.5,18 L2,12z" fill="#f6a24c"/><path d="M17.5,8 L15,14 L16,21z" fill="#b95c10"/><path d="M12,8 L9,14 L12,20 L15,14z" fill="#f39a3e"/><path d="M11.2,8.2 L11.4,3.5 L13.6,2.8 L12.8,8.2z" fill="#4f8f3f"/><path d="M6.5 8L9 14L8 21M17.5 8L15 14L16 21M12 8L12 20" class="fold"/>'],
+    ["Turkey", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><path d="M12,14 L2,12 L3.2,6.5z" fill="#c0562a"/><path d="M12,14 L3.2,6.5 L6.5,2.8z" fill="#e7a33a"/><path d="M12,14 L6.5,2.8 L12,1.2z" fill="#c0562a"/><path d="M12,14 L12,1.2 L17.5,2.8z" fill="#e7a33a"/><path d="M12,14 L17.5,2.8 L20.8,6.5z" fill="#c0562a"/><path d="M12,14 L20.8,6.5 L22,12z" fill="#e7a33a"/><path d="M12,9 L16.5,13 L15,19 L12,20 L9,19 L7.5,13z" fill="#8a5530"/><path d="M12,9 L7.5,13 L9,19 L12,20z" fill="#a76a3e"/><path d="M12,5.2 L14.2,7.4 L12,10.5 L9.8,7.4z" fill="#d9a679"/><path d="M14,7 L16.6,7.8 L14,8.6z" fill="#f2b632"/><path d="M12.4,8.4 L13.6,8.4 L13.2,12 L12.4,11.4z" fill="#d9323a"/><circle cx="12.6" cy="6.9" r=".6" fill="#2b2420"/><path d="M10.6,19.6 L11.4,19.6 L11.2,22 L10.4,22z" fill="#f2b632"/><path d="M12.6,19.6 L13.4,19.6 L13.6,22 L12.8,22z" fill="#f2b632"/><path d="M12 14L3.2 6.5M12 14L12 1.2M12 14L20.8 6.5M12 9L12 20" class="fold"/>'],
+    ["Snowflake", '<ellipse cx="12" cy="22.3" rx="7" ry="1.2" class="shadow"/><g transform="rotate(0 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><g transform="rotate(60 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><g transform="rotate(120 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><g transform="rotate(180 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><g transform="rotate(240 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><g transform="rotate(300 12 12)"><path d="M12,12 L10.4,7 L12,1.5z" fill="#9ccaf0"/><path d="M12,12 L13.6,7 L12,1.5z" fill="#5d9bd6"/><path d="M10.4,5 L12,6.2 L13.6,5 L12,3.6z" fill="#ffffff"/></g><circle cx="12" cy="12" r="1.6" fill="#5d9bd6"/>']
+  ];
+  function stampEmblemSvg(m) {
+    var e = STAMP_EMBLEMS[((Number(m) || 1) - 1 + 12) % 12];
+    return '<svg class="stamp-emblem" viewBox="0 0 24 24" aria-hidden="true" data-emblem="' + e[0] + '">' + e[1] + "</svg>";
+  }
+  var stampLandKey = "";
+  function stampHtml(m, landing) {
+    return '<div class="stamp' + (landing ? " stamp-land" : "") + '" aria-label="Stamp: trail set, every dollar has a job">' + stampEmblemSvg(m) + "<span>TRAIL SET</span></div>";
+  }
+  /* The TRAIL SET stamp is earned, not automatic: the month must be wrapped up (closedAt set by
+   * "Wrap up" → moved to the next month) AND still have every dollar assigned ($0 left). */
+  function monthStampEarned(month, totals) {
+    return !!(month && month.closedAt && totals && totals.stamped);
+  }
+  function monthIsFuture(month) {
+    var now = new Date();
+    return month.year * 12 + month.month > now.getFullYear() * 12 + now.getMonth() + 1;
+  }
+  function wrapMonthHtml(month, totals) {
+    var name = MONTH_NAMES[month.month - 1];
+    if (month.closedAt) {
+      var d = new Date(month.closedAt);
+      return '<p class="wrap-month-note">Wrapped up ' + esc(d.toLocaleDateString("en-US", { month: "short", day: "numeric" })) +
+        (totals.stamped ? "" : " · stamp hidden until every dollar has a job again") +
+        ' · <button type="button" class="link-btn" data-act="unwrap-month">Undo wrap-up</button></p>';
+    }
+    if (!(totals.income > 0) || monthIsFuture(month)) return "";
+    var nx = offsetMonth(month.year, month.month, 1);
+    return '<button class="wrap-month-btn" type="button" data-act="wrap-month">Wrap up ' + esc(name) +
+      ' and go to ' + esc(MONTH_NAMES[nx.month - 1]) + " ›</button>";
+  }
+  /* Built-in "Checking" envelope: its own group, renamable, never deletable. Wrap-up parks leftover dollars here
+   * (or covers an over-assigned month from it) as a budget assignment only — no transaction, no Net Worth change. */
+  function checkingLine(month) {
+    var cat = (month.categories || []).filter(function (c) { return c.system === "checking"; })[0];
+    return cat ? { cat: cat, line: (cat.lines || []).filter(function (l) { return l.system === "checking"; })[0] || (cat.lines || [])[0] } : null;
+  }
+  function ensureCheckingEnvelope(month) {
+    if (!month || !(month.categories || []).length || checkingLine(month)) return false;
+    var max = month.categories.reduce(function (n, c) { return Math.max(n, Number(c.sortOrder) || 0); }, 0);
+    month.categories.push({ id: nextId(), name: "Checking", system: "checking", assigned: 0, sortOrder: max + 1,
+      lines: [{ id: nextId(), name: "Checking", system: "checking", assigned: 0, sortOrder: 0 }] });
+    return true;
+  }
+  /* No envelope rolls over in Paper Trail (each month = assigned − spent that month). Checking is the one
+   * exception shown as a running balance: every month up to this one, assigned − spent on Checking. */
+  function checkingBalance(upTo) {
+    var lim = upTo.year * 12 + upTo.month;
+    return roundCents(Object.keys(state.months || {}).reduce(function (n, k) {
+      var m = state.months[k];
+      if (!m || m.year * 12 + m.month > lim) return n;
+      var c = checkingLine(m);
+      return c && c.line ? n + (Number(c.line.assigned) || 0) - spentOnLine(m, c.line.id) : n;
+    }, 0));
+  }
+  function wrapPlan(month) {
+    var t = sums(month), left = roundCents(t.leftover), bal = checkingBalance(month);
+    return { totals: t, left: left, bal: bal, kind: !(t.income > 0) ? "none" : left === 0 ? "zero" : left > 0 ? "add" : (bal >= -left ? "cover" : "short") };
+  }
+  function openWrapMonth() {
+    var month = monthRecord(), nx = offsetMonth(month.year, month.month, 1);
+    ensureCheckingEnvelope(month);
+    var w = wrapPlan(month), ck = checkingLine(month), ckName = ck && ck.cat ? ck.cat.name : "Checking";
+    var label = MONTH_NAMES[month.month - 1] + " " + month.year, nxName = MONTH_NAMES[nx.month - 1];
+    var body = "", actions = '<button type="button" data-act="close-modal">Not yet</button>';
+    if (w.kind === "zero") {
+      body = "Every dollar has a job. Wrap up to reveal " + MONTH_NAMES[month.month - 1] + "’s stamp and move to " + nxName + ".";
+      actions += '<button class="primary" type="button" data-act="wrap-month-go">Wrap up · go to ' + esc(nxName) + "</button>";
+    } else if (w.kind === "add") {
+      body = formatMoney(w.left, 2) + " is still unassigned. Park it in " + ckName + " to zero out the month, then wrap up.";
+      actions += '<button class="primary" type="button" data-act="wrap-add-checking">Add ' + esc(formatMoney(w.left, 2)) + " to " + esc(ckName) + " and wrap up</button>";
+    } else if (w.kind === "cover") {
+      body = "You assigned " + formatMoney(-w.left, 2) + " more than came in. " + ckName + " has " + formatMoney(w.bal, 2) + ", enough to cover it.";
+      actions += '<button class="primary" type="button" data-act="wrap-cover-checking">Cover ' + esc(formatMoney(-w.left, 2)) + " from " + esc(ckName) + " and wrap up</button>";
+    } else {
+      body = "You assigned " + formatMoney(-w.left, 2) + " more than came in, and " + ckName + " only has " + formatMoney(Math.max(0, w.bal), 2) +
+        ". Trim an envelope by " + formatMoney(-w.left - Math.max(0, w.bal), 2) + " or more to unlock the stamp.";
+    }
+    captureModalReturnScreenTop();
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet wrap-month-sheet"><h3>Wrap up ' + esc(label) + "?</h3>" +
+      '<p class="empty">' + esc(body) + "</p>" +
+      '<div class="wrap-month-preview"><div class="stamp-locked" aria-label="Stamp locked until you wrap up">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>' +
+      "<span>" + (w.kind === "short" ? "Stamp locked" : "Your stamp is waiting") + "</span></div></div>" +
+      '<div class="sheet-actions wrap-actions">' + actions + "</div></div>";
+  }
+  /* The close moment: stamp lands (thud + short haptic), then the view rolls into the next month.
+   * Plays once per month (state.stampPlayed[key]); reduced motion skips the animation but still shows the stamp. */
+  function stampReduceMotion() { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); }
+  function stampBuzz() { try { if (navigator.vibrate) navigator.vibrate([18, 40, 28]); } catch (e) {} }
+  function playStampClose(rec, toYM) {
+    var key = ymKey(rec.year, rec.month);
+    if (!state.stampPlayed || typeof state.stampPlayed !== "object") state.stampPlayed = {};
+    if (!rec.closedAt) rec.closedAt = new Date().toISOString();
+    var first = !state.stampPlayed[key];
+    state.stampPlayed[key] = 1;
+    state.year = rec.year; state.month = rec.month; state.tab = "budget";
+    saveState();
+    var reduce = stampReduceMotion();
+    stampLandKey = first && !reduce ? key : "";
+    render();
+    stampLandKey = "";
+    var scr = document.getElementById("screen");
+    if (scr) scr.scrollTop = 0;
+    if (first) setTimeout(stampBuzz, reduce ? 0 : 230); /* buzz on impact */
+    var hold = !first ? 0 : reduce ? 900 : 1150;
+    setTimeout(function () {
+      var sc = document.getElementById("screen");
+      if (!reduce && first && sc) sc.classList.add("month-roll-out");
+      setTimeout(function () {
+        state.year = toYM.year; state.month = toYM.month;
+        ensureMonth(state.year, state.month);
+        saveState(); render();
+        var sc2 = document.getElementById("screen");
+        if (sc2) {
+          sc2.classList.remove("month-roll-out");
+          if (!reduce && first) { sc2.classList.add("month-roll-in"); setTimeout(function () { sc2.classList.remove("month-roll-in"); }, 420); }
+        }
+      }, reduce || !first ? 0 : 280);
+    }, hold);
+  }
+  /* First open in a new month: the prior month ended at $0 but was never wrapped up → play the close once. */
+  function maybeNewMonthStampClose() {
+    var now = currentYearMonth(), prev = offsetMonth(now.year, now.month, -1), key = ymKey(prev.year, prev.month);
+    var rec = state.months && state.months[key];
+    if (!rec || rec.closedAt || (state.stampPlayed && state.stampPlayed[key])) return false;
+    if (!sums(rec).stamped || state.tab !== "budget") return false;
+    var modal = document.getElementById("modal");
+    if ((modal && !modal.hidden) || document.querySelector(".launch-splash,.welcome-splash")) return false;
+    playStampClose(rec, now);
+    return true;
+  }
   var stampWatch = { key: "", stamped: false, ready: false };
 
   function noteStamp(month, totals) {
     var key = ymKey(month.year, month.month);
-    var stamped = !!totals.stamped;
+    var stamped = monthStampEarned(month, totals);
     if (stampWatch.ready && stampWatch.key === key && stamped && !stampWatch.stamped) {
       burstTrailConfetti();
     }
@@ -4083,7 +4233,7 @@
       fooBudgetStripHtml(month) +
       "";
     /* Income folds to one line (open state saved). */
-    var ltb = totals.leftover;
+    var ltb = roundCents(totals.leftover); /* float dust (e.g. -0.0000001) read "$0.00 over budget" */
     var hMode = envelopeMode(), hKicker = "Planned", hAmt = totals.assigned, hTone = "ink";
     if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
     else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
@@ -4096,8 +4246,8 @@
       '<section class="hero budget-hero" data-mode="' + hMode + '">' +
       "<div><p class='kicker'>" + hKicker + "</p>" +
       '<p class="hero-amount ' + hTone + '" id="budget-hero-amount">' + money(hAmt) + "</p></div>" +
-      (totals.stamped && hMode === "planned" ? '<div class="stamp" aria-label="Stamp: trail set, every dollar has a job">TRAIL SET</div>' : "") +
-      "</section>";
+      (monthStampEarned(month, totals) ? stampHtml(month.month, stampLandKey === ymKey(month.year, month.month)) : "") +
+      "</section>" + wrapMonthHtml(month, totals);
     var incOpen = !!state.budgetIncomeOpen;
     html += '<div class="income-fold' + (incOpen ? " open" : "") + '">' +
       '<button class="income-fold-head" type="button" data-act="toggle-budget-income" aria-expanded="' + incOpen + '">' +
@@ -6222,7 +6372,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var h = '<div class="sheet-top"><h3>Debt calculator</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>';
     if (!M.loans.length) {
       return h + '<div class="debt-empty"><p class="big">🎉 No loans listed</p><p class="caption">Add a loan (balance, rate and minimum payment) to see your debt-free date and how much extra payments save.</p>' +
-        '<button type="button" class="primary" data-debt="add">Add a loan</button></div>';
+        '<button type="button" class="primary" data-debt="add">Add a loan</button>' +
+        '<p class="caption debt-try-cap">Or play with numbers first. Nothing is saved.</p>' +
+        '<button type="button" class="ghost" data-debt="try">Try a loan</button></div>';
     }
     if (M.plan.length) {
       h += '<div class="debt-tops three"><div><span class="lbl">Monthly minimums</span><b class="mono">' + moneyWhole(M.minTotal) + "</b></div>" +
@@ -6271,11 +6423,118 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     h += "</div>";
     h += '<button type="button" class="ghost" data-debt="add">+ Add a loan</button>';
+    h += '<button type="button" class="ghost" data-debt="try">Try a loan (nothing saved)</button>';
     h += '<p class="caption estimate-note">Estimate, not advice. Rates and minimums are what you typed; real lenders may differ.</p>';
     return h;
   }
+  /* --- v37.5.68 "Try a loan" sandbox --------------------------------------------------------
+   * One balance, APR, monthly payment and optional extra; results update as you type. Lives in memory
+   * only (debtSandbox) and never touches the books. "Save as a loan" opens the normal Add a loan sheet,
+   * prefilled, where Save is still your call. */
+  var debtSandbox = null, DEBT_SB_CAP = 1200; /* 100 years */
+  /* Pure: { zero } | { tooLow, monthlyInterest } | { months, interest, paid, series, capped } */
+  function loanSandboxSim(balance, apr, payment) {
+    var bal = Math.max(0, Number(balance) || 0), r = Math.max(0, Number(apr) || 0) / 1200, pay = Math.max(0, Number(payment) || 0);
+    if (bal <= 0.005) return { zero: true };
+    var firstInt = bal * r;
+    if (!(pay > 0) || pay <= firstInt + 0.005) return { tooLow: true, monthlyInterest: roundCents(firstInt) };
+    var m = 0, interest = 0, paid = 0, series = [bal];
+    while (bal > 0.005 && m < DEBT_SB_CAP) {
+      m++;
+      var i = bal * r; interest += i; bal += i;
+      var p = Math.min(pay, bal); bal -= p; paid += p;
+      series.push(Math.max(0, bal));
+    }
+    return { months: m, interest: roundCents(interest), paid: roundCents(paid), series: series, capped: bal > 0.005 };
+  }
+  function debtSbNum(v) { var t = String(v == null ? "" : v).replace(/[^0-9.]/g, ""); var n = parseFloat(t); return isFinite(n) ? n : 0; }
+  function debtSandboxModel(sb) {
+    var bal = debtSbNum(sb.bal), apr = Math.min(100, debtSbNum(sb.apr)), pay = debtSbNum(sb.pay), extra = debtSbNum(sb.extra);
+    var out = { bal: bal, apr: apr, pay: pay, extra: extra };
+    out.base = loanSandboxSim(bal, apr, pay);
+    if (extra > 0) out.withX = loanSandboxSim(bal, apr, pay + extra);
+    return out;
+  }
+  function debtSandboxChartSvg(M) {
+    var W = 320, H = 170, padL = 6, padR = 6, padT = 10, padB = 8;
+    var a = M.base.series, b = M.withX && M.withX.series;
+    var maxM = Math.max(a.length - 1, 1), maxB = M.bal || 1;
+    function x(i) { return padL + (W - padL - padR) * i / maxM; }
+    function y(v) { return padT + (H - padT - padB) * (1 - Math.max(0, v) / maxB); }
+    function path(arr) {
+      var step = Math.max(1, Math.floor(arr.length / 240)), d = [];
+      for (var i = 0; i < arr.length; i += step) d.push((d.length ? "L" : "M") + x(i).toFixed(1) + " " + y(arr[i]).toFixed(1));
+      d.push("L" + x(arr.length - 1).toFixed(1) + " " + y(arr[arr.length - 1]).toFixed(1));
+      return d.join(" ");
+    }
+    var svg = '<svg class="debt-chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Loan balance over time' + (b ? ": faded line is your payment, dashed line includes the extra" : "") + '">';
+    svg += '<line x1="' + padL + '" y1="' + (H - padB) + '" x2="' + (W - padR) + '" y2="' + (H - padB) + '" stroke="currentColor" stroke-opacity=".25"/>';
+    svg += '<path d="' + path(a) + '" fill="none" stroke="var(--berry)"' + (b ? ' stroke-opacity=".3"' : "") + ' stroke-width="2.4"/>';
+    if (b) svg += '<path d="' + path(b) + '" fill="none" stroke="var(--berry)" stroke-width="2.4" stroke-dasharray="6 4"/>';
+    var end = b && !M.withX.capped ? M.withX.months : (!M.base.capped ? M.base.months : null);
+    if (end != null) svg += '<circle cx="' + x(end).toFixed(1) + '" cy="' + (H - padB - 9) + '" r="8" fill="var(--berry)"/><text x="' + x(end).toFixed(1) + '" y="' + (H - padB - 5.5) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">✓</text>';
+    return svg + "</svg>";
+  }
+  function debtSandboxOutHtml() {
+    var M = debtSandboxModel(debtSandbox || {});
+    if (!(M.bal > 0)) return '<p class="caption debt-sb-msg">Enter a balance to see a payoff date.</p>';
+    if (!(M.pay > 0) && !(M.extra > 0)) return '<p class="caption debt-sb-msg">Enter a monthly payment to see a payoff date.</p>';
+    var R = M.withX || M.base, eff = M.withX ? M.withX : M.base;
+    if (M.base.tooLow && (!M.withX || M.withX.tooLow)) {
+      var need = Math.floor(M.base.monthlyInterest) + 1;
+      return '<p class="debt-warn" role="alert"><strong>That payment doesn’t cover the interest.</strong> At ' + (Math.round(M.apr * 100) / 100) + "% the first month’s interest is about " + formatMoney(M.base.monthlyInterest, 2) +
+        ", so the balance would never go down. Try more than " + moneyWhole(need) + " a month.</p>";
+    }
+    if (M.base.tooLow) R = M.withX;
+    var h = "";
+    if (eff.capped || R.capped) {
+      h += '<p class="debt-warn" role="alert"><strong>Over 100 years.</strong> At this payment the loan isn’t paid off in 100 years. Try a bigger payment.</p>';
+      return h;
+    }
+    h += '<div class="debt-tops three"><div><span class="lbl">Paid off</span><b>' + esc(debtMonthLabel(R.months)) + '</b><span class="caption small">' + esc(formatDuration(R.months)) + " · " + R.months + (R.months === 1 ? " payment" : " payments") + "</span></div>" +
+      '<div><span class="lbl">Total interest</span><b class="mono">' + formatMoney(R.interest, 2) + "</b></div>" +
+      '<div><span class="lbl">Total paid</span><b class="mono">' + formatMoney(R.paid, 2) + "</b></div></div>";
+    if (M.withX && !M.base.tooLow && !M.base.capped) {
+      var sooner = M.base.months - M.withX.months, saved = roundCents(M.base.interest - M.withX.interest);
+      h += '<p class="debt-green">Extra ' + moneyWhole(M.extra) + "/mo: paid off " + (sooner > 0 ? formatDuration(sooner) + " sooner" : "about the same time") + ", saves " + formatMoney(Math.max(0, saved), 2) + " in interest.</p>";
+      h += '<p class="caption">Without the extra: ' + esc(debtMonthLabel(M.base.months)) + " · " + formatMoney(M.base.interest, 2) + " interest.</p>";
+    } else if (M.withX && M.base.tooLow) {
+      h += '<p class="caption">Your payment alone doesn’t cover the interest; the extra is what pays it down.</p>';
+    }
+    h += debtSandboxChartSvg(M.withX && !M.base.tooLow && !M.base.capped ? M : { bal: M.bal, base: R, withX: null });
+    h += '<p class="caption debt-key">' + (M.withX && !M.base.tooLow ? "Faded line = your payment · dashed = with extra" : "Balance month by month") + " · ✓ = paid off</p>";
+    return h;
+  }
+  function debtSandboxHtml() {
+    var sb = debtSandbox || {};
+    function f(k, label, ph) {
+      return '<label class="field">' + label + '<input type="text" inputmode="decimal" data-debt-sb="' + k + '" value="' + esc(sb[k] || "") + '" placeholder="' + ph + '"></label>';
+    }
+    return '<div class="sheet-top"><h3>Try a loan</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<p class="caption">Play with one loan. Nothing here is saved to your books.</p>' +
+      '<div class="debt-sb-fields">' + f("bal", "Balance", "$0") + f("apr", "Interest rate (APR %)", "0%") + f("pay", "Monthly payment", "$0") + f("extra", "Extra per month (optional)", "$0") + "</div>" +
+      '<div id="debt-sb-out" aria-live="polite">' + debtSandboxOutHtml() + "</div>" +
+      '<div class="sheet-actions"><button type="button" data-debt="sb-back">Back</button><button type="button" class="primary" data-debt="sb-save">Save as a loan</button></div>' +
+      '<p class="caption estimate-note">Estimate, not advice. Interest is figured monthly on the balance; real lenders may differ.</p>';
+  }
+  function openDebtSandbox() {
+    debtSandbox = debtSandbox || { bal: "", apr: "", pay: "", extra: "" };
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet debt-sheet" id="debt-sheet" data-sandbox="1">' + debtSandboxHtml() + "</div>";
+    armSheetA11y(modal);
+  }
+  document.addEventListener("input", function (e) {
+    var el = e.target, k = el && el.getAttribute && el.getAttribute("data-debt-sb");
+    if (!k || !debtSandbox) return;
+    debtSandbox[k] = el.value;
+    var out = document.getElementById("debt-sb-out");
+    if (out) out.innerHTML = debtSandboxOutHtml();
+  }, true);
+
   function openDebtCalc() {
     captureModalReturnScreenTop();
+    debtSandbox = null;
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet debt-sheet" id="debt-sheet">' + debtCalcHtml() + "</div>";
@@ -6292,19 +6551,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     (monthRecord().categories || []).forEach(function (c) { (c.lines || []).forEach(function (x) { if (String(x.id) === l.id) hit = x; }); });
     return hit;
   }
-  function openDebtEdit(id) {
+  function openDebtEdit(id, pre) {
     var l = id ? debtCalcLoans().filter(function (x) { return x.id === id; })[0] : null;
+    var fromSb = !l && pre ? pre : null, back = fromSb ? "sb-return" : "back";
     var types = [["", "Pick a type"], ["credit_card", "Credit card"], ["personal", "Personal loan"], ["auto", "Auto loan"], ["student", "Student loan"], ["mortgage", "Mortgage"], ["other", "Other"]];
     var modal = document.getElementById("modal");
     modal.hidden = false;
-    modal.innerHTML = '<div class="sheet" id="debt-edit"><div class="sheet-top"><h3>' + (l ? "Edit " + esc(l.name) : "Add a loan") + '</h3><button type="button" class="sheet-x" data-debt="back" aria-label="Back">✕</button></div>' +
+    modal.innerHTML = '<div class="sheet" id="debt-edit"><div class="sheet-top"><h3>' + (l ? "Edit " + esc(l.name) : "Add a loan") + '</h3><button type="button" class="sheet-x" data-debt="' + back + '" aria-label="Back">✕</button></div>' +
       '<label class="field">Name<input id="debt-e-name" value="' + esc(l ? l.name : "") + '"' + (l ? " disabled" : "") + "></label>" +
-      '<label class="field">Balance<input id="debt-e-bal" inputmode="decimal" value="' + (l && l.balance ? l.balance : "") + '"></label>' +
-      '<label class="field">Interest rate (APR %)<input id="debt-e-apr" inputmode="decimal" value="' + (l && l.apr ? l.apr : "") + '"></label>' +
-      '<label class="field">Minimum payment / month<input id="debt-e-min" inputmode="decimal" value="' + (l && l.min ? l.min : "") + '"></label>' +
+      '<label class="field">Balance<input id="debt-e-bal" inputmode="decimal" value="' + (l && l.balance ? l.balance : fromSb && fromSb.balance ? fromSb.balance : "") + '"></label>' +
+      '<label class="field">Interest rate (APR %)<input id="debt-e-apr" inputmode="decimal" value="' + (l && l.apr ? l.apr : fromSb && fromSb.apr ? fromSb.apr : "") + '"></label>' +
+      '<label class="field">Minimum payment / month<input id="debt-e-min" inputmode="decimal" value="' + (l && l.min ? l.min : fromSb && fromSb.min ? fromSb.min : "") + '"></label>' +
       '<label class="field">Type<select id="debt-e-type">' + types.map(function (t) { return '<option value="' + t[0] + '"' + (l && l.debtType === t[0] ? " selected" : "") + ">" + t[1] + "</option>"; }).join("") + "</select></label>" +
-      (l && l.source === "nw" ? '<p class="caption">Typing a balance keeps it as is (budget payments stop reducing it). Clear it to go back to your Net worth balance.</p>' : "") +
-      '<div class="sheet-actions"><button type="button" data-debt="back">Cancel</button><button type="button" class="primary" data-debt="save" data-id="' + esc(l ? l.id : "") + '">Save</button></div></div>';
+      (fromSb ? '<p class="caption">From your Try a loan numbers. Saving adds this loan to Net Worth.</p>' : "") + (l && l.source === "nw" ? '<p class="caption">Typing a balance keeps it as is (budget payments stop reducing it). Clear it to go back to your Net worth balance.</p>' : "") +
+      '<div class="sheet-actions"><button type="button" data-debt="' + back + '">Cancel</button><button type="button" class="primary" data-debt="save" data-id="' + esc(l ? l.id : "") + '">Save</button></div></div>';
     armSheetA11y(modal);
   }
   function debtNum(id) { var v = String((document.getElementById(id) || {}).value || "").replace(/[^0-9.]/g, ""); return v ? Number(v) : 0; }
@@ -6336,7 +6596,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!b) return;
     e.preventDefault(); e.stopPropagation();
     var a = b.getAttribute("data-debt"), id = b.getAttribute("data-id") || "";
-    if (a === "add") openDebtEdit("");
+    if (a === "try") openDebtSandbox();
+    else if (a === "sb-return") openDebtSandbox();
+    else if (a === "sb-back") { debtSandbox = null; openDebtCalc(); }
+    else if (a === "sb-save") {
+      var sbm = debtSandboxModel(debtSandbox || {});
+      openDebtEdit("", { balance: sbm.bal, apr: sbm.apr, min: sbm.pay });
+    }
+    else if (a === "add") openDebtEdit("");
     else if (a === "edit") openDebtEdit(id);
     else if (a === "back") openDebtCalc();
     else if (a === "save") saveDebtEdit(id);
@@ -7650,7 +7917,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.progress) html += wrapProgressHtml(slide.progress);
-    if (slide.askBirthday) html += '<label class="field wrap-bday">Birthday<input type="date" id="cmp-bday-in"></label><button class="wrap-soft-btn" type="button" data-cmp-bday="1">Save and compare</button>';
+    if (slide.askBirthday) html += '<div class="field wrap-bday"><span id="cmp-bday-lbl">Birthday</span>' + dateWheelHtml({ inputId: "cmp-bday-in", value: birthdayISO(), labelId: "cmp-bday-lbl" }) + '</div><button class="wrap-soft-btn" type="button" data-cmp-bday="1">Save and compare</button>';
     if (slide.preview) html += '<button class="wrap-soft-btn" type="button" data-act="set-plan" data-plan="premium">See your full check-in</button>';
     if (slide.cta) html += '<button class="wrap-soft-btn" type="button" data-act="' + esc(slide.cta.act) + '">' + esc(slide.cta.label) + "</button>";
     if (slide.locked) {
@@ -10223,6 +10490,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     state.nightLedger = on;
     document.body.classList.toggle("night", on);
     document.documentElement.classList.toggle("night", on);
+    applyTextSize();
   }
   if (themeMq) {
     var onScheme = function () { if (state && (state.theme || "auto") === "auto") applyNight(); };
@@ -10339,9 +10607,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         return {
           id: nextId(),
           name: cat.name,
-          assigned: catAssigned(cat),
+          assigned: cat.system === "checking" ? 0 : catAssigned(cat),
           sortOrder: i,
           autoCopy: true,
+          system: cat.system || undefined,
           lines: sortedLines(cat).map(function (line, li) {
             /* AutoCopy marks a copied-forward line you haven't touched; an
              * EveryDollar plan refresh may drop it if EveryDollar has no such line and
@@ -10349,9 +10618,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
             return {
               id: nextId(),
               name: line.name,
-              assigned: Number(line.assigned) || 0,
+              assigned: line.system === "checking" ? 0 : Number(line.assigned) || 0, /* wrap-up top-ups/covers are one-offs */
               sortOrder: li,
-              autoCopy: true
+              autoCopy: true,
+              system: line.system || undefined
             };
           })
         };
@@ -10492,7 +10762,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       field("Name", "name", cat.name) +
       '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
       '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
-      deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"'),
+      (cat.system === "checking" ? '<p class="caption">Checking is built in: rename it if you like, but it can’t be deleted. Wrap-up uses it for leftover dollars.</p>'
+        : deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"')),
       "save-category");
   }
 
@@ -11198,10 +11469,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     month = month || ensureMonth(state.year, state.month);
     var d = spendDraft, inc = d.type === "income";
     var h = '<form class="sheet ed-add" data-act="save-spend-sheet" novalidate>' +
-      '<div class="sheet-top"><h3>Add Transaction</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
-      '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
+      '<div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
-      '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>' +
+      '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>') +
       '<div class="ed-card">' +
       '<button type="button" class="ed-row ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad"><span class="lbl">Amount</span><span class="mono ed-amt-v">' + edAmountText() + "</span></button>" +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
@@ -11214,14 +11485,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<p class="sheet-label">Budget Item(s)</p><button type="button" class="ed-items" data-ed="picker">' +
         (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>';
       if (picked.length > 1) {
-        h += '<div class="ed-split">' + picked.map(function (l, i) {
-          var f = findLine(month, l.lineId);
-          return '<label class="ed-row"><span class="lbl">' + esc(f && f.line ? f.line.name : "Item") + '</span><input type="text" inputmode="decimal" data-ed-leg="' + i + '" value="' + (Number(l.amount) ? (Number(l.amount)).toFixed(2) : "") + '" placeholder="$0.00"></label>';
-        }).join("") + '<p class="caption">Split amounts must add up to the total.</p></div>';
+        /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
+         * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
+        h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
+          var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
+          var rem = roundCents(remainingForLine(month, l.lineId));
+          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + moneyWhole(rem) + ' remaining</span></span>' +
+            '<input type="text" inputmode="decimal" autocomplete="off" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? (Number(l.amount)).toFixed(2) : "") + '" placeholder="$0.00">' +
+            '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
+        }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
       }
     }
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
     h += '<button type="submit" class="primary ed-save">Save</button>';
+    if (d.id) h += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(d.id) + '"');
     if (edUi.pad) {
       h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
         ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
@@ -11230,7 +11507,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (edUi.picker && !inc) {
       var q = edUi.q.toLowerCase(), sel = {};
       (d.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
-      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget Item(s)</h3><button type="button" class="primary small" data-ed="picker-done">Done</button></div>' +
+      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget Item(s)</h3><button type="button" class="primary small ed-picker-close" data-ed="picker-done">' + (function () { var n = (d.legs || []).filter(function (l) { return l.lineId; }).length; return n > 1 ? "Close · " + n + " selected" : "Close"; })() + "</button></div>" +
+        ((d.legs || []).filter(function (l) { return l.lineId; }).length > 1 ? '<p class="caption ed-picker-hint">You’ll split the amount on the next screen.</p>' : "") +
         '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q) + '">';
       var lastCat = null;
       edLines(month).forEach(function (x) {
@@ -11248,6 +11526,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     armSheetA11y(modal);
     if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
+  function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
+  function edAllocStatus() {
+    var total = roundCents(Number(spendDraft.amount) || 0), sum = roundCents(edAllocLegs().reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), left = roundCents(total - sum);
+    var cls = !(total > 0) ? "" : left === 0 ? "ok" : left < 0 ? "over" : "left";
+    var tail = !(total > 0) ? "Enter the amount first" : left === 0 ? "✓ Fully allocated" : left > 0 ? formatMoney(left, 2) + " remaining" : "Over by " + formatMoney(-left, 2);
+    return '<span class="mono">' + formatMoney(sum, 2) + "</span> of <span class=\"mono\">" + formatMoney(total, 2) + '</span> allocated · <strong class="' + cls + '">' + tail + "</strong>";
+  }
+  function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
   function edSyncAmount() {
     spendDraft.amount = roundCents(Number(edUi.amt) || 0);
     var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
@@ -11271,12 +11557,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     else if (a === "picker") { edUi.picker = true; edUi.pad = false; }
     else if (a === "picker-done") edUi.picker = false;
+    else if (a === "fill" || a === "even") {
+      var al = edAllocLegs(), tot = roundCents(Number(spendDraft.amount) || 0);
+      if (a === "fill") {
+        var fi = +b.getAttribute("data-i"), others = al.reduce(function (n, l, j) { return n + (j === fi ? 0 : Number(l.amount) || 0); }, 0);
+        if (al[fi]) al[fi].amount = Math.max(0, roundCents(tot - others));
+      } else if (al.length) {
+        var c = Math.round(tot * 100), base = Math.floor(c / al.length);
+        al.forEach(function (l, j) { l.amount = (base + (j < c - base * al.length ? 1 : 0)) / 100; });
+      }
+    }
     else if (a === "item") {
       var parts = String(b.getAttribute("data-key")).split(":"), legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       var has = legs.filter(function (l) { return l.lineId === parts[1]; })[0];
       if (has) legs = legs.filter(function (l) { return l !== has; });
       else legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
       if (legs.length === 1) legs[0].amount = spendDraft.amount;
+      else if (!has && legs.length === 2) legs[0].amount = 0; /* Starting a split: nothing allocated yet, so Remaining = the whole amount. */
       spendDraft.legs = legs.length ? legs : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
     }
     renderEdAdd(month);
@@ -11292,6 +11589,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (li != null) {
       var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       if (legs[+li]) legs[+li].amount = roundCents(Number(String(el.value).replace(/[^0-9.]/g, "")) || 0);
+      edAllocPaint();
     }
   }, true);
   document.addEventListener("change", function (e) {
@@ -11791,8 +12089,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     setTimeout(go, 60);
   }
 
+  /* Editing an expense uses the same card as Add (picker → allocation rows, Rest, Split evenly, live line).
+   * Refund transactions and income keep the full sheet: the card has no refund-piece inputs yet. */
   function openEditSpend(tx, month) {
     openSpendSheet(tx, month);
+    if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) return;
+    spendDraft.categoryTouched = true;
+    var a = roundCents(Number(spendDraft.amount) || 0);
+    edUi = { pad: false, picker: false, q: "", amt: a ? String(a) : "", err: "", edit: true };
+    renderEdAdd(month);
   }
 
   function paintQuickSpendCheck() {
@@ -13136,6 +13441,215 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (el) el.textContent = profileZipHelper() + ". Empty ZIP means no state or local tax.";
   }
 
+  /* --- v37.5.68 Profile accordion ------------------------------------------------------------ */
+  var profileOpenSec = "";
+  function profSecHtml(id, title, summary, body) {
+    var open = profileOpenSec === id;
+    return '<section class="prof-sec' + (open ? " open" : "") + '" data-sec="' + id + '">' +
+      '<button type="button" class="prof-sec-head" data-act="profile-sec" data-sec="' + id + '" id="prof-sec-h-' + id + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="prof-sec-' + id + '">' +
+      '<span class="prof-sec-txt"><span class="prof-sec-t">' + esc(title) + '</span><span class="prof-sec-sum">' + esc(summary) + "</span></span>" +
+      '<span class="prof-sec-chev" aria-hidden="true">›</span></button>' +
+      '<div class="prof-sec-body" id="prof-sec-' + id + '" role="region" aria-labelledby="prof-sec-h-' + id + '"' + (open ? "" : " hidden") + ">" + body + "</div></section>";
+  }
+  /* Opens one section and closes the rest, keeping the tapped header where it was on screen. */
+  function toggleProfileSec(id) {
+    var modal = document.getElementById("modal");
+    var head = modal && modal.querySelector('.prof-sec-head[data-sec="' + id + '"]');
+    if (!head) return;
+    var before = head.getBoundingClientRect().top;
+    profileOpenSec = profileOpenSec === id ? "" : id;
+    [].forEach.call(modal.querySelectorAll(".prof-sec"), function (sec) {
+      var on = sec.getAttribute("data-sec") === profileOpenSec;
+      sec.classList.toggle("open", on);
+      var h = sec.querySelector(".prof-sec-head"), b = sec.querySelector(".prof-sec-body");
+      if (h) h.setAttribute("aria-expanded", on ? "true" : "false");
+      if (b) b.hidden = !on;
+    });
+    /* Keep the tapped header still: scroll by the drift; when a section above collapsed and the sheet got
+     * too short to stay scrolled, a bottom spacer makes the room (cleared on the next toggle). */
+    var sheet = head.closest(".sheet"), wrap = modal.querySelector(".prof-secs");
+    if (sheet && wrap) {
+      wrap.style.paddingBottom = "";
+      var drift = head.getBoundingClientRect().top - before;
+      if (Math.abs(drift) > 0.5) {
+        var want = sheet.scrollTop + drift, room = sheet.scrollHeight - sheet.clientHeight;
+        if (want > room) wrap.style.paddingBottom = Math.ceil(want - room) + "px";
+        sheet.scrollTop = Math.max(0, want);
+      }
+    }
+    dwInitAll(modal);
+  }
+  function refreshProfSums() {
+    var el = document.querySelector('.prof-sec[data-sec="personal"] .prof-sec-sum');
+    if (el && state.profile) el.textContent = profPersonalSummary(state.profile);
+  }
+  function profAccountSummary() {
+    var s = cloudSession(), em = cloudSignedIn() && s && s.user && s.user.email;
+    return (em || (cloudCfg() ? "Not signed in" : "This device")) + " · " + (isPremium() ? "Premium" : "Free");
+  }
+  function profPersonalSummary(profile) {
+    var bits = [], b = birthdayISO();
+    bits.push(profile.name ? profile.name : "No name yet");
+    var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b || "");
+    bits.push(d ? "Born " + new Date(+d[1], +d[2] - 1, +d[3]).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Birthday not set");
+    var dep = Number(profile.dependents) || 0;
+    if (dep) bits.push(dep + (dep === 1 ? " dependent" : " dependents"));
+    return bits.join(" · ");
+  }
+  function profDisplaySummary() {
+    var t = state.theme || "auto";
+    var tl = t === "dark" ? "Night" : t === "light" ? "Light" : "Auto";
+    var sz = TEXT_SIZES.filter(function (o) { return o[0] === textSizeOf(); })[0];
+    return tl + " theme · " + (sz ? sz[1] : "Standard") + " text";
+  }
+  function profDataSummary() {
+    if (!cloudCfg() || !cloudSignedIn()) return "Exports and import";
+    var sync = cloudSync();
+    if (sync.paused) return "Cloud backup off on this device";
+    return sync.lastAt ? "Backed up " + new Date(sync.lastAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Cloud backup on";
+  }
+  function profDocsSummary(profile) {
+    var n = (profile.documents || []).length;
+    return n ? n + (n === 1 ? " file" : " files") : "None yet";
+  }
+  /* Plan is one toggle for now; it can become its own section (billing, history) later. */
+  function profilePlanHtml() {
+    return '<div class="profile-plan" id="profile-plan"><p class="sheet-label">Plan</p>' +
+      '<p class="plan-test-label" id="plan-test-label">Test mode: Premium is free during testing.</p>' +
+      '<div class="plan-toggle" role="tablist" aria-labelledby="plan-test-label">' +
+      '<button type="button" data-act="set-plan" data-plan="free"' +
+      (!isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Free</button>" +
+      '<button type="button" data-act="set-plan" data-plan="premium"' +
+      (isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Premium</button></div>" +
+      '<p class="caption">Free shows a glimpse of your grade and two Wrapped slides. Premium unlocks the full grade, how you compare, the tax triangle and the full Wrapped.</p></div>';
+  }
+  function profileDangerHtml() {
+    return '<div class="profile-danger" id="profile-danger">' +
+      '<p class="caption">Danger zone</p>' +
+      '<button class="text-btn danger" type="button" data-act="erase-all">Erase all my data</button>' +
+      '<p class="caption">Deletes every month, transaction, Net Worth year, Vault document, and setting on this device. Asks first; can’t be undone.</p>' +
+      '<button class="text-btn danger" type="button" data-act="reset-spend">Clear this month\'s spending</button>' +
+      '<p class="caption">Removes expenses and refunds. Envelope names, assigned amounts, paychecks, and Income transactions stay. Asks first; can’t be undone.</p>' +
+      "</div>";
+  }
+  /* Text size: scales the app-wide --fs-scale (Standard is the shipped size). */
+  var TEXT_SIZES = [["standard", "Standard"], ["large", "Large"], ["larger", "Larger"]];
+  var TEXT_SCALE = { standard: [1.14, 1.07], large: [1.24, 1.15], larger: [1.34, 1.22] };
+  function textSizeOf() { var t = state && state.textSize; return TEXT_SCALE[t] ? t : "standard"; }
+  function applyTextSize() {
+    var t = textSizeOf(), r = document.documentElement;
+    if (t === "standard") { r.style.removeProperty("--fs-scale"); r.style.removeProperty("--fs-scale-lg"); }
+    else { r.style.setProperty("--fs-scale", String(TEXT_SCALE[t][0])); r.style.setProperty("--fs-scale-lg", String(TEXT_SCALE[t][1])); }
+    r.setAttribute("data-text-size", t);
+  }
+
+  /* --- v37.5.68 date wheel: three scrollable columns (month, day, year), iOS-style ------------------
+   * Writes YYYY-MM-DD into a hidden input and fires "change" on it, so existing handlers keep working.
+   * Days past the month's end (Feb 29 in a non-leap year, the 31st in a 30-day month) snap back. */
+  var DW_H = 36, DW_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function dwDaysIn(y, m) { return new Date(y, m, 0).getDate(); }
+  function dateWheelHtml(o) {
+    var now = new Date(), maxY = o.maxYear || now.getFullYear(), minY = o.minYear || 1920;
+    var v = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.value || "");
+    var y = v ? +v[1] : (o.defaultYear || 1990), m = v ? +v[2] : 1, d = v ? +v[3] : 1;
+    function col(part, label, items, sel) {
+      return '<div class="dw-col" data-part="' + part + '" role="listbox" tabindex="0" aria-label="' + label + '">' +
+        items.map(function (it) {
+          return '<div class="dw-item' + (it[0] === sel ? " on" : "") + '" role="option" data-v="' + it[0] + '" aria-selected="' + (it[0] === sel ? "true" : "false") + '">' + it[1] + "</div>";
+        }).join("") + "</div>";
+    }
+    var months = DW_MONTHS.map(function (n, i) { return [i + 1, n]; });
+    var days = []; for (var i = 1; i <= 31; i++) days.push([i, String(i)]);
+    var years = []; for (var k = minY; k <= maxY; k++) years.push([k, String(k)]);
+    return '<div class="dwheel' + (v ? "" : " unset") + '" data-dwheel="1" role="group"' + (o.labelId ? ' aria-labelledby="' + o.labelId + '"' : "") +
+      ' data-min="' + minY + '" data-max="' + maxY + '" data-y="' + y + '" data-m="' + m + '" data-d="' + d + '">' +
+      '<input type="hidden" class="dw-val"' + (o.act ? ' data-act="' + o.act + '"' : "") + (o.inputId ? ' id="' + o.inputId + '"' : "") + ' value="' + esc(v ? o.value : "") + '">' +
+      col("m", "Month", months, m) + col("d", "Day", days, d) + col("y", "Year", years, y) +
+      '<div class="dw-band" aria-hidden="true"></div></div>' +
+      '<p class="caption dw-note">' + (v ? "" : "Not set yet. Scroll to pick a date.") + "</p>";
+  }
+  function dwIndex(col, val) {
+    var items = col.querySelectorAll(".dw-item");
+    for (var i = 0; i < items.length; i++) if (+items[i].getAttribute("data-v") === +val) return i;
+    return 0;
+  }
+  function dwPaint(w) {
+    var y = +w.getAttribute("data-y"), m = +w.getAttribute("data-m"), d = +w.getAttribute("data-d"), dim = dwDaysIn(y, m);
+    [].forEach.call(w.querySelectorAll(".dw-col"), function (col) {
+      var part = col.getAttribute("data-part"), cur = part === "y" ? y : part === "m" ? m : d;
+      [].forEach.call(col.querySelectorAll(".dw-item"), function (it) {
+        var iv = +it.getAttribute("data-v"), on = iv === cur;
+        it.classList.toggle("on", on); it.setAttribute("aria-selected", on ? "true" : "false");
+        if (part === "d") it.classList.toggle("dw-off", iv > dim);
+      });
+    });
+  }
+  function dwScrollTo(col, idx, smooth) {
+    var top = idx * DW_H;
+    if (smooth && col.scrollTo) col.scrollTo({ top: top, behavior: "smooth" }); else col.scrollTop = top;
+  }
+  function dwInit(w) {
+    if (w.classList.contains("dw-ready") || !w.offsetParent) return;
+    w.classList.add("dw-ready");
+    w._dwQuiet = Date.now() + 300;
+    [].forEach.call(w.querySelectorAll(".dw-col"), function (col) {
+      var part = col.getAttribute("data-part");
+      dwScrollTo(col, dwIndex(col, w.getAttribute("data-" + part)), false);
+      var t = null;
+      col.addEventListener("scroll", function () {
+        if (Date.now() < (w._dwQuiet || 0)) return;
+        clearTimeout(t); t = setTimeout(function () { dwSettle(w, col); }, 120);
+      }, { passive: true });
+      col.addEventListener("keydown", function (e) {
+        var step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var n = col.querySelectorAll(".dw-item").length, idx = Math.max(0, Math.min(n - 1, Math.round(col.scrollTop / DW_H) + step));
+        dwScrollTo(col, idx, false); dwSettle(w, col);
+      });
+      col.addEventListener("click", function (e) {
+        var it = e.target.closest && e.target.closest(".dw-item");
+        if (!it) return;
+        var idx = [].indexOf.call(col.querySelectorAll(".dw-item"), it);
+        dwScrollTo(col, idx, false); dwSettle(w, col);
+      });
+    });
+    dwPaint(w);
+  }
+  /* Wheels rendered anywhere (Wrapped birthday slide, Profile) set their start position once visible. */
+  if (window.MutationObserver) {
+    new MutationObserver(function () {
+      if (document.querySelector("[data-dwheel]:not(.dw-ready)")) requestAnimationFrame(function () { dwInitAll(document); });
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  function dwInitAll(root) { [].forEach.call((root || document).querySelectorAll("[data-dwheel]:not(.dw-ready)"), dwInit); }
+  function dwSettle(w, col) {
+    var items = col.querySelectorAll(".dw-item");
+    var idx = Math.max(0, Math.min(items.length - 1, Math.round(col.scrollTop / DW_H)));
+    w.setAttribute("data-" + col.getAttribute("data-part"), items[idx].getAttribute("data-v"));
+    var y = +w.getAttribute("data-y"), m = +w.getAttribute("data-m"), d = +w.getAttribute("data-d");
+    var dim = dwDaysIn(y, m);
+    var dayCol = w.querySelector('.dw-col[data-part="d"]');
+    if (d > dim) { d = dim; w.setAttribute("data-d", d); w._dwQuiet = Date.now() + 250; dwScrollTo(dayCol, d - 1, false); }
+    /* No future dates: clamp to today. */
+    var now = new Date(), today = isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    var iso = isoDate(y, m, d);
+    if (iso > today) {
+      y = now.getFullYear(); m = now.getMonth() + 1; d = now.getDate();
+      w.setAttribute("data-y", y); w.setAttribute("data-m", m); w.setAttribute("data-d", d); w._dwQuiet = Date.now() + 250;
+      [].forEach.call(w.querySelectorAll(".dw-col"), function (c) { var p = c.getAttribute("data-part"); dwScrollTo(c, dwIndex(c, p === "y" ? y : p === "m" ? m : d), false); });
+      iso = today;
+    }
+    dwPaint(w);
+    w.classList.remove("unset");
+    var note = w.nextElementSibling; if (note && note.classList.contains("dw-note")) note.textContent = "";
+    var inp = w.querySelector(".dw-val");
+    if (inp && inp.value !== iso) {
+      inp.value = iso;
+      inp.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
   function openProfile(opts) {
     moneyWholeModal = true;
     opts = opts || {};
@@ -13146,58 +13660,55 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     state.foo = migrateFoo(state.foo);
     state.compensation = migrateCompensation(state.compensation || defaultCompensation());
     var profile = state.profile;
+    /* v37.5.68 Profile is an accordion: one section open at a time. A fresh open starts with every section
+     * closed (or the one a flow asks for); a re-render (preserveScroll) keeps what was open. */
+    if (!opts.preserveScroll) profileOpenSec = opts.section || "";
+    if (opts.highlightDocId) profileOpenSec = "docs";
     var html =
       '<div class="sheet profile-sheet">' +
       '<div class="sheet-head"><h3>Profile</h3>' +
       '<button class="sheet-close" type="button" data-act="close-modal" aria-label="Close">×</button></div>' +
-      '<section class="profile-acct-card" id="profile-acct-card"><p class="profile-section">Account</p>' +
-      profileAccountHtml() +
-      '<p class="sheet-label">Personal details</p>' +
-      '<label class="field">Name' +
-      '<input data-act="profile-name" type="text" autocomplete="name" value="' +
-      esc(profile.name || "") + '" placeholder="Your name"></label>' +
-      /* Unexplained phone field removed; any saved value is kept, never shown. */
-      '<label class="field">Birthday' +
-      '<input data-act="profile-birthday" type="date" min="1920-01-01" max="' +
-      esc(isoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate())) +
-      '" value="' + esc(birthdayISO()) + '"></label>' +
-      '<p class="caption">Used for Accumulation and high-interest debt steps. Until set, those stay omitted — never invented.</p>' +
-      /* ZIP and filing status live on Pay only. */
-      '<label class="field">Dependents' +
-      '<input data-act="profile-dependents" inputmode="numeric" type="number" min="0" step="1" value="' +
-      esc(profile.dependents || 0) + '"></label>' +
-      hsaCoverageFieldHtml(new Date().getFullYear()) +
-      '</section>' +
-      '<p class="profile-section">Plan</p>' +
-      '<p class="plan-test-label" id="plan-test-label">Test mode: Premium is free during testing.</p>' +
-      '<div class="plan-toggle" role="tablist" aria-labelledby="plan-test-label">' +
-      '<button type="button" data-act="set-plan" data-plan="free"' +
-      (!isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Free</button>" +
-      '<button type="button" data-act="set-plan" data-plan="premium"' +
-      (isPremium() ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">Premium</button></div>" +
-      '<p class="caption">Free shows a glimpse of your grade and two Wrapped slides. Premium unlocks the full grade, how you compare, the tax triangle and the full Wrapped.</p>' +
-      '<p class="sheet-label">Theme</p><div class="plan-toggle theme-pick" role="group" aria-label="Theme">' +
-      [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(function (o) {
-        var on = (state.theme || "auto") === o[0];
-        return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
-      }).join("") + "</div>" +
-      '<p class="caption">Auto follows your phone’s light or dark setting.</p>' +
-      /* Pay frequency lives on Pay only. */
-      profileDocumentsHtml(profile) +
-      profileDataHtml() +
-      '<button class="data-btn about-door" type="button" data-act="open-about"><strong>About &amp; Privacy</strong><span class="caption">Backups · what’s stored · version ' + esc(APP_VERSION) + '</span></button>' +
-      '<button class="data-btn feedback-door" type="button" data-act="send-feedback"><strong>Send feedback</strong><span class="caption">Opens your email app · support.papertrail@gmail.com</span></button>' +
-      '<div class="profile-danger" id="profile-danger">' +
-      '<p class="caption">Danger zone</p>' +
-      '<button class="text-btn danger" type="button" data-act="erase-all">Erase all my data</button>' +
-      '<p class="caption">Deletes every month, transaction, Net Worth year, Vault document, and setting on this device. Asks first; can’t be undone.</p>' +
-      '<button class="text-btn danger" type="button" data-act="reset-spend">Clear this month\'s spending</button>' +
-      '<p class="caption">Removes expenses and refunds. Envelope names, assigned amounts, paychecks, and Income transactions stay. Asks first; can’t be undone.</p>' +
-      "</div>" +
+      '<div class="prof-secs">' +
+      profSecHtml("account", "Account", profAccountSummary(), profileAccountHtml() + profilePlanHtml()) +
+      profSecHtml("personal", "Personal details", profPersonalSummary(profile),
+        '<label class="field">Name' +
+        '<input data-act="profile-name" type="text" autocomplete="name" value="' +
+        esc(profile.name || "") + '" placeholder="Your name"></label>' +
+        /* Unexplained phone field removed; any saved value is kept, never shown. */
+        '<div class="field"><span id="profile-bday-lbl">Birthday</span>' +
+        dateWheelHtml({ act: "profile-birthday", value: birthdayISO(), labelId: "profile-bday-lbl" }) + '</div>' +
+        '<p class="caption">Used for Accumulation and high-interest debt steps. Until set, those stay omitted — never invented.</p>' +
+        /* ZIP and filing status live on Pay only. */
+        '<label class="field">Dependents' +
+        '<input data-act="profile-dependents" inputmode="numeric" type="number" min="0" step="1" value="' +
+        esc(profile.dependents || 0) + '"></label>' +
+        hsaCoverageFieldHtml(new Date().getFullYear())) +
+      profSecHtml("display", "Display", profDisplaySummary(),
+        '<p class="sheet-label">Theme</p><div class="plan-toggle theme-pick" role="group" aria-label="Theme">' +
+        [["auto", "Auto"], ["light", "Light"], ["dark", "Night"]].map(function (o) {
+          var on = (state.theme || "auto") === o[0];
+          return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
+        }).join("") + "</div>" +
+        '<p class="caption">Auto follows your phone’s light or dark setting.</p>' +
+        '<p class="sheet-label">Text size</p><div class="plan-toggle text-size-pick" role="group" aria-label="Text size">' +
+        TEXT_SIZES.map(function (o) {
+          var on = textSizeOf() === o[0];
+          return '<button type="button" data-act="set-text-size" data-size="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
+        }).join("") + "</div>" +
+        '<p class="caption">Changes text across the app on this device.</p>') +
+      profSecHtml("data", "Data and sync", profDataSummary(), profileSyncHtml() + profileDataHtml() + profileDangerHtml()) +
+      profSecHtml("docs", "Documents", profDocsSummary(profile), profileDocumentsHtml(profile)) +
+      profSecHtml("help", "Privacy and help", "Version " + APP_VERSION,
+        '<button class="data-btn" type="button" data-act="policy-open"><strong>Privacy policy</strong><span class="caption">What we store, where, and your choices · v' + esc(POLICY_VERSION) + '</span></button>' +
+        '<button class="data-btn about-door" type="button" data-act="open-about"><strong>About &amp; Privacy</strong><span class="caption">Backups · what’s stored · version ' + esc(APP_VERSION) + '</span></button>' +
+        '<button class="data-btn feedback-door" type="button" data-act="send-feedback"><strong>Send feedback</strong><span class="caption">Opens your email app · support.papertrail@gmail.com</span></button>' +
+        '<p class="caption">Paper Trail version ' + esc(APP_VERSION) + '</p>') +
+      '</div>' +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = html;
+    dwInitAll(modal);
     if (!opts.preserveScroll) armSheetA11y(modal);
     if (opts.preserveScroll) {
       restoreSheetUi(ui);
@@ -13885,7 +14396,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       /* The account has a version this device hasn't seen: the cloud copy wins, silently. */
       return cloudAdopt(latest.id, true);
     }).catch(function (e) { if (isDeadSessionErr(e)) { cloudBusy = false; cloudSessionDied(); return; } cloudStatus = "Backup paused: " + e.message; })
-      .then(function () { cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = cloudStatus; });
+      .then(function () { cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = acctStatusText(); });
   }
   /* Safeguard: an empty book (no transactions, much smaller) never replaces cloud books that have transactions. */
   function cloudLooksEmptyOver(pl, latest) {
@@ -13956,20 +14467,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function profileAccountHtml() {
     if (!cloudCfg()) return "";
-    var s = cloudSession(), sync = cloudSync();
+    var s = cloudSession();
     if (!cloudSignedIn()) {
       return '<div class="profile-account" id="profile-account">' +
         '<p class="caption">An account is required to use Paper Trail. Sign in to back up your books to your account automatically and get them back on a new phone.</p>' +
         '<button class="primary" type="button" data-act="acct-open-signin">Sign in</button> <button type="button" data-act="acct-open-signup">Create account</button></div>';
     }
     return '<div class="profile-account" id="profile-account">' +
-      '<p><strong>' + esc((s.user && s.user.email) || "") + '</strong></p>' +
-      '<p class="caption" id="acct-status">' + esc(sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."))) + '</p>' +
+      '<p class="sheet-label">Email</p><p><strong>' + esc((s.user && s.user.email) || "") + '</strong></p>' +
+      '<div class="acct-row-btns"><button type="button" data-act="acct-email-start">Change email</button>' +
+      ' <button type="button" data-act="acct-pass-reset">Change password</button></div>' +
+      '<p class="caption" id="acct-pass-msg" aria-live="polite"></p>' +
+      '<p class="caption quiet">We never see your password and will never ask for it.</p>' +
+      '<div class="acct-row-btns"><button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn" type="button" data-act="acct-signout-all">Sign out of all devices</button></div>' +
+      '<div class="acct-delete-row"><button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div></div>';
+  }
+  /* Data and sync: backup status, Sync now, Cloud versions, and the yearly keep-a-copy reminder. */
+  function acctStatusText() {
+    var sync = cloudSync();
+    return sync.paused ? "Cloud backup is off on this device." : (cloudStatus || (sync.lastAt ? "Last backup " + new Date(sync.lastAt).toLocaleString() : "Backup runs when you open the app and after changes."));
+  }
+  function profileSyncHtml() {
+    if (!cloudCfg() || !cloudSignedIn()) return "";
+    var sync = cloudSync();
+    var ack = backupAckTime(), yr = new Date().getFullYear();
+    return '<div class="profile-sync" id="profile-sync">' +
+      '<p class="sheet-label">Cloud backup</p>' +
+      '<p class="caption" id="acct-status">' + esc(acctStatusText()) + '</p>' +
       (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Sync now</button>') +
       ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
-      ' <button type="button" data-act="acct-email-start">Change email</button>' +
-      '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up. We never see your password and will never ask for it. Exports download to this device; we never email your data.</p>' +
-      '<button class="text-btn" type="button" data-act="acct-signout">Sign out</button> <button class="text-btn" type="button" data-act="acct-signout-all">Sign out of all devices</button> <button class="text-btn danger" type="button" data-act="acct-delete-start">Delete my account</button></div>';
+      '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up. Exports download to this device; we never email your data.</p>' +
+      '<p class="caption" id="backup-reminder-status">Keep-a-copy reminder: each year Jan 5–10. ' +
+      (ack && new Date(ack).getFullYear() === yr ? "Done for " + yr + "." : "Not done yet for " + yr + ".") + "</p></div>";
   }
   /* An account is required. Signed out (with accounts configured) the app sits behind an opaque
    * gate and the auth sheet can't be dismissed; first run opens Create account, a device with local-only books opens
@@ -14251,7 +14780,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } cloudSync({ lastId: null, lastHash: null, paused: false }); cloudStatus = "";
     showToast(msg, 4000); render(); return;
   }
-  var ACCT_GUARDED = { "acct-signout-all-go": 1, "acct-email-send": 1, "acct-email-verify": 1, "acct-email-resend": 1, "acct-signin": 1, "acct-signup": 1, "acct-otp-resend": 1, "acct-otp-verify": 1, "acct-delete-start": 1, "acct-forgot": 1, "acct-set-password": 1 };
+  var ACCT_GUARDED = { "acct-pass-reset": 1, "acct-signout-all-go": 1, "acct-email-send": 1, "acct-email-verify": 1, "acct-email-resend": 1, "acct-signin": 1, "acct-signup": 1, "acct-otp-resend": 1, "acct-otp-verify": 1, "acct-delete-start": 1, "acct-forgot": 1, "acct-set-password": 1 };
   var COMMON_PW = ["password", "password1", "password12", "password123", "passw0rd", "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000",
     "qwerty12", "qwerty123", "qwertyuiop", "iloveyou", "abc12345", "abcd1234", "letmein1", "welcome1", "admin123", "sunshine", "football", "baseball", "monkey123", "princess", "trustno1", "papertrail"];
   function weakPassword(pw) {
@@ -14291,9 +14820,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       closeModal(); render(); showToast("Thanks. We’ll remind you again in a year.", 3500);
       return;
     }
-    if (act === "acct-email-done") return openProfile();
+    if (act === "acct-email-done") return openProfile({ section: "account" });
     if (act === "acct-email-cancel") {
-      var cx = pendingEmailChange; pendingEmailChange = null; openProfile();
+      var cx = pendingEmailChange; pendingEmailChange = null; openProfile({ section: "account" });
       if (cx) showToast("Email not changed. You still sign in with " + cx.from + ".", 4000);
       return;
     }
@@ -14412,6 +14941,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         showToast(e.message, 5000);
       });
     }
+    if (act === "acct-pass-reset") {
+      /* Change password = the same emailed reset link as Forgot password, sent to the signed-in email. */
+      var prS = cloudSession(), prEm = prS && prS.user && prS.user.email, prMsg = document.getElementById("acct-pass-msg");
+      if (!prEm) return;
+      if (prMsg) prMsg.textContent = "Sending…";
+      return cloudFetch("/auth/v1/recover?redirect_to=" + authRedirect(), { method: "POST", body: { email: prEm } })
+        .then(function () { if (prMsg) prMsg.textContent = "We sent a reset link to " + prEm + ". Open it on this device to set a new password. Every device is then signed out."; })
+        .catch(function (e) { if (prMsg) prMsg.textContent = e.message; });
+    }
     if (act === "acct-forgot") {
       var em = acctVal("acct-email").toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(em)) return acctErr("Enter your email above first.");
@@ -14445,7 +14983,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="acct-actions"><button class="primary" type="button" data-act="acct-signout-all-go">Sign out everywhere</button>' +
         '<button class="text-btn" type="button" data-act="acct-signout-all-cancel">Cancel</button></div>');
     }
-    if (act === "acct-signout-all-cancel") return openProfile();
+    if (act === "acct-signout-all-cancel") return openProfile({ section: "account" });
     if (act === "acct-signout-local") { closeModal(); return signOutThisDevice("Signed out on this device. Other devices are still signed in."); }
     if (act === "acct-signout-all-go") {
       acctErr("…");
@@ -15375,7 +15913,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function openProfileAt(anchorId) {
-    openProfile();
+    openProfile({ section: anchorId === "profile-docs" ? "docs" : /^profile-(data|danger|sync)$/.test(anchorId) ? "data" : "account" });
     var el = document.getElementById(anchorId);
     if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
   }
@@ -15600,7 +16138,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.67";
+  var APP_VERSION = "37.5.68";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -15965,44 +16503,139 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       });
       return found || "ed-import";
     }
-    var work = { months: JSON.parse(JSON.stringify(state.months || {})) };
-    var rows = [], totalAdded = 0, totalPresent = 0, totalKept = 0, failed = "";
-    try {
-      keys.forEach(function (key) {
-        var src = JSON.parse(JSON.stringify(em.months[key]));
-        var source = sourceFor(key);
-        var cur = work.months[key];
-        var ours = !cur || cur.importedFrom === source || PI.isBlankMonth(cur);
-        var refresh = !ours || key === keys[keys.length - 1];
-        var r = PI.mergeMonth(work, key, src, { source: source, refreshPlan: refresh, keepAssigned: !ours, skipIncomeIfManual: !ours });
-        if (r.rejected) throw new Error("month " + key + " was rejected");
-        totalAdded += r.added; totalPresent += r.present; totalKept += r.kept;
-        var kb = key.split("-");
-        rows.push({ label: new Date(Number(kb[0]), Number(kb[1]) - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" }), r: r });
+    edPending = { em: em, keys: keys, fileName: fileName, sourceFor: sourceFor };
+    var preview = edImportPreview(edPending);
+    if (preview.some(function (p) { return p.conflict; })) { openEdImportConfirm(preview); return; }
+    commitEdImport("add");
+  }
+
+  var edPending = null;
+  /* Run the merge on a scratch copy of state.months. mode "add" = the old rules (an existing month that isn't this
+   * file's keeps its budget); mode "replace" = the opt-in: the file's budgeted amounts + income for its months. */
+  function edMergeInto(work, p, mode) {
+    var PI = window.PaperTrailImport, out = [];
+    p.keys.forEach(function (key) {
+      var src = JSON.parse(JSON.stringify(p.em.months[key])), source = p.sourceFor(key), cur = work.months[key];
+      var ours = !cur || cur.importedFrom === source || PI.isBlankMonth(cur);
+      var o = { source: source, refreshPlan: !ours || key === p.keys[p.keys.length - 1], keepAssigned: !ours, skipIncomeIfManual: !ours };
+      if (mode === "replace" && cur && !PI.isBlankMonth(cur)) o.replacePlan = true;
+      var r = PI.mergeMonth(work, key, src, o);
+      if (r.rejected) throw new Error("month " + key + " was rejected");
+      out.push({ key: key, r: r });
+    });
+    return out;
+  }
+  function edMonthSnapshot(m) {
+    var lines = {}, inc = {}, assigned = 0, income = 0;
+    if (!m) return { lines: lines, inc: inc, assigned: 0, income: 0, tx: {} };
+    (m.categories || []).forEach(function (c) {
+      if (c.system === "checking") return;
+      (c.lines || []).forEach(function (l) { lines[clean(c.name) + "|" + clean(l.name)] = { name: l.name, v: Number(l.assigned) || 0 }; });
+      assigned += catAssigned(c);
+    });
+    (m.incomes || []).forEach(function (i) { inc[clean(i.name)] = { name: i.name, v: Number(i.amount) || 0 }; income += Number(i.amount) || 0; });
+    var tx = {};
+    (m.transactions || []).forEach(function (t) { if (t) tx[t.id] = t; });
+    return { lines: lines, inc: inc, assigned: roundCents(assigned), income: roundCents(income), tx: tx };
+    function clean(x) { return String(x || "").trim().toLowerCase(); }
+  }
+  function edImportPreview(p) {
+    var PI = window.PaperTrailImport;
+    var keepW = { months: JSON.parse(JSON.stringify(state.months || {})) }, repW = { months: JSON.parse(JSON.stringify(state.months || {})) };
+    var keepR = edMergeInto(keepW, p, "add");
+    edMergeInto(repW, p, "replace");
+    return p.keys.map(function (key, i) {
+      var cur = state.months[key], b = edMonthSnapshot(cur), k = edMonthSnapshot(keepW.months[key]), r = edMonthSnapshot(repW.months[key]);
+      var lineCh = [], incCh = [], removed = [];
+      Object.keys(Object.assign({}, b.lines, r.lines)).forEach(function (n) {
+        var x = b.lines[n] ? b.lines[n].v : 0, y = r.lines[n] ? r.lines[n].v : 0;
+        if (roundCents(x) !== roundCents(y)) lineCh.push({ name: (r.lines[n] || b.lines[n]).name, from: x, to: y });
       });
-    } catch (err) { failed = err && err.message ? err.message : "merge failed"; }
-    if (failed) { setDataStatus("Can’t import: " + failed + ". Nothing was changed.", true); return; }
+      Object.keys(Object.assign({}, b.inc, r.inc)).forEach(function (n) {
+        var x = b.inc[n] ? b.inc[n].v : null, y = r.inc[n] ? r.inc[n].v : null;
+        if (x !== y) incCh.push({ name: (r.inc[n] || b.inc[n]).name, from: x, to: y });
+      });
+      Object.keys(b.tx).forEach(function (id) { if (!r.tx[id]) removed.push(b.tx[id]); });
+      var kb = key.split("-");
+      return {
+        key: key, label: MONTH_NAMES[Number(kb[1]) - 1] + " " + kb[0], add: keepR[i].r.added,
+        lineCh: lineCh, incCh: incCh, removed: removed,
+        before: { assigned: b.assigned, income: b.income }, after: { assigned: r.assigned, income: r.income }, keepAssigned: k.assigned,
+        conflict: !!cur && !PI.isBlankMonth(cur) && (lineCh.length > 0 || incCh.length > 0 || removed.length > 0)
+      };
+    });
+  }
+  function openEdImportConfirm(preview) {
+    var h = '<div class="sheet ed-confirm"><h3>This file changes months you already have</h3>' +
+      '<p class="caption">' + esc(edPending.fileName) + "</p>";
+    preview.forEach(function (p) {
+      if (!p.conflict) { h += '<p class="ed-c-month"><strong>' + esc(p.label) + "</strong> · " + p.add + " transaction" + (p.add === 1 ? "" : "s") + " to add</p>"; return; }
+      h += '<div class="ed-c-block"><p class="ed-c-month"><strong>' + esc(p.label) + "</strong></p>" +
+        '<div class="row dense"><span>Transactions to add</span><span class="mono">' + p.add + "</span></div>" +
+        '<div class="row dense"><span>Budgeted total</span><span class="mono">' + esc(formatMoney(p.before.assigned, 2)) + " → " + esc(formatMoney(p.after.assigned, 2)) + "</span></div>" +
+        '<div class="row dense"><span>Income</span><span class="mono">' + esc(formatMoney(p.before.income, 2)) + " → " + esc(formatMoney(p.after.income, 2)) + "</span></div>";
+      if (p.lineCh.length) h += '<details class="ed-c-det"><summary>' + p.lineCh.length + " budgeted amount" + (p.lineCh.length === 1 ? "" : "s") + " would change</summary>" +
+        p.lineCh.map(function (c) { return '<div class="row dense"><span>' + esc(c.name) + '</span><span class="mono">' + esc(formatMoney(c.from, 2)) + " → " + esc(formatMoney(c.to, 2)) + "</span></div>"; }).join("") + "</details>";
+      if (p.incCh.length) h += '<details class="ed-c-det"><summary>' + p.incCh.length + " income line" + (p.incCh.length === 1 ? "" : "s") + " would change</summary>" +
+        p.incCh.map(function (c) { return '<div class="row dense"><span>' + esc(c.name) + '</span><span class="mono">' + (c.from == null ? "new" : esc(formatMoney(c.from, 2))) + " → " + (c.to == null ? "removed" : esc(formatMoney(c.to, 2))) + "</span></div>"; }).join("") + "</details>";
+      if (p.removed.length) h += '<details class="ed-c-det" open><summary>' + p.removed.length + " imported row" + (p.removed.length === 1 ? "" : "s") + " no longer in the file would be removed</summary>" +
+        p.removed.map(function (t) { return '<div class="row dense"><span>' + esc(t.payee || "Row") + " · " + esc(t.date || "") + '</span><span class="mono">' + esc(formatMoney(t.amount, 2)) + "</span></div>"; }).join("") + "</details>";
+      h += "</div>";
+    });
+    h += '<p class="caption">Transactions you entered by hand, Net Worth, the Income statement, Checking and other months are never changed. Replacing keeps a copy so you can undo.</p>' +
+      '<div class="sheet-actions ed-c-actions"><button type="button" data-act="ed-import-add">Add transactions only (keep my budget)</button>' +
+      '<button class="primary" type="button" data-act="ed-import-replace">Also replace this month’s budgeted amounts and income with the file’s</button>' +
+      '<button type="button" class="text-btn" data-act="ed-import-cancel">Cancel</button></div></div>';
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = h;
+    var sh = modal.querySelector(".sheet");
+    if (sh) sh.scrollTop = 0;
+  }
+  var ED_UNDO_KEY = STORAGE_KEY + ".importUndo";
+  function commitEdImport(mode) {
+    var p = edPending, PI = window.PaperTrailImport;
+    if (!p) return;
+    var work = { months: JSON.parse(JSON.stringify(state.months || {})) }, res, failed = "";
+    try { res = edMergeInto(work, p, mode); } catch (err) { failed = err && err.message ? err.message : "merge failed"; }
+    if (failed) { edPending = null; setDataStatus("Can’t import: " + failed + ". Nothing was changed.", true); return; }
+    if (mode === "replace") {
+      /* One atomic change: keep the months as they were (and the old merchant seeds) so Undo restores them whole. */
+      try { localStorage.setItem(ED_UNDO_KEY, JSON.stringify({ at: new Date().toISOString(), file: p.fileName, months: state.months, merchantSeeds: state.merchantSeeds || null })); } catch (e) { /* storage full: import still applies */ }
+    }
     state.months = work.months;
-    if (em.merchantSeeds && typeof em.merchantSeeds === "object") state.merchantSeeds = em.merchantSeeds;
+    if (p.em.merchantSeeds && typeof p.em.merchantSeeds === "object") state.merchantSeeds = p.em.merchantSeeds;
+    edPending = null;
     saveState();
+    var totalAdded = 0, totalPresent = 0, totalKept = 0, totalStale = 0;
+    res.forEach(function (x) { totalAdded += x.r.added; totalPresent += x.r.present; totalKept += x.r.kept; totalStale += x.r.stale || 0; });
     var html = '<div class="sheet ed-summary"><h3>EveryDollar import</h3>' +
-      '<p class="caption">' + esc(fileName) + " · " + PI.plural(totalAdded, "row") + " added, " + PI.plural(totalPresent, "row") + " already here, " + PI.plural(totalKept, "row") + " you entered kept.</p>" +
-      '<div class="sheet-table">' + rows.map(function (x) {
-        var r = x.r;
-        var note = r.skippedIncome ? "income skipped (you logged your own)" : (r.created ? "month added" : "updated");
-        return '<div class="row dense"><span>' + esc(x.label) + '</span><span class="mono">' + r.added + " added · " + r.present + " there · " + r.kept + " kept</span></div>" +
+      '<p class="caption">' + esc(p.fileName) + " · " + PI.plural(totalAdded, "row") + " added, " + PI.plural(totalPresent, "row") + " already here, " + PI.plural(totalKept, "row") + " you entered kept" +
+      (totalStale ? ", " + PI.plural(totalStale, "old imported row") + " removed" : "") + ".</p>" +
+      '<div class="sheet-table">' + res.map(function (x) {
+        var r = x.r, kb = x.key.split("-");
+        var note = r.skippedIncome ? "income skipped (you logged your own)" : (r.created ? "month added" : (mode === "replace" ? "budget and income replaced with the file’s" : "updated"));
+        return '<div class="row dense"><span>' + esc(new Date(Number(kb[0]), Number(kb[1]) - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" })) + '</span><span class="mono">' + r.added + " added · " + r.present + " there · " + r.kept + " kept</span></div>" +
           '<div class="caption ed-note">' + esc(note) + "</div>";
       }).join("") + "</div>" +
-      '<div class="sheet-actions"><button class="primary" type="button" data-act="ed-summary-done">Done</button></div></div>';
+      '<div class="sheet-actions">' + (mode === "replace" ? '<button type="button" data-act="ed-import-undo">Undo import</button>' : "") +
+      '<button class="primary" type="button" data-act="ed-summary-done">Done</button></div></div>';
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = html;
     var sh = modal.querySelector(".sheet");
     if (sh) sh.scrollTop = 0;
   }
-
-
-
+  function undoEdImport() {
+    var u = null;
+    try { u = JSON.parse(localStorage.getItem(ED_UNDO_KEY) || "null"); } catch (e) { u = null; }
+    if (!u || !u.months) { setDataStatus("Nothing to undo.", true); return false; }
+    state.months = u.months;
+    if (u.merchantSeeds) state.merchantSeeds = u.merchantSeeds;
+    try { localStorage.removeItem(ED_UNDO_KEY); } catch (e) {}
+    saveState();
+    return true;
+  }
 
   function profileDataHtml() {
     return '<div class="profile-data" id="profile-data">' +
@@ -16216,6 +16849,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (findLinkedNwLiability(doc)) {
       return confirmDelete(label, "This removes the Vault card and unlinks it from Net Worth. The Net Worth row stays.");
     }
+    if (doc && doc.payStubConfirmed && normalizeDocSlot(doc.slot) === "payStubs") {
+      return confirmDelete(label, "This removes the pay stub and the numbers read from it. Amounts it already filled in on Pay stay until you change them.");
+    }
+    if (doc && normalizeDocSlot(doc.slot) === "payStubs") return confirmDelete(label, "This removes the pay stub and anything read from it. Pay isn’t changed.");
     return confirmDelete(label, "This removes only this Vault card.");
   }
 
@@ -16248,6 +16885,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return removeVaultDocumentById(doc.id);
   }
 
+  /* v37.5.68 Deleting a confirmed pay stub also drops the copy of its figures kept on compensation
+   * (payStubSnapshot) when no other confirmed stub carries the same check. Amounts already filled into
+   * Pay (salary, 401k, HSA) stay; they are the user's plan now and the delete prompt says so. */
+  function payStubKey(st) { return st ? (st.payDate || "") + "|" + (st.gross || "") + "|" + (st.net || "") : ""; }
+  function clearPayStubSnapshotFor(doc) {
+    if (!doc || !doc.payStubConfirmed || !doc.payStubPending || !state.compensation) return false;
+    var snap = state.compensation.payStubSnapshot;
+    if (!snap || payStubKey(snap) !== payStubKey(doc.payStubPending)) return false;
+    var other = ((state.profile && state.profile.documents) || []).some(function (d) {
+      return d && d.id !== doc.id && d.payStubConfirmed && payStubKey(d.payStubPending) === payStubKey(snap);
+    });
+    if (other) return false;
+    state.compensation.payStubSnapshot = null;
+    return true;
+  }
   function removeVaultDocumentById(id) {
     id = String(id || "");
     if (!id || !state.profile) return false;
@@ -16259,6 +16911,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       : docs.filter(function (doc) { return !(doc && doc.id === id); });
     removed.dataUrl = "";
     deleteDocBlob(id);
+    clearPayStubSnapshotFor(removed);
     if (state.vaultDocId === id) state.vaultDocId = "";
     if (profileDocDraft && profileDocDraft.id === id) profileDocDraft = null;
     saveState();
@@ -16678,6 +17331,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       searchActive = document.activeElement && document.activeElement.getAttribute("data-act") === "spend-search";
       caret = searchActive ? document.activeElement.selectionStart : null;
       if (state.tab === "budget") {
+        if (ensureCheckingEnvelope(month)) { totals = sums(month); saveState(); }
         screen.innerHTML = renderBudget(month, totals);
         bindEnvelopeHold(screen);
       }
@@ -17701,7 +18355,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "show-intro") { showWelcomeSplash(); openIntroSheet(0); return; }
     if (act === "intro-next") { openIntroSheet(1); return; }
     if (act === "intro-prev") { openIntroSheet(0); return; }
-    if (act === "about-back") { openProfile(); return; }
+    if (act === "about-back") { openProfile({ section: "help" }); return; }
     if (act === "about-go") {
       var aboutTo = actEl.getAttribute("data-to");
       openProfileAt(aboutTo === "danger" ? "profile-danger" : "profile-data");
@@ -18142,9 +18796,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "ed-file") {
       var edInput = document.getElementById("ed-file");
       if (edInput) edInput.click();
+    } else if (act === "ed-import-add" || act === "ed-import-replace") {
+      commitEdImport(act === "ed-import-replace" ? "replace" : "add");
+    } else if (act === "ed-import-cancel") {
+      edPending = null; closeModal(); setDataStatus("Import cancelled. Nothing was changed.");
+    } else if (act === "ed-import-undo") {
+      closeModal(); if (undoEdImport()) { render(); setDataStatus("Import undone. Your months are back the way they were."); }
     } else if (act === "ed-summary-done") {
       closeModal();
-      openProfile();
+      openProfile({ section: "data" });
     }
     else if (act === "month-picker") openMonthPicker();
     else if (act === "mp-year") { monthPickYear += Number(actEl.getAttribute("data-d")) || 0; renderMonthPicker(); }
@@ -18175,6 +18835,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "copy-month") copyBudgetOntoNext();
     else if (act === "copy-last-month") copyLastMonthOntoCurrent();
     else if (act === "start-month") openRitual();
+    else if (act === "wrap-month") openWrapMonth();
+    else if (act === "wrap-month-go" || act === "wrap-add-checking" || act === "wrap-cover-checking") {
+      var wm = monthRecord(), wp = wrapPlan(wm), wck = checkingLine(wm);
+      if (wck && wck.line && (act === "wrap-add-checking" && wp.kind === "add" || act === "wrap-cover-checking" && wp.kind === "cover")) {
+        wck.line.assigned = roundCents((Number(wck.line.assigned) || 0) + wp.left); /* + leftover, or − the overage */
+        delete wck.line.autoCopy;
+      }
+      closeModal();
+      if (sums(wm).stamped) playStampClose(wm, offsetMonth(wm.year, wm.month, 1));
+    } else if (act === "unwrap-month") {
+      var um = monthRecord();
+      if (um.closedAt && window.confirm("Undo the wrap-up for " + MONTH_NAMES[um.month - 1] + "? Its stamp goes away until you wrap it up again.")) {
+        delete um.closedAt; saveState(); render();
+      }
+    }
     else if (act === "ritual-copy") {
       ritual.destKey = copyBudgetTemplate();
       ritual.step = 2;
@@ -18225,9 +18900,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "pay-comp-add" || act === "pay-comp-pick" || act === "pay-comp-mode" || act === "pay-comp-when" || act === "pay-comp-remove") payCompAct(act, actEl);
     else if (act === "add-post-tax") addPostTaxRow();
     else if (act === "remove-post-tax") removePostTaxRow(actEl.getAttribute("data-id"));
+    else if (act === "profile-sec") toggleProfileSec(actEl.getAttribute("data-sec"));
+    else if (act === "set-text-size") {
+      state.textSize = actEl.getAttribute("data-size");
+      applyTextSize(); saveState();
+      [].forEach.call(document.querySelectorAll("[data-act=set-text-size]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+      var dsum = document.querySelector('.prof-sec[data-sec="display"] .prof-sec-sum'); if (dsum) dsum.textContent = profDisplaySummary();
+    }
     else if (act === "set-theme") {
       state.theme = actEl.getAttribute("data-theme");
       applyNight(); saveState();
+      var tsum = document.querySelector('.prof-sec[data-sec="display"] .prof-sec-sum'); if (tsum) tsum.textContent = profDisplaySummary();
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "debt-open") { openDebtCalc(); }
@@ -18476,7 +19159,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openSheet((found.cat ? found.cat.name + " · " : "") + found.line.name,
         lineFields +
         lineSpendList(month, found.line.id) +
-        deleteBtnHtml("delete-line", "Delete " + esc(found.line.name), ' data-id="' + esc(found.line.id) + '"') +
+        (found.line.system === "checking" ? '<p class="caption">Built in (can’t be deleted). Checking balance across months: ' + esc(formatMoney(checkingBalance(month), 2)) + ".</p>"
+          : deleteBtnHtml("delete-line", "Delete " + esc(found.line.name), ' data-id="' + esc(found.line.id) + '"')) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
       /* Tapping the $ amount lands on the amount field; tapping the name keeps the name field. */
@@ -19409,6 +20093,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.profile = migrateProfile(state.profile, state.foo, state.compensation);
       state.profile.name = el.value || "";
       saveState();
+      refreshProfSums();
     } else if (el.getAttribute("data-act") === "profile-phone") {
       state.profile = migrateProfile(state.profile, state.foo, state.compensation);
       state.profile.phone = el.value || "";
@@ -19416,6 +20101,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (el.getAttribute("data-act") === "profile-birthday") {
       syncBirthday(el.value || "");
       saveState();
+      refreshProfSums();
     } else if (el.getAttribute("data-act") === "profile-zip") {
       state.compensation = migrateCompensation(state.compensation || defaultCompensation());
       state.compensation.zipCode = String(el.value || "");
@@ -19680,6 +20366,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* Grade fixtures run from the test harness (node grade-math.js), not on page load. */
   render();
   try { playLaunchSplash(); } catch (e) {}
+  /* After the launch splash clears (poll ≤10s), offer the new-month close once. */
+  (function waitSplash(n) {
+    setTimeout(function () {
+      if (document.querySelector(".launch-splash,.welcome-splash") && n < 40) return waitSplash(n + 1);
+      try { maybeNewMonthStampClose(); } catch (e) {}
+    }, 250);
+  })(0);
   try {
     if (!welcomeSeen() && state.onboarding && state.onboarding.status === "survey" && state.onboarding.screen === "welcome") showWelcomeSplash();
   } catch (e) {}

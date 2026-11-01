@@ -33,8 +33,14 @@
    * opts.incomeOnly: for a month you built yourself, only income lines + income rows are merged.
    * opts.skipIncomeIfManual: if the month already has income you logged, don't add imported income.
    * Returns { created, present, added, stale, kept, skippedIncome, newLines }. */
+  /* A row an EveryDollar import put here (any ed-* source tag, or this file's tag). Hand-entered rows have no source. */
+  function isImportedRow(t, source) { return !!t && !!t.source && (t.source === source || /^ed-/.test(String(t.source))); }
+  /* opts.replacePlan (opt-in from the confirm sheet): this month's budgeted amounts and income lines become the
+   * file's; imported rows the file no longer has are removed (whatever ed-* tag they carry); hand-entered rows,
+   * the built-in Checking envelope and other months are never touched. */
   function mergeMonth(state, key, src, opts) {
     opts = opts || {};
+    if (opts.replacePlan) { opts = clone(opts); opts.refreshPlan = true; opts.keepAssigned = false; opts.skipIncomeIfManual = false; opts.incomeOnly = false; }
     var source = opts.source || "import";
     if (!state.months) state.months = {};
     // v37.5.59.12 (QA L9): never write a bad month key (it would inflate Wrapped take-home).
@@ -68,7 +74,10 @@
     var isOurs = function (t) { return !!t && (importIds[t.id] || t.source === source); };
     // Drop only rows this page created on an earlier run that the import no longer has.
     var before = cur.transactions.length;
-    cur.transactions = cur.transactions.filter(function (t) { return !(t && t.source === source && !importIds[t.id]); });
+    cur.transactions = cur.transactions.filter(function (t) {
+      if (!t || importIds[t.id]) return true;
+      return opts.replacePlan ? !isImportedRow(t, source) : t.source !== source;
+    });
     out.stale = before - cur.transactions.length;
     var manual = cur.transactions.filter(function (t) { return !isOurs(t); });
     out.kept = manual.length;
@@ -83,6 +92,19 @@
       else if (hit.amount == null) hit.amount = line.amount;
       lineFor[line.id] = hit.id;
     });
+    if (opts.replacePlan) {
+      var keepInc = {};
+      Object.keys(lineFor).forEach(function (k) { keepInc[lineFor[k]] = true; });
+      var incRef = {};
+      cur.transactions.concat(rows).forEach(function (t) { if (t && t.incomeId) incRef[t.incomeId] = true; });
+      cur.incomes = cur.incomes.filter(function (i) {
+        if (keepInc[i.id]) return true;
+        if (incRef[i.id]) { i.amount = 0; return true; } // a logged paycheck points here: keep the line, plan $0
+        out.removedIncomeLines = (out.removedIncomeLines || 0) + 1;
+        return false;
+      });
+      cur.importedFrom = source;
+    }
     if (opts.refreshPlan && !opts.incomeOnly) {
       /* v37.5.59.12 (owner): always soft-merge by group (category) + line name. Never replace
        * the plan grid — hand-made envelopes and spends stay. Matched lines take the
@@ -125,15 +147,19 @@
       var pruned = 0;
       cur.categories = cur.categories.filter(function (c) {
         c.lines = (c.lines || []).filter(function (l) {
-          var droppable = !opts.keepAssigned && (l.autoCopy || l.importedBy === source) && !seenLine[l.id] && !used[l.id];
+          if (l.system === "checking" || c.system === "checking") return true;
+          var droppable = !opts.keepAssigned && (l.autoCopy || l.importedBy === source || (opts.replacePlan && l.importedBy)) && !seenLine[l.id] && !used[l.id];
+          if (!droppable && opts.replacePlan && !seenLine[l.id] && (Number(l.assigned) || 0) !== 0) { l.assigned = 0; out.zeroedLines = (out.zeroedLines || 0) + 1; }
           if (droppable) pruned += 1;
           return !droppable;
         });
+        if (c.system === "checking") return true;
         var dropCat = !opts.keepAssigned && !seenCat[c.id] && (c.autoCopy || c.importedBy === source) && !c.lines.length &&
           !cur.transactions.some(function (t) { return t && t.categoryId === c.id; });
         return !dropCat;
       });
       cur.categories.forEach(function (hc) {
+        if (opts.replacePlan && !seenCat[hc.id] && hc.system !== "checking" && !(hc.lines || []).length) hc.assigned = 0;
         if (!(hc.lines || []).length) return;
         hc.assigned = Math.round((hc.lines || []).reduce(function (s, l) { return s + (Number(l.assigned) || 0); }, 0) * 100) / 100;
       });
@@ -209,5 +235,5 @@
     if (cd) cd.textContent = "Read the summary, then tap Continue when you’re ready.";
   }
 
-  root.PaperTrailImport = { isBlankMonth: isBlankMonth, mergeMonth: mergeMonth, describe: describe, money: money, clean: clean, showContinue: showContinue, plural: plural };
+  root.PaperTrailImport = { isBlankMonth: isBlankMonth, isImportedRow: isImportedRow, mergeMonth: mergeMonth, describe: describe, money: money, clean: clean, showContinue: showContinue, plural: plural };
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -221,7 +221,20 @@ button {
   border-radius: 3px;
   padding: 5px 7px;
   transform: rotate(-9deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
 }
+.stamp-emblem {
+  width: calc(30px * var(--fs-scale));
+  height: calc(30px * var(--fs-scale));
+  display: block;
+  overflow: visible;
+}
+.stamp-emblem .fold { fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 0.45; stroke-linejoin: round; }
+.stamp-emblem .shadow { fill: #000; opacity: 0.14; }
+body.night .stamp-emblem .shadow { opacity: 0.4; }
 
 .trail-confetti {
   position: absolute;
@@ -5094,3 +5107,93 @@ body.night .acct-sheet .acct-actions .primary{color:rgb(18,19,21)}
 body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .auth-intro-foot .text-btn{min-height:44px;background:none;border:0;font-family:var(--ui);font-size:calc(15px * var(--fs-scale));font-weight:600;color:var(--moss);cursor:pointer}
 .auth-intro-foot [data-act=auth-intro-back]{color:var(--muted);font-weight:500}
+
+/* v37.5.68 Profile accordion */
+.prof-secs{display:flex;flex-direction:column;gap:10px;margin:4px 0 12px}
+.prof-sec{background:var(--card);border:1px solid var(--rule);border-radius:16px;overflow:hidden}
+.prof-sec-head{display:flex;align-items:center;gap:10px;width:100%;min-height:60px;padding:12px 14px;background:none;border:0;border-radius:0;text-align:left;color:var(--ink);cursor:pointer;font:inherit}
+.prof-sec-head:focus-visible{outline:2px solid var(--moss);outline-offset:-3px}
+.prof-sec-txt{display:flex;flex-direction:column;flex:1;min-width:0}
+.prof-sec-t{font-family:var(--ui);font-weight:600;font-size:calc(16px * var(--fs-scale))}
+.prof-sec-sum{font-family:var(--ui);font-size:calc(12.5px * var(--fs-scale));color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.prof-sec-chev{font-size:calc(22px * var(--fs-scale));color:var(--muted);transition:transform .18s ease;line-height:1}
+.prof-sec.open .prof-sec-chev{transform:rotate(90deg)}
+.prof-sec-body{padding:0 14px 14px;border-top:1px solid var(--rule)}
+.prof-sec-body[hidden]{display:none}
+.prof-sec-body > :first-child{margin-top:12px}
+.prof-sec-body .profile-acct-card{margin:0}
+.prof-sec-body .profile-section{display:none}
+.prof-sec-body .profile-data > .profile-section, .prof-sec-body #profile-docs > .profile-section{display:none}
+.acct-row-btns{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.acct-row-btns button{min-height:44px}
+.acct-delete-row{margin-top:14px;padding-top:10px;border-top:1px dashed var(--rule)}
+.profile-plan{margin-top:16px;padding-top:12px;border-top:1px solid var(--rule)}
+.profile-sync{margin-bottom:12px}
+.profile-sync button{min-height:44px}
+.prof-sec-body .profile-danger{margin-top:16px}
+@media (prefers-reduced-motion: reduce){.prof-sec-chev{transition:none}}
+
+/* v37.5.68 date wheel */
+.dwheel{position:relative;display:grid;grid-template-columns:1.2fr .8fr 1fr;gap:2px;height:180px;margin:6px 0 2px;background:var(--paper);border:1px solid var(--rule);border-radius:12px;overflow:hidden;user-select:none;-webkit-user-select:none}
+.dw-col{overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;padding:72px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 30%,#000 70%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 30%,#000 70%,transparent 100%);position:relative;z-index:1}
+.dw-col::-webkit-scrollbar{display:none}
+.dw-col:focus-visible{outline:2px solid var(--moss);outline-offset:-2px;border-radius:10px}
+.dw-item{height:36px;line-height:36px;text-align:center;scroll-snap-align:center;font-family:var(--ui);font-size:calc(17px * var(--fs-scale));color:var(--muted);cursor:pointer}
+.dw-item.on{color:var(--ink);font-weight:600}
+.dw-item.dw-off{opacity:.3}
+.dwheel.unset .dw-item.on{color:var(--muted);font-weight:400}
+.dw-band{position:absolute;left:6px;right:6px;top:72px;height:36px;border-radius:9px;background:rgba(127,127,127,.12);pointer-events:none;z-index:0}
+.dw-note:empty{display:none}
+
+/* v37.5.68 Try a loan */
+.debt-try-cap{margin-top:14px}
+.debt-sb-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.debt-warn{background:rgba(196,74,58,.1);border:1px solid rgba(196,74,58,.35);border-radius:12px;padding:10px 12px;font-family:var(--ui);font-size:calc(14px * var(--fs-scale));color:var(--ink)}
+.debt-tops .caption.small{display:block;font-size:calc(11.5px * var(--fs-scale));margin-top:2px}
+/* Fixed height so opening/closing a section never moves the sheet (it is bottom-anchored). */
+.sheet.profile-sheet{height:min(88vh,640px)}
+
+.wrap-month-btn { display:block; margin:10px 16px 0; width:calc(100% - 32px); min-height:44px; border:1.5px dashed var(--stamp); color:var(--stamp); background:transparent; border-radius:10px; font-family:var(--serif); font-weight:700; font-size:calc(14px * var(--fs-scale)); }
+.wrap-month-note { margin:8px 16px 0; font-size:calc(12px * var(--fs-scale)); color:var(--muted); }
+.wrap-month-note .link-btn { background:none; border:0; padding:6px 2px; color:var(--stamp); text-decoration:underline; font:inherit; }
+.wrap-month-preview { display:flex; justify-content:center; padding:14px 0 18px; }
+
+/* Close moment: stamp press + month roll. */
+.stamp.stamp-land { animation: stamp-land 520ms cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes stamp-land {
+  0% { transform: rotate(-22deg) scale(2.3); opacity: 0; }
+  45% { transform: rotate(-9deg) scale(.92); opacity: 1; }
+  62% { transform: rotate(-9deg) scale(1.04); }
+  100% { transform: rotate(-9deg) scale(1); }
+}
+#screen.month-roll-out { animation: month-roll-out 280ms ease-in both; }
+#screen.month-roll-in { animation: month-roll-in 380ms ease-out both; }
+@keyframes month-roll-out { to { transform: translateX(-28%); opacity: 0; } }
+@keyframes month-roll-in { from { transform: translateX(28%); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .stamp.stamp-land, #screen.month-roll-out, #screen.month-roll-in { animation: none; } }
+
+/* Split allocation on the Add Transaction screen (prototype). */
+.ed-alloc-head{margin:0;padding:10px 14px 4px;font:600 calc(12px * var(--fs-scale)) var(--ui);letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+.ed-alloc-row{display:flex;align-items:center;gap:8px;min-height:52px}
+.ed-alloc-name{display:flex;flex-direction:column;flex:1;min-width:0}
+.ed-alloc-name .lbl{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-alloc-row input{flex:0 0 96px;border:1px solid var(--rule)!important;border-radius:8px;padding:8px!important;min-height:40px}
+.ed-alloc-fill,.ed-alloc-even{min-height:40px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);font:600 calc(13px * var(--fs-scale)) var(--ui)}
+.ed-alloc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-top:1px solid var(--rule)}
+.ed-alloc-status{margin:0;font:calc(13px * var(--fs-scale)) var(--ui);color:var(--muted)}
+.ed-alloc-status strong.ok{color:var(--stamp)}.ed-alloc-status strong.left{color:var(--ink)}.ed-alloc-status strong.over{color:var(--danger)}
+.ed-picker-hint{margin:-4px 0 8px}
+.ed-alloc-top{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 0 0}
+.ed-alloc-top .ed-alloc-head{padding-top:4px}
+.ed-picker-close{min-height:40px;padding:0 14px;border-radius:10px}
+
+.stamp-locked{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 18px;border:1.5px dashed var(--rule);border-radius:4px;color:var(--muted);font:600 calc(12px * var(--fs-scale)) var(--serif);letter-spacing:.4px;transform:rotate(-9deg)}
+.stamp-locked svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.wrap-actions{flex-wrap:wrap}
+
+.ed-confirm .ed-c-block{border:1px solid var(--rule);border-radius:10px;padding:8px 12px;margin:8px 0}
+.ed-confirm .ed-c-month{margin:4px 0}
+.ed-confirm details summary{cursor:pointer;margin:6px 0;font-size:calc(13px * var(--fs-scale))}
+.ed-c-actions{flex-direction:column;align-items:stretch;gap:8px}
+.ed-c-actions button{white-space:normal}
