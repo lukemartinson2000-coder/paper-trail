@@ -1171,6 +1171,11 @@
   }
 
 
+  /* v37.5.75: the Debt envelope can't be deleted or renamed as a whole (its lines can). Matched by name, so older months
+     without a "Debt" envelope, or with it under another name, keep working as ordinary envelopes. */
+  var DEBT_LOCK_MSG = "Debt is built in, so the envelope can’t be deleted. You can still add, edit and delete the loans inside it.";
+  function isDebtEnvelope(cat) { return !!cat && /^debt$/i.test(String(cat.name || "").trim()); }
+
   function sortedCategories(month) {
     return month.categories.slice().sort(function (a, b) { return a.sortOrder - b.sortOrder; });
   }
@@ -1182,6 +1187,7 @@
   function deleteEnvelope(month, id) {
     var cat = month.categories.filter(function (c) { return c.id === id; })[0];
     if (!cat) return;
+    if (isDebtEnvelope(cat)) { window.alert(DEBT_LOCK_MSG); return; }
     if (cat.system === "checking" || cat.system === "savings") { window.alert(cat.system === "savings" ? "Savings is built in (it holds Checking), so it can’t be deleted. You can rename it." : "Checking is locked: it can’t be renamed or deleted, because savings and wrap-up depend on it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
@@ -11375,12 +11381,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function openEnvelopeEdit(cat, nameDraft) {
     openSheet("Edit envelope",
-      field("Name", "name", nameDraft != null ? nameDraft : cat.name) +
+      (isDebtEnvelope(cat) ? '<input type="hidden" name="name" value="' + esc(cat.name) + '"><p class="env-locked-name"><strong>' + esc(cat.name) + '</strong></p>'
+        : field("Name", "name", nameDraft != null ? nameDraft : cat.name)) +
       '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
       envSubsHtml(cat) +
       '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
       (cat.system === "savings" ? '<p class="caption">Savings is built in: rename it if you like, but it can’t be deleted. It holds your Checking line, where wrap-up parks leftover dollars.</p>'
         : cat.system === "checking" ? CHECKING_LOCK_NOTE
+        : isDebtEnvelope(cat) ? '<p class="caption">🔒 Debt is built in, so the envelope can’t be deleted or renamed. You can still add, edit and delete the loans inside it.</p>'
         : deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"')),
       "save-category");
   }
@@ -16557,7 +16565,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.74";
+  var APP_VERSION = "37.5.75";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -19913,7 +19921,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var name = (data.name || "").replace(/^\s+|\s+$/g, "") || "Envelope";
       if (data.id) {
         month.categories.forEach(function (c) {
-          if (c.id === data.id) { c.name = name; delete c.autoCopy; if (isFlat(c)) c.lines[0].name = name; }
+          if (c.id === data.id) { if (isDebtEnvelope(c)) name = c.name;
+            c.name = name; delete c.autoCopy; if (isFlat(c)) c.lines[0].name = name; }
         });
       } else {
         var lines = name === "Food"
