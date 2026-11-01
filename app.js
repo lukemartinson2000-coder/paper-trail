@@ -1160,7 +1160,7 @@
   function deleteEnvelope(month, id) {
     var cat = month.categories.filter(function (c) { return c.id === id; })[0];
     if (!cat) return;
-    if (cat.system === "checking") { window.alert("Checking is built in, so it can’t be deleted. You can rename it."); return; }
+    if (cat.system === "checking" || cat.system === "savings") { window.alert(cat.system === "savings" ? "Savings is built in (it holds Checking), so it can’t be deleted. You can rename it." : "Checking is built in, so it can’t be deleted. You can rename it."); return; }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
@@ -3198,6 +3198,7 @@
           }
         }
         migrateSubsections(m);
+        if (m.year && m.month && migrateCheckingIntoSavings(m)) { repaired = true; checkingMovedAtLoad = true; } /* v37.5.70: Checking group → line in Savings; raw kept as a rescue copy first */
         migrateIncome(m);
         migrateTransactions(m);
       });
@@ -4026,6 +4027,13 @@
   function monthStampEarned(month, totals) {
     return !!(month && month.closedAt && totals && totals.stamped);
   }
+  /* v37.5.70 "Every dollar has a job": an empty dashed stamp slot (lock outline, never the emblem) shows the month is on
+   * track for its stamp. The stamp itself stays hidden until the month is wrapped up. */
+  function stampSlotHtml() {
+    return '<div class="stamp-locked stamp-slot" role="img" aria-label="Stamp slot: every dollar has a job. Wrap up to reveal the stamp.">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>' +
+      "<span>Your stamp is waiting</span></div>";
+  }
   function monthIsFuture(month) {
     var now = new Date();
     return month.year * 12 + month.month > now.getFullYear() * 12 + now.getMonth() + 1;
@@ -4043,18 +4051,73 @@
     return '<button class="wrap-month-btn" type="button" data-act="wrap-month">Wrap up ' + esc(name) +
       ' and go to ' + esc(MONTH_NAMES[nx.month - 1]) + " ›</button>";
   }
-  /* Built-in "Checking" envelope: its own group, renamable, never deletable. Wrap-up parks leftover dollars here
-   * (or covers an over-assigned month from it) as a budget assignment only — no transaction, no Net Worth change. */
+  /* Built-in "Checking" line (v37.5.70, owner): a protected, renamable, never-deletable LINE inside the built-in
+   * Savings group (also never deletable). Wrap-up parks leftover dollars here (or covers an over-assigned month from
+   * it) as a budget assignment only — no transaction, no Net Worth change. */
   function checkingLine(month) {
-    var cat = (month.categories || []).filter(function (c) { return c.system === "checking"; })[0];
-    return cat ? { cat: cat, line: (cat.lines || []).filter(function (l) { return l.system === "checking"; })[0] || (cat.lines || [])[0] } : null;
+    var hit = null;
+    (month.categories || []).forEach(function (c) {
+      if (hit) return;
+      var l = (c.lines || []).filter(function (x) { return x.system === "checking"; })[0];
+      if (l) hit = { cat: c, line: l };
+    });
+    if (hit) return hit;
+    var old = (month.categories || []).filter(function (c) { return c.system === "checking"; })[0]; /* pre-v37.5.70, before migration */
+    return old ? { cat: old, line: (old.lines || [])[0] } : null;
   }
+  function savingsGroup(month) {
+    var cats = month.categories || [];
+    return cats.filter(function (c) { return c.system === "savings"; })[0] ||
+      cats.filter(function (c) { return c.system !== "checking" && /^\s*savings?\s*$/i.test(String(c.name || "")); })[0] || null;
+  }
+  /* Pure on the month record, safe at load: moves the old Checking GROUP's lines (same ids, same assigned) into the
+   * Savings group (made if missing), repoints spending legs' categoryId, and makes sure Savings has a Checking line.
+   * Line ids and amounts don't change, so Checking's running balance and every envelope stay exactly the same. */
+  function migrateCheckingIntoSavings(month, makeId) {
+    if (!month || !Array.isArray(month.categories) || !month.categories.length) return false;
+    var changed = false, cats = month.categories;
+    var mk = makeId || function (s) { return "sys-" + s + "-" + month.year + "-" + month.month; };
+    var sav = savingsGroup(month);
+    if (!sav) {
+      var max = cats.reduce(function (n, c) { return Math.max(n, Number(c.sortOrder) || 0); }, 0);
+      sav = { id: mk("savings"), name: "Savings", system: "savings", assigned: 0, sortOrder: max + 1, lines: [] };
+      cats.push(sav); changed = true;
+    }
+    if (sav.system !== "savings") { sav.system = "savings"; changed = true; }
+    if (!Array.isArray(sav.lines)) sav.lines = [];
+    cats.filter(function (c) { return c !== sav && c.system === "checking"; }).forEach(function (old) {
+      var lines = old.lines || [], ids = {};
+      if (!lines.length) lines = [{ id: mk("checking"), name: old.name || "Checking", assigned: Number(old.assigned) || 0 }];
+      lines.forEach(function (l, i) {
+        if (i === 0 && !lines.some(function (x) { return x.system === "checking"; })) l.system = "checking";
+        if (l.system === "checking" && old.name && old.name !== "Checking" && l.name === "Checking") l.name = old.name; /* keep a rename */
+        l.sortOrder = sav.lines.length; ids[l.id] = 1; sav.lines.push(l);
+      });
+      (month.transactions || []).forEach(function (t) {
+        if (t.legs && t.legs.length) t.legs.forEach(function (g) { if (ids[g.lineId] || g.categoryId === old.id) g.categoryId = sav.id; });
+        else if (ids[t.lineId] || t.categoryId === old.id) t.categoryId = sav.id;
+      });
+      month.categories = cats = cats.filter(function (c) { return c !== old; });
+      changed = true;
+    });
+    var ck = null; cats.forEach(function (c) { (c.lines || []).forEach(function (l) { if (l.system === "checking" && !ck) ck = { c: c, l: l }; }); });
+    if (!ck) {
+      sav.lines.push({ id: mk("checking"), name: "Checking", system: "checking", assigned: 0, sortOrder: sav.lines.length }); changed = true;
+    } else if (ck.c !== sav) { /* a Checking line dragged into another group goes back to Savings */
+      ck.c.lines = ck.c.lines.filter(function (l) { return l !== ck.l; });
+      ck.l.sortOrder = sav.lines.length; sav.lines.push(ck.l);
+      (month.transactions || []).forEach(function (t) {
+        if (t.legs && t.legs.length) t.legs.forEach(function (g) { if (g.lineId === ck.l.id) g.categoryId = sav.id; });
+        else if (t.lineId === ck.l.id) t.categoryId = sav.id;
+      });
+      changed = true;
+    }
+    return changed;
+  }
+  var checkingMovedAtLoad; /* set by loadState (may run before this line), cleared on the first Budget render save */
   function ensureCheckingEnvelope(month) {
-    if (!month || !(month.categories || []).length || checkingLine(month)) return false;
-    var max = month.categories.reduce(function (n, c) { return Math.max(n, Number(c.sortOrder) || 0); }, 0);
-    month.categories.push({ id: nextId(), name: "Checking", system: "checking", assigned: 0, sortOrder: max + 1,
-      lines: [{ id: nextId(), name: "Checking", system: "checking", assigned: 0, sortOrder: 0 }] });
-    return true;
+    if (!month || !(month.categories || []).length) return false;
+    return migrateCheckingIntoSavings(month, function () { return nextId(); });
   }
   /* No envelope rolls over in Paper Trail (each month = assigned − spent that month). Checking is the one
    * exception shown as a running balance: every month up to this one, assigned − spent on Checking. */
@@ -4074,7 +4137,7 @@
   function openWrapMonth() {
     var month = monthRecord(), nx = offsetMonth(month.year, month.month, 1);
     ensureCheckingEnvelope(month);
-    var w = wrapPlan(month), ck = checkingLine(month), ckName = ck && ck.cat ? ck.cat.name : "Checking";
+    var w = wrapPlan(month), ck = checkingLine(month), ckName = ck && ck.line ? ck.line.name || "Checking" : "Checking";
     var label = MONTH_NAMES[month.month - 1] + " " + month.year, nxName = MONTH_NAMES[nx.month - 1];
     var body = "", actions = '<button type="button" data-act="close-modal">Not yet</button>';
     if (w.kind === "zero") {
@@ -4142,7 +4205,7 @@
     if (window.PaperTrailImport && window.PaperTrailImport.isBlankMonth(m)) return true;
     /* An auto-copied plan nobody has edited yet still counts as empty. */
     var lines = [];
-    (m.categories || []).forEach(function (c) { if (c.system !== "checking") lines = lines.concat(c.lines || []); });
+    (m.categories || []).forEach(function (c) { if (c.system !== "checking") lines = lines.concat((c.lines || []).filter(function (l) { return l.system !== "checking"; })); });
     return lines.every(function (l) { return l.autoCopy || !(Number(l.assigned) || 0); }) &&
       (m.incomes || []).every(function (i) { return i.autoCopy || !(Number(i.amount) || 0); });
   }
@@ -4172,8 +4235,8 @@
       else if (!copy && dest) {
         (dest.categories || []).forEach(function (c) {
           if (c.system === "checking") return;
-          (c.lines || []).forEach(function (l) { l.assigned = 0; delete l.autoCopy; });
-          if (!(c.lines || []).length) c.assigned = 0; else c.assigned = 0;
+          (c.lines || []).forEach(function (l) { if (l.system === "checking") return; l.assigned = 0; delete l.autoCopy; });
+          c.assigned = 0;
         });
         (dest.incomes || []).forEach(function (i) { i.amount = 0; delete i.autoCopy; });
       }
@@ -4291,7 +4354,8 @@
       '<section class="hero budget-hero" data-mode="' + hMode + '">' +
       "<div><p class='kicker'>" + hKicker + "</p>" +
       '<p class="hero-amount ' + hTone + '" id="budget-hero-amount">' + money(hAmt) + "</p></div>" +
-      (monthStampEarned(month, totals) ? stampHtml(month.month, stampLandKey === ymKey(month.year, month.month)) : "") +
+      (monthStampEarned(month, totals) ? stampHtml(month.month, stampLandKey === ymKey(month.year, month.month))
+        : !month.closedAt && ltb === 0 && (totals.income > 0 || totals.assigned > 0) ? stampSlotHtml() : "") +
       "</section>" + wrapMonthHtml(month, totals);
     var incOpen = !!state.budgetIncomeOpen;
     html += '<div class="income-fold' + (incOpen ? " open" : "") + '">' +
@@ -4988,20 +5052,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         "</ol></section>";
       return html + "</div>";
     }
-    /* Insights merged in. Order: snapshot strip, grade, what to do next, net worth, this year,
-     * debt, reserves + tax-free room, wrapped, retirement, purchases, taxes, projections, one footer. Every card
+    /* Insights merged in. Order: snapshot strip, grade, net worth, this year,
+     * debt, reserves, wrapped, retirement, purchases, taxes, projections, one footer. Every card
      * carries one plain-English line (.plain-line). */
     var dMonth = ensureMonth(state.year, state.month), grade = null;
     if (!booksEmpty()) { try { grade = window.GradeMath.evaluate(buildGradeInput(dMonth)); } catch (e) {} }
-    var sr = null; try { sr = monthSavingsRates(); } catch (e) {}
     var dm = null; try { dm = debtCalcModel(); } catch (e) {}
     html += '<div class="dash-snap" id="dash-snap">' +
       '<div><span class="lbl">Grade</span><b>' + (grade ? grade.score : "—") + "</b></div>" +
-      '<div><span class="lbl">Savings rate</span><b>' + (sr ? pctWhole(sr.basic.rate) : "—") + "</b></div>" +
+      '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + "</b></div>" +
       '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel((dm.extra > 0 ? dm.withX : dm.base).months)) : "—") + "</b></div></div>";
     if (grade) {
       html += (isPremium() ? premiumGradeHeroHtml(grade) : gradeGlimpseHtml(grade)).replace("</section>", '<p class="plain-line">One number for how your money habits are set up. 100 is perfect.</p></section>');
-      html += nextActionHtml(grade);
+      if (SHELVED_FEATURES.fooNextStep) html += nextActionHtml(grade);
     }
     html += '<section class="dash-card dash-nw" id="dash-nw"><p class="dash-k">Net worth</p>';
     if (nw) {
@@ -5016,21 +5079,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // This year: income, savings rate and average tax in one tile.
     var inc = dashIncome(), yr = inc ? inc.year : currentYearMonth().year;
     var avg = inc ? inc.avgTax : null;
-    var trueLocked = sr && sr.trueRate && sr.trueRate.state === "locked";
     html += '<section class="dash-card dash-year" id="dash-year"><p class="dash-k">This year · ' + yr + "</p>";
     if (inc) {
       html += '<div class="dash-two"><div><span class="caption">Gross pay</span><strong class="mono">' + (inc.gross != null ? moneyWhole(inc.gross) : "—") + "</strong></div>" +
         '<div><span class="caption">Take-home</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
         '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement). Take-home = gross − taxes − pre-tax deductions − post-tax per-check lines × checks in the year. With no pay stub, the typed what-if is used; with neither, this year’s Budget paychecks are projected to 12 months. Estimate, not a guarantee.") + "</p>";
     } else html += '<p class="caption">Add a paycheck to estimate this year.</p>';
-    html += '<div class="dash-three"><button type="button" class="dash-sr-pick' + (dashRateMode() === "basic" ? " on" : "") + '" data-dash="sr-mode" data-mode="basic" aria-pressed="' + (dashRateMode() === "basic") + '">' +
-      '<span class="dash-mid mono moss">' + (sr ? pctWhole(sr.basic.rate) : "—") + '</span><span class="caption">Savings rate</span></button>' +
-      (trueLocked
-        ? '<button type="button" class="dash-sr-pick locked" data-act="set-plan" data-plan="premium"><span class="dash-sub">🔒</span><span class="caption">True rate · Premium</span></button>'
-        : '<button type="button" class="dash-sr-pick' + (dashRateMode() === "true" ? " on" : "") + '" data-dash="sr-mode" data-mode="true" aria-pressed="' + (dashRateMode() === "true") + '">' +
-          '<span class="dash-sub mono">' + (sr && sr.trueRate && sr.trueRate.state === "ok" ? pctWhole(sr.trueRate.rate) : "—") + '</span><span class="caption">True rate</span></button>') +
-      '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".\n\n" + dashRateHelp(sr)) + "</span></div></div>" +
-      '<p class="plain-line">' + (sr && sr.basic && sr.basic.rate != null ? "You’re saving " + pctWhole(sr.basic.rate) + " of what you take home" + (avg != null ? ", and about " + pctWhole(avg) + " of your pay goes to taxes." : ".") : "Your savings rate shows once a paycheck is in.") + "</p></section>";
+    /* v37.5.70: one savings rate (take-home based) + average tax; the Basic / True rate displays are gone. */
+    var dsr = dashSavingsRate();
+    var srLine = !dsr || dsr.rate == null ? "No pay planned yet this month — add your paychecks to the budget (or a salary in Pay) to see your savings rate."
+      : dsr.state === "over" ? "Planned savings (" + moneyWhole(dsr.savings) + ") are more than this month’s planned take-home (" + moneyWhole(dsr.takeHome) + "). Check your budget’s income and Savings lines."
+      : "Based on your plan: " + moneyWhole(dsr.savings) + " planned to savings of " + moneyWhole(dsr.takeHome) + " planned take-home" + (dsr.basis === "pay" ? " (from your Pay plan)" : "") + (avg != null ? ". About " + pctWhole(avg) + " of your pay goes to taxes." : ".");
+    html += '<div class="dash-three dash-two-stat"><div><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">Savings rate · planned ' +
+      helpQ("Savings rate (planned) = what this month’s budget plans for savings (every Savings line, Checking included, plus Roth / house-fund lines) ÷ this month’s planned take-home (your planned paychecks, or your Pay plan ÷ 12). It uses the plan, not what has arrived, so it’s steady from day one.") + "</span></div>" +
+      '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".") + "</span></div></div>" +
+      '<p class="plain-line">' + esc(srLine) + "</p></section>";
     html += debtCardHtml();
     html += dashReservesHtml(dMonth);
     html += wrapEntryHtml(dMonth);
@@ -5080,7 +5143,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ".\n\nYou have " + moneyWhole(R.inv.balance) + ". Estimate, not advice.";
       var mHelp = "Monthly savings needed = the level monthly amount (today’s dollars, rising with inflation each year) that, added to what you have now and growing " +
         rp + "% a year, reaches My number at " + I.retireAge + ". Counts you + employer + other additions, like Projected nest egg. Always shown; when you are ahead it is less than now.\n\n" +
-        "Now = this year’s retirement money so far (Jan–this month; the same set as the Income statement savings rate and the monthly Basic / True rates) ÷ " + R.dms.months + " months: " + moneyWhole(R.dms.year || 0) + " ÷ " + R.dms.months + " = " + moneyWhole(R.curMonth) + "/mo.\n" +
+        "Now = this year’s retirement money so far (Jan–this month; the same set as the Income statement and Dashboard savings rate) ÷ " + R.dms.months + " months: " + moneyWhole(R.dms.year || 0) + " ÷ " + R.dms.months + " = " + moneyWhole(R.curMonth) + "/mo.\n" +
         (R.dms.items.length ? R.dms.items.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing counted yet") +
         (R.dms.skipped.length ? "\n\nNot counted:\n" + R.dms.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") +
         "\n\nBudget lines count when they feed a Retirement account (Feeds account) or, not linked yet, by name (Roth / IRA / HSA / retire); 401k and HSA come from your pay stubs. Estimate, not advice.";
@@ -5108,7 +5171,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (rows.length > 3 ? '<button type="button" class="text-btn" data-dash="p-all">All ' + rows.length + " ›</button>" : "") + "</div></section>";
     html += dashTaxesHtml();
     // 8 Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
-    html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml();
+    html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml() + dashExtraGraphsHtml();
     var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
     if (pw || pi) {
       var last = pw ? pw.rows[pw.rows.length - 1] : pi.rows[pi.rows.length - 1];
@@ -5161,6 +5224,98 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
   }
 
+  /* v37.5.70 free-tier graphs under the net worth / income trend. */
+  function dashExtraGraphsHtml() {
+    return dashSpendByCategoryHtml() + dashSavingsTrendHtml() + dashZeroStreakHtml();
+  }
+  function dashBarsHtml(rows, fmt) {
+    var max = rows.reduce(function (m, r) { return Math.max(m, Math.abs(r.v) || 0); }, 0) || 1;
+    return '<div class="dash-bars">' + rows.map(function (r) {
+      return '<div class="dash-bar-row"><span class="dash-bar-lbl">' + esc(r.label) + '</span><span class="dash-bar-track"><span class="dash-bar-fill' + (r.dim ? " dim" : "") +
+        '" style="width:' + Math.max(2, Math.round(Math.abs(r.v) / max * 100)) + '%"></span></span><span class="dash-bar-v mono">' + esc(fmt(r.v)) + "</span></div>";
+    }).join("") + "</div>";
+  }
+  function dashSpendByCategoryHtml() {
+    /* The viewed month; early in a month with nothing logged yet, the latest month that has spending. */
+    var month = ensureMonth(state.year, state.month);
+    if (!(month.transactions || []).length) {
+      var prior = Object.keys(state.months || {}).map(function (k) { return state.months[k]; })
+        .filter(function (m) { return m && m.year && (m.year * 12 + m.month) < (month.year * 12 + month.month) && (m.transactions || []).length; })
+        .sort(function (a, b) { return (b.year * 12 + b.month) - (a.year * 12 + a.month); })[0];
+      if (prior) month = prior;
+    }
+    var label = MONTH_NAMES[month.month - 1];
+    var rows = sortedCategories(month).filter(function (cat) { return cat.system !== "checking"; }).map(function (cat) {
+      return { label: cat.name || "Category", v: roundCents((cat.lines || []).reduce(function (n, l) { return l.system === "checking" ? n : n + spentOnLine(month, l.id); }, 0)) };
+    }).filter(function (r) { return r.v > 0; }).sort(function (a, b) { return b.v - a.v; });
+    var total = rows.reduce(function (n, r) { return n + r.v; }, 0);
+    var html = '<section class="dash-card dash-spendcat" id="dash-spendcat"><p class="dash-k">Spending by category · ' + esc(label) + "</p>";
+    if (!rows.length) return html + '<p class="dash-big mono">$0</p><p class="caption">Log a transaction to see where the money goes.</p></section>';
+    var top = rows.slice(0, 6);
+    if (rows.length > 6) top.push({ label: "Other", v: roundCents(rows.slice(6).reduce(function (n, r) { return n + r.v; }, 0)), dim: true });
+    return html + '<p class="dash-big mono">' + moneyWhole(total) + "</p>" + dashBarsHtml(top, function (v) { return moneyWhole(v); }) +
+      '<p class="plain-line">What you spent in each category in ' + esc(label) + ', net of refunds. Most at ' + esc(rows[0].label) + ".</p></section>";
+  }
+  function dashSavingsTrendHtml() {
+    var cym = currentYearMonth(), pts = [];
+    for (var m = 1; m <= cym.month; m++) {
+      var rec = state.months && state.months[ymKey(cym.year, m)];
+      if (!rec) continue;
+      var r = null; try { r = dashSavingsRate(rec); } catch (e) {} /* same plan-based rate as the headline */
+      if (r && r.rate != null && isFinite(r.rate)) pts.push({ m: m, v: r.rate });
+    }
+    var html = '<section class="dash-card dash-srtrend" id="dash-srtrend"><p class="dash-k">Savings rate trend (planned) · ' + cym.year + "</p>";
+    if (!pts.length) return html + '<p class="dash-big mono">—</p><p class="caption">Shows once a month has planned pay.</p></section>';
+    var last = pts[pts.length - 1], max = Math.max.apply(null, pts.map(function (p) { return p.v; }).concat([0.0001]));
+    var bars = '<div class="dash-cols" role="img" aria-label="Savings rate by month">' + pts.map(function (p) {
+      return '<span class="dash-col" title="' + esc(MONTH_NAMES[p.m - 1] + " " + pctWhole(p.v)) + '"><span class="dash-col-fill" style="height:' + Math.max(3, Math.round(Math.max(0, p.v) / max * 100)) + '%"></span><span class="dash-col-lbl">' + MONTH_NAMES[p.m - 1].slice(0, 1) + "</span></span>";
+    }).join("") + "</div>";
+    return html + '<p class="dash-big mono">' + pctWhole(last.v) + ' <span class="caption">' + MONTH_NAMES[last.m - 1] + "</span></p>" + bars +
+      '<p class="plain-line">How much of your take-home went to retirement saving each month this year.</p></section>';
+  }
+  function dashZeroStreakHtml() {
+    var all = Object.keys(state.months || {}).map(function (k) { return state.months[k]; }).filter(function (m) { return m && m.year && m.month; })
+      .sort(function (a, b) { return (a.year * 12 + a.month) - (b.year * 12 + b.month); });
+    var run = 0, best = 0, prev = null;
+    all.filter(function (m) { return m.closedAt; }).forEach(function (m) {
+      var ok = monthStampEarned(m, sums(m)), idx = m.year * 12 + m.month;
+      run = ok ? (prev != null && idx === prev + 1 ? run + 1 : 1) : 0;
+      prev = ok ? idx : null; best = Math.max(best, run);
+    });
+    var html = '<section class="dash-card dash-streak" id="dash-streak"><p class="dash-k">Months closed at $0</p>' +
+      '<p class="dash-big mono">' + run + (run === 1 ? " month" : " months") + ' <span class="caption">in a row</span></p>';
+    html += '<div class="dash-dots" role="img" aria-label="Recent months closed at $0">' + all.slice(-12).map(function (m) {
+      var ok = m.closedAt && monthStampEarned(m, sums(m));
+      return '<span class="dash-dot' + (ok ? " on" : m.closedAt ? " miss" : "") + '" title="' + esc(MONTH_NAMES[m.month - 1] + " " + m.year) + '">' + MONTH_NAMES[m.month - 1].slice(0, 1) + "</span>";
+    }).join("") + "</div>";
+    return html + '<p class="plain-line">Months you wrapped up with every dollar given a job' + (best > run ? " · best run " + best : "") + ".</p></section>";
+  }
+  /* v37.5.70 Dashboard folds: every card starts collapsed to its title + one headline; the small
+   * explanations (plain lines, captions, ? help) show only when a card is opened. In-memory per session. */
+  var dashFoldOpen = {};
+  function dashApplyFolds(root) {
+    if (!root) return;
+    Array.prototype.forEach.call(root.children, function (sec, i) {
+      if (sec.tagName !== "SECTION" || sec.classList.contains("dash-start") || sec.classList.contains("dash-est")) return;
+      var id = sec.id || "card-" + i;
+      var head = sec.querySelector(":scope > .dash-head") || sec.querySelector(":scope > .dash-k, :scope > .kicker, :scope > .grade-hero-top, :scope > h3, :scope > .section-label");
+      if (!head) return;
+      if (!sec.classList.contains("dash-foldable")) {
+        sec.classList.add("dash-foldable"); head.classList.add("dash-head");
+        var hl = null;
+        ["dash-big", "grade-hero-score", "dash-two", "dash-three", "dash-rrow"].some(function (cls) { hl = sec.querySelector(":scope > ." + cls); return !!hl; });
+        if (!hl) hl = Array.prototype.filter.call(sec.children, function (x) { return x !== head && !x.classList.contains("plain-line") && !x.classList.contains("caption") && x.tagName !== "BUTTON"; })[0] ||
+          Array.prototype.filter.call(sec.children, function (x) { return x !== head && !x.classList.contains("plain-line") && !x.classList.contains("caption"); })[0];
+        if (hl) hl.classList.add("dash-headline");
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "dash-fold"; b.setAttribute("data-dash", "fold"); b.setAttribute("data-id", id);
+        head.appendChild(b);
+      }
+      var open = !!dashFoldOpen[id], fb = head.querySelector(".dash-fold");
+      sec.classList.toggle("dash-folded", !open);
+      if (fb) { fb.setAttribute("aria-expanded", String(open)); fb.setAttribute("aria-label", (open ? "Collapse " : "Expand ") + (head.textContent || "section").replace(/[?▾▴]/g, "").trim()); fb.textContent = open ? "▴" : "▾"; }
+    });
+  }
   function renderDashboard() {
     return statsSegmentHtml("dash") + dashboardHtml();
   }
@@ -5197,7 +5352,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     e.preventDefault(); e.stopPropagation();
     if (k === "est-toggle") { dashEstOpen = !dashEstOpen; render(); }
     else if (k === "ret-toggle") { dashRetOpen = !dashRetOpen; render(); }
-    else if (k === "sr-mode") { d.rateMode = t.getAttribute("data-mode") === "true" ? "true" : "basic"; saveState(); render(); }
+    else if (k === "fold") { var fid = t.getAttribute("data-id"); dashFoldOpen[fid] = !dashFoldOpen[fid]; dashApplyFolds(document.getElementById("dash")); }
     else if (k === "p-add") { closeModal(); openDashPurchase("", "pName"); }
     else if (k === "p-all") openDashPurchaseList();
     else if (k === "p-edit") { closeModal(); openDashPurchase(t.getAttribute("data-id"), t.getAttribute("data-focus") || "pName"); }
@@ -5928,8 +6083,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       catLines.forEach(function (line) {
         lines.push({
-          envelope: cat.name,
-          name: line.name,
+          envelope: line.system === "checking" ? "Checking" : cat.name, /* v37.5.70: grade math sees Checking exactly as when it was its own group */
+          name: line.system === "checking" ? "Checking" : line.name,
           assigned: Number(line.assigned) || 0,
           minPayment: Number(line.loanMinPayment) || 0
         });
@@ -6133,6 +6288,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html;
   }
 
+  /* v37.5.70 shelved features: the code stays for a later rework, but nothing renders while a flag is false.
+   *  fooNextStep  — Dashboard "What to do next" (FOO order-of-operations step; it stuck on the deductibles step).
+   *  taxFreeRoom  — Dashboard "Roth / HSA room left" card. */
+  var SHELVED_FEATURES = { fooNextStep: false, taxFreeRoom: false };
   /* Headline = the grade's next-dollar step, so this card always agrees with the grade. */
   function nextActionHtml(grade) {
     var foo = grade.foo || {}, na = grade.nextAction || {};
@@ -6473,7 +6632,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return h;
   }
   /* --- v37.5.68 "Try a loan" sandbox --------------------------------------------------------
-   * One balance, APR, monthly payment and optional extra; results update as you type. Lives in memory
+   * One balance, APR, term (years or months → monthly payment) and optional extra; results update as you type. Lives in memory
    * only (debtSandbox) and never touches the books. "Save as a loan" opens the normal Add a loan sheet,
    * prefilled, where Save is still your call. */
   var debtSandbox = null, DEBT_SB_CAP = 1200; /* 100 years */
@@ -6493,9 +6652,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { months: m, interest: roundCents(interest), paid: roundCents(paid), series: series, capped: bal > 0.005 };
   }
   function debtSbNum(v) { var t = String(v == null ? "" : v).replace(/[^0-9.]/g, ""); var n = parseFloat(t); return isFinite(n) ? n : 0; }
+  /* v37.5.70 (owner): the sandbox takes a TERM, not a payment. Standard amortized payment, rounded UP to the cent so
+   * the loan is paid off within the term (the last payment is a little smaller). 0% APR = balance ÷ months. */
+  function loanPaymentForTerm(balance, apr, months) {
+    var bal = Math.max(0, Number(balance) || 0), n = Math.round(Number(months) || 0), r = Math.max(0, Number(apr) || 0) / 1200;
+    if (!(bal > 0) || !(n > 0)) return 0;
+    var p = r > 0 ? bal * r / (1 - Math.pow(1 + r, -n)) : bal / n;
+    return Math.ceil(p * 100 - 1e-6) / 100;
+  }
+  function debtSbTermMonths(sb) {
+    var t = debtSbNum(sb.term);
+    return Math.min(DEBT_SB_CAP, Math.round(sb.unit === "months" ? t : t * 12));
+  }
   function debtSandboxModel(sb) {
-    var bal = debtSbNum(sb.bal), apr = Math.min(100, debtSbNum(sb.apr)), pay = debtSbNum(sb.pay), extra = debtSbNum(sb.extra);
-    var out = { bal: bal, apr: apr, pay: pay, extra: extra };
+    var bal = debtSbNum(sb.bal), apr = Math.min(100, debtSbNum(sb.apr)), extra = debtSbNum(sb.extra), term = debtSbTermMonths(sb);
+    var pay = loanPaymentForTerm(bal, apr, term);
+    var out = { bal: bal, apr: apr, pay: pay, extra: extra, term: term };
     out.base = loanSandboxSim(bal, apr, pay);
     if (extra > 0) out.withX = loanSandboxSim(bal, apr, pay + extra);
     return out;
@@ -6523,7 +6695,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function debtSandboxOutHtml() {
     var M = debtSandboxModel(debtSandbox || {});
     if (!(M.bal > 0)) return '<p class="caption debt-sb-msg">Enter a balance to see a payoff date.</p>';
-    if (!(M.pay > 0) && !(M.extra > 0)) return '<p class="caption debt-sb-msg">Enter a monthly payment to see a payoff date.</p>';
+    if (!(M.term > 0)) return '<p class="caption debt-sb-msg">Enter a term to see the monthly payment.</p>';
     var R = M.withX || M.base, eff = M.withX ? M.withX : M.base;
     if (M.base.tooLow && (!M.withX || M.withX.tooLow)) {
       var need = Math.floor(M.base.monthlyInterest) + 1;
@@ -6531,7 +6703,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ", so the balance would never go down. Try more than " + moneyWhole(need) + " a month.</p>";
     }
     if (M.base.tooLow) R = M.withX;
-    var h = "";
+    var h = '<div class="debt-sb-pay"><span class="lbl">Monthly payment</span><b class="mono" id="debt-sb-pay">' + formatMoney(M.pay, 2) + '</b><span class="caption small">' + esc(formatDuration(M.term)) + " at " + (Math.round(M.apr * 100) / 100) + "% APR</span></div>";
     if (eff.capped || R.capped) {
       h += '<p class="debt-warn" role="alert"><strong>Over 100 years.</strong> At this payment the loan isn’t paid off in 100 years. Try a bigger payment.</p>';
       return h;
@@ -6553,22 +6725,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function debtSandboxHtml() {
     var sb = debtSandbox || {};
     function f(k, label, ph) {
-      return '<label class="field">' + label + '<input type="text" inputmode="decimal" data-debt-sb="' + k + '" value="' + esc(sb[k] || "") + '" placeholder="' + ph + '"></label>';
+      var money = k === "bal" || k === "extra";
+      return '<label class="field">' + label + '<input type="text" inputmode="decimal" data-debt-sb="' + k + '"' + (money ? ' data-commas="1" class="mono money-fixed"' : "") + ' value="' + esc(money ? commaMoneyText(sb[k]) : (sb[k] || "")) + '" placeholder="' + ph + '"></label>';
     }
     return '<div class="sheet-top"><h3>Try a loan</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
       '<p class="caption">Play with one loan. Nothing here is saved to your books.</p>' +
-      '<div class="debt-sb-fields">' + f("bal", "Balance", "$0") + f("apr", "Interest rate (APR %)", "0%") + f("pay", "Monthly payment", "$0") + f("extra", "Extra per month (optional)", "$0") + "</div>" +
+      '<div class="debt-sb-fields">' + f("bal", "Balance", "$0") + f("apr", "Interest rate (APR %)", "0%") + '<div class="field debt-sb-term"><span>Term</span><div class="debt-sb-term-row"><input type="text" inputmode="numeric" data-debt-sb="term" value="' + esc(sb.term || "") + '" placeholder="' + (sb.unit === "months" ? "60" : "5") + '" aria-label="Term in ' + (sb.unit === "months" ? "months" : "years") + '">' +
+        '<div class="pay-seg" role="group" aria-label="Term unit"><button type="button" class="pay-seg-b' + (sb.unit === "months" ? "" : " on") + '" data-debt="sb-unit" data-to="years" aria-pressed="' + (sb.unit !== "months") + '">Years</button><button type="button" class="pay-seg-b' + (sb.unit === "months" ? " on" : "") + '" data-debt="sb-unit" data-to="months" aria-pressed="' + (sb.unit === "months") + '">Months</button></div></div></div>'  + f("extra", "Extra per month (optional)", "$0") + "</div>" +
       '<div id="debt-sb-out" aria-live="polite">' + debtSandboxOutHtml() + "</div>" +
       '<div class="sheet-actions"><button type="button" data-debt="sb-back">Back</button><button type="button" class="primary" data-debt="sb-save">Save as a loan</button></div>' +
       '<p class="caption estimate-note">Estimate, not advice. Interest is figured monthly on the balance; real lenders may differ.</p>';
   }
   function openDebtSandbox() {
-    debtSandbox = debtSandbox || { bal: "", apr: "", pay: "", extra: "" };
+    debtSandbox = debtSandbox || { bal: "", apr: "", term: "", unit: "years", extra: "" };
     var modal = document.getElementById("modal");
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet debt-sheet" id="debt-sheet" data-sandbox="1">' + debtSandboxHtml() + "</div>";
     armSheetA11y(modal);
   }
+  /* v37.5.70: big-dollar inputs (Try a loan, Add / Edit a loan) show thousands commas as you type. Caps at
+   * 9 whole digits + 2 decimals; the caret stays after the same digit it followed. Field width is fixed in CSS. */
+  var MONEY_INT_CAP = 9;
+  function commaMoneyText(v) {
+    var t = String(v == null ? "" : v).replace(/[^0-9.]/g, "");
+    if (!t) return "";
+    var dot = t.indexOf("."), i = dot < 0 ? t : t.slice(0, dot), d = dot < 0 ? null : t.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+    i = i.replace(/^0+(?=\d)/, "").slice(0, MONEY_INT_CAP);
+    if (!i && d != null) i = "0";
+    return i.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (d != null ? "." + d : "");
+  }
+  document.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el || !el.getAttribute || el.getAttribute("data-commas") !== "1") return;
+    var pos = el.selectionStart == null ? el.value.length : el.selectionStart;
+    var before = el.value.slice(0, pos).replace(/[^0-9.]/g, "").length, next = commaMoneyText(el.value);
+    if (next === el.value) return;
+    el.value = next;
+    var n = 0, at = next.length;
+    if (before === 0) at = 0;
+    else for (var j = 0; j < next.length; j++) { if (/[0-9.]/.test(next[j])) n++; if (n >= before) { at = j + 1; break; } }
+    try { el.setSelectionRange(at, at); } catch (err) {}
+  }, true);
   document.addEventListener("input", function (e) {
     var el = e.target, k = el && el.getAttribute && el.getAttribute("data-debt-sb");
     if (!k || !debtSandbox) return;
@@ -6604,9 +6801,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet" id="debt-edit"><div class="sheet-top"><h3>' + (l ? "Edit " + esc(l.name) : "Add a loan") + '</h3><button type="button" class="sheet-x" data-debt="' + back + '" aria-label="Back">✕</button></div>' +
       '<label class="field">Name<input id="debt-e-name" value="' + esc(l ? l.name : "") + '"' + (l ? " disabled" : "") + "></label>" +
-      '<label class="field">Balance<input id="debt-e-bal" inputmode="decimal" value="' + (l && l.balance ? l.balance : fromSb && fromSb.balance ? fromSb.balance : "") + '"></label>' +
+      '<label class="field">Balance<input id="debt-e-bal" inputmode="decimal" data-commas="1" class="mono money-fixed" value="' + commaMoneyText(l && l.balance ? l.balance : fromSb && fromSb.balance ? fromSb.balance : "") + '"></label>' +
       '<label class="field">Interest rate (APR %)<input id="debt-e-apr" inputmode="decimal" value="' + (l && l.apr ? l.apr : fromSb && fromSb.apr ? fromSb.apr : "") + '"></label>' +
-      '<label class="field">Minimum payment / month<input id="debt-e-min" inputmode="decimal" value="' + (l && l.min ? l.min : fromSb && fromSb.min ? fromSb.min : "") + '"></label>' +
+      '<label class="field">Minimum payment / month<input id="debt-e-min" inputmode="decimal" data-commas="1" class="mono money-fixed" value="' + commaMoneyText(l && l.min ? l.min : fromSb && fromSb.min ? fromSb.min : "") + '"></label>' +
       '<label class="field">Type<select id="debt-e-type">' + types.map(function (t) { return '<option value="' + t[0] + '"' + (l && l.debtType === t[0] ? " selected" : "") + ">" + t[1] + "</option>"; }).join("") + "</select></label>" +
       (fromSb ? '<p class="caption">From your Try a loan numbers. Saving adds this loan to Net Worth.</p>' : "") + (l && l.source === "nw" ? '<p class="caption">Typing a balance keeps it as is (budget payments stop reducing it). Clear it to go back to your Net worth balance.</p>' : "") +
       '<div class="sheet-actions"><button type="button" data-debt="' + back + '">Cancel</button><button type="button" class="primary" data-debt="save" data-id="' + esc(l ? l.id : "") + '">Save</button></div></div>';
@@ -6644,6 +6841,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (a === "try") openDebtSandbox();
     else if (a === "sb-return") openDebtSandbox();
     else if (a === "sb-back") { debtSandbox = null; openDebtCalc(); }
+    else if (a === "sb-unit") {
+      /* keep the same length of loan when switching units */
+      var sbu = debtSandbox || {}, to = b.getAttribute("data-to") === "months" ? "months" : "years", tm = debtSbTermMonths(sbu);
+      if (to !== (sbu.unit === "months" ? "months" : "years")) {
+        sbu.unit = to;
+        if (tm > 0) sbu.term = String(to === "months" ? tm : Math.round(tm / 12 * 100) / 100);
+        var sh = document.getElementById("debt-sheet"); if (sh) sh.innerHTML = debtSandboxHtml();
+      }
+    }
     else if (a === "sb-save") {
       var sbm = debtSandboxModel(debtSandbox || {});
       openDebtEdit("", { balance: sbm.bal, apr: sbm.apr, min: sbm.pay });
@@ -8278,21 +8484,42 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* ? beside the Basic / True picker — what differs, with this month's dollars. */
   /* ? beside the Basic / True picker — what differs, with this month's dollars. */
-  function dashRateHelp(sr) {
-    var mn = sr && sr.month ? MONTH_NAMES[sr.month.month - 1] : "This month";
-    var t = "Basic vs True\n\nSame money in both: retirement budget lines (Feeds a Retirement account, or named Roth / IRA / HSA), 401k and HSA (you + employer), and retirement extras.\n\n" +
-      "Basic ÷ take-home (planned until every paycheck arrives).\n" +
-      (sr && sr.basic && sr.basic.rate != null ? mn + ": " + money(sr.basic.savings) + " ÷ " + money(sr.basic.takeHome) + " = " + pctWhole(sr.basic.rate) : mn + ": add a paycheck to see Basic.") +
-      "\n\nTrue ÷ gross pay from confirmed pay stubs — stricter; needs a stub and Premium.\n";
-    var tr = sr && sr.trueRate;
-    if (tr && tr.state === "ok" && tr.rate != null) {
-      var den = tr.denominator != null ? tr.denominator : tr.gross;
-      t += mn + ": " + money(tr.numerator != null ? tr.numerator : tr.rate * den) + " ÷ " + money(den) + " = " + pctWhole(tr.rate);
-    } else t += mn + ": " + (tr && tr.state === "locked" ? "needs Premium." : "confirm a pay stub to see True.");
-    return t + "\n\n3-paycheck months can swing monthly rates; Needed to stay on track uses this year so far.\n\n" +
-      "Tap Basic or True to pick which one that row uses (now: " + (dashRateMode() === "true" ? "True" : "Basic") + ").";
+  /* v37.5.70 (owner decision after "~110% on day one of a month"): the Dashboard's one savings rate is PLAN-based.
+   * Cause of the 110%: the old rate divided the whole month's retirement money by take-home that falls back to
+   * RECEIVED income when a month has no planned paychecks, so the first small deposit became the denominator.
+   * Now: planned savings ÷ planned take-home for the viewed month.
+   *   planned savings = assigned on every line in the built-in Savings group (Checking included) plus any other line
+   *     GradeMath.isSavingsEnvelope already counts (Roth, House fund…); 401k lines are excluded there.
+   *   planned take-home = the month's planned income lines; with none, the Pay plan's take-home ÷ 12.
+   * Received income never enters, so day one, mid-month and month-end read the same until the plan changes. */
+  function dashPlannedSavings(month) {
+    var isSav = gm().isSavingsEnvelope || function () { return false; }, total = 0;
+    (month.categories || []).forEach(function (cat) {
+      var lines = cat.lines || [];
+      if (!lines.length) { if (cat.system === "savings" || isSav(cat.name, cat.name)) total += Number(cat.assigned) || 0; return; }
+      lines.forEach(function (l) {
+        if (cat.system === "savings" || l.system === "checking" || isSav(cat.name, l.name)) total += Number(l.assigned) || 0;
+      });
+    });
+    return roundCents(Math.max(0, total));
   }
-  function dashRateMode() { var d = dashState(); return d && d.rateMode === "true" ? "true" : "basic"; }
+  function dashSavingsRate(month) {
+    month = month || ensureMonth(state.year, state.month);
+    var savings = dashPlannedSavings(month), th = 0, basis = "plan";
+    try { th = Number(sums(month).income) || 0; } catch (e) {}
+    if (!(th > 0)) {
+      try { th = (Number(estimateCompensation(state.compensation || defaultCompensation()).takeHome) || 0) / 12; } catch (e) {}
+      basis = "pay";
+    }
+    if (!(th > 0)) return { rate: null, state: "no-income", savings: savings, takeHome: 0, basis: basis };
+    var rate = savings / th;
+    return { rate: rate, state: rate > 1 ? "over" : "ok", savings: savings, takeHome: roundCents(th), basis: basis };
+  }
+  function dashSavingsRateText(d) {
+    if (!d || d.rate == null) return "—";
+    return d.state === "over" ? "100%+" : pctWhole(d.rate);
+  }
+  function dashRateMode() { return "basic"; } /* v37.5.70: True rate display removed from the Dashboard. */
   function monthSavingsRates(month) {
     month = month || ensureMonth(state.year, state.month);
     var envelopes = retireEnvTotal(month.categories || []);
@@ -8343,7 +8570,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (plain ? '<p class="plain-line">' + esc(plain) + "</p>" : "") + "</section>";
   }
 
-  /* Emergency reserves + Roth / HSA room (were Premium-only on Insights). */
+  /* Emergency reserves (+ Roth / HSA room, shelved in v37.5.70; see SHELVED_FEATURES). */
   function dashReservesHtml(month) {
     var html = "";
     try {
@@ -8356,7 +8583,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         html += insightCard("Emergency reserves", "3–6 month target " + moneyWhole(monthly * 3) + " – " + moneyWhole(monthly * 6) + ". On hand " + moneyWhole(onHand) + ".",
           "Your cash would cover about " + (Math.round(months * 10) / 10) + " months of spending if your pay stopped.");
       }
-      html += taxFreeRoomCard(est, foo);
+      if (SHELVED_FEATURES.taxFreeRoom) html += taxFreeRoomCard(est, foo);
     } catch (e) {}
     return html;
   }
@@ -10807,7 +11034,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       field("Name", "name", cat.name) +
       '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
       '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
-      (cat.system === "checking" ? '<p class="caption">Checking is built in: rename it if you like, but it can’t be deleted. Wrap-up uses it for leftover dollars.</p>'
+      (cat.system === "savings" ? '<p class="caption">Savings is built in: rename it if you like, but it can’t be deleted. It holds your Checking line, where wrap-up parks leftover dollars.</p>'
+        : cat.system === "checking" ? '<p class="caption">Checking is built in: rename it if you like, but it can’t be deleted. Wrap-up uses it for leftover dollars.</p>'
         : deleteBtnHtml("delete-category", "Delete " + esc(cat.name), ' data-id="' + esc(cat.id) + '"')),
       "save-category");
   }
@@ -11460,10 +11688,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var fill = left > 0 ? left : 0;
     return '<button type="button" class="remaining-chip' + (over ? " over" : "") +
       '" data-act="spend-fill-remaining" data-amount="' + esc(String(fill)) +
-      '" aria-label="' + esc(money(left) + " left in " + name + ". Tap to fill amount.") + '">' +
-      '<span><span class="rem-label">' + esc(money(left) + " left in " + name) + "</span>" +
+      '" aria-label="' + esc(formatMoney(left, 2) + " left in " + name + ". Tap to fill amount.") + '">' +
+      '<span><span class="rem-label">' + esc(formatMoney(left, 2) + " left in " + name) + "</span>" +
       '<span class="rem-hint">Tap to fill amount' + (left <= 0 ? " ($0 when overspent)" : "") + "</span></span>" +
-      '<span class="rem-amt mono">' + esc(money(left)) + "</span></button>";
+      '<span class="rem-amt mono">' + esc(formatMoney(left, 2)) + "</span></button>";
   }
 
   function spendAmountAccessoryHtml(month, income) {
@@ -11500,18 +11728,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return out;
   }
-  function edAmountText() {
-    if (!edUi.amt) return "$0.00";
-    var parts = edUi.amt.split(".");
-    var whole = "$" + Number(parts[0] || 0).toLocaleString("en-US");
-    var cents = parts.length > 1 ? parts[1].slice(0, 2) : null;
-    // Always show cents once the pad is closed ("$42.50"); while typing, show what was typed and grey placeholder zeros.
-    if (!edUi.pad) return esc(whole + "." + ((cents || "") + "00").slice(0, 2));
-    /* Always draw the cents slot (ghosted until typed) so the number never changes shape mid-typing. */
-    if (cents == null) return esc(whole) + '<span class="ed-amt-ghost">.00</span>';
-    return esc(whole + "." + cents) + (cents.length < 2 ? '<span class="ed-amt-ghost">' + "00".slice(cents.length) + "</span>" : "");
-  }
-  function edAmtLen() { return String(edUi && edUi.amt || "").replace(".", "").length; }
+  /* v37.5.70 calculator-style entry: edUi.amt holds cents digits, so typing 1234 reads $12.34 and 5 reads $0.05. */
+  function edAmountText() { return esc(formatMoney(edCentsValue(edUi.amt), 2)); }
+  function edCentsValue(digits) { return centsFromDigits(digits); }
+  function edCentsDigits(n) { var c = Math.round((Number(n) || 0) * 100); return c > 0 ? String(c) : ""; }
+  function edAmtLen() { return Math.max(3, String(edUi && edUi.amt || "").length); }
   function renderEdAdd(month) {
     month = month || ensureMonth(state.year, state.month);
     var d = spendDraft, inc = d.type === "income";
@@ -11539,8 +11760,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
           var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
           var rem = roundCents(remainingForLine(month, l.lineId));
-          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + moneyWhole(rem) + ' remaining</span></span>' +
-            '<input type="text" inputmode="decimal" autocomplete="off" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? (Number(l.amount)).toFixed(2) : "") + '" placeholder="$0.00">' +
+          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
+            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '" placeholder="$0.00">' +
             '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
         }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
       }
@@ -11550,7 +11771,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (d.id) h += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(d.id) + '"');
     if (edUi.pad) {
       h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
         '<button type="button" class="ed-done" data-ed="done">Done</button></div>';
     }
     if (edUi.picker && !inc) {
@@ -11564,7 +11785,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
         if (x.cat !== lastCat) { h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>"; lastCat = x.cat; }
         h += '<button type="button" class="ed-item' + (sel[x.line.id] ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '" aria-pressed="' + !!sel[x.line.id] + '">' +
-          '<span class="ed-check">' + (sel[x.line.id] ? "✓" : "") + "</span><span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + moneyWhole(x.rem) + " remaining</span></button>";
+          '<span class="ed-check">' + (sel[x.line.id] ? "✓" : "") + "</span><span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>";
       });
       h += "</div>";
     }
@@ -11584,7 +11805,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
   function edSyncAmount() {
-    spendDraft.amount = roundCents(Number(edUi.amt) || 0);
+    spendDraft.amount = roundCents(edCentsValue(edUi.amt));
     var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
     if (legs.length === 1) legs[0].amount = spendDraft.amount;
   }
@@ -11600,8 +11821,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (a === "key") {
       var k = b.getAttribute("data-k"), s = edUi.amt;
       if (k === "⌫") s = s.slice(0, -1);
-      else if (k === ".") { if (s.indexOf(".") < 0) s = (s || "0") + "."; }
-      else if (!(s.indexOf(".") >= 0 && s.split(".")[1].length >= 2) && s.replace(".", "").length < 9) s = (s === "0" ? "" : s) + k;
+      else if (/^\d+$/.test(k)) { s = (s + k).replace(/^0+/, ""); if (s.length > 9) s = edUi.amt; }
       edUi.amt = s; edSyncAmount();
     }
     else if (a === "picker") { edUi.picker = true; edUi.pad = false; }
@@ -11637,7 +11857,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
     else if (li != null) {
       var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
-      if (legs[+li]) legs[+li].amount = roundCents(Number(String(el.value).replace(/[^0-9.]/g, "")) || 0);
+      /* Calculator style like the main amount: digits fill from the cents. */
+      var dg = String(el.value).replace(/\D/g, "").replace(/^0+/, "").slice(0, 9);
+      if (legs[+li]) legs[+li].amount = roundCents(centsFromDigits(dg));
+      el.value = dg ? formatMoney(centsFromDigits(dg), 2) : "";
+      try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
       edAllocPaint();
     }
   }, true);
@@ -11656,7 +11880,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var err = "";
     if (!(amt > 0)) err = "Enter an amount.";
     else if (spendDraft.type !== "income" && !legs.length) err = "Choose a budget item.";
-    else if (spendDraft.type !== "income" && legs.length > 1 && cents(legs.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0)) !== cents(amt)) err = "Split amounts must add up to " + money(amt) + ".";
+    else if (spendDraft.type !== "income" && legs.length > 1 && cents(legs.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0)) !== cents(amt)) err = "Split amounts must add up to " + formatMoney(amt, 2) + ".";
     if (err) { e.preventDefault(); e.stopImmediatePropagation(); edUi.err = err; renderEdAdd(); return; }
     edUi = null;
   }, true);
@@ -12145,7 +12369,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) return;
     spendDraft.categoryTouched = true;
     var a = roundCents(Number(spendDraft.amount) || 0);
-    edUi = { pad: false, picker: false, q: "", amt: a ? String(a) : "", err: "", edit: true };
+    edUi = { pad: false, picker: false, q: "", amt: edCentsDigits(a), err: "", edit: true };
     renderEdAdd(month);
   }
 
@@ -13147,7 +13371,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<div class="pay-ded"' + attrs + '>' +
       (named ? '<input class="pay-ded-name" data-act="pay-ded" data-field="name"' + attrs + ' type="text" placeholder="Name" value="' + esc(row.name || "") + '">'
         : '<span class="pay-ded-name">' + esc(row.id === "medical" ? "Medical" : row.id === "ltd" ? "LTD" : row.id === "commuter" ? "Commuter" : row.id === "life" ? "Life" : row.name) + "</span>") +
-      '<button type="button" class="pay-chip pay-mode" data-act="pay-ded-mode"' + attrs + '>' + (row.method === "percentNet" ? "% of net" : pct ? "% of gross" : "$ per check") + "</button>" +
+      /* v37.5.70: a plain $ / % switch on every deduction line ("%" = % of salary, i.e. gross pay on this statement). */
+      '<span class="pay-seg" role="group" aria-label="Enter as dollars or percent">' +
+        '<button type="button" class="pay-seg-b' + (pct ? "" : " on") + '" data-act="pay-ded-mode" data-to="fixed"' + attrs + ' aria-pressed="' + !pct + '">$ / check</button>' +
+        '<button type="button" class="pay-seg-b' + (pct ? " on" : "") + '" data-act="pay-ded-mode" data-to="pct"' + attrs + ' aria-pressed="' + pct + '">' + (row.method === "percentNet" ? "% of net" : "% of salary") + "</button></span>" +
       input +
       '<span class="mono pay-ded-yr">' + money(deductionAmount(row, est.cashPay, net)) + "</span>" +
       '<button type="button" class="pay-x" data-act="pay-ded-remove"' + attrs + ' aria-label="Remove">×</button></div>';
@@ -13306,8 +13533,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (id === "other") plan.preTax.push({ id: "other-" + nextId(), name: "", method: "fixed", value: 0, on: true, perCheck: true, checkAmt: 0 });
       else if (row) row.on = true;
       payAddOpen = "";
-    } else if (act === "pay-ded-mode" && row) {
-      var cash = estimateCompensation(plan).cashPay, checks = payChecks(plan), yr = deductionAmount(row, cash, 0);
+    } else if (act === "pay-ded-mode" && row && (el.getAttribute("data-to") || "") !== (row.method === "fixed" ? "fixed" : row.method ? "pct" : "")) {
+      var est0 = estimateCompensation(plan), cash = est0.cashPay, checks = payChecks(plan);
+      row = findDeduction(plan, kind, id) || row; /* the estimate re-normalizes plan.preTax, so re-find the live row */
+      var yr = deductionAmount(row, cash, Math.max(0, est0.cashPay - est0.preTaxTotal - est0.totalTax));
       if (row.method === "fixed") { row.method = "percentGross"; row.value = cash > 0 ? Math.round(yr / cash * 10000) / 100 : 0; delete row.perCheck; delete row.checkAmt; }
       else { row.method = "fixed"; row.perCheck = true; row.checkAmt = roundCents(yr / checks); row.value = roundCents(row.checkAmt * checks); }
       if (row.id === "401k") { plan.employee401kValue = row.value; plan.employee401kIsPercent = row.method !== "fixed"; }
@@ -16187,7 +16416,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.69";
+  var APP_VERSION = "37.5.70";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -16579,8 +16808,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!m) return { lines: lines, inc: inc, assigned: 0, income: 0, tx: {} };
     (m.categories || []).forEach(function (c) {
       if (c.system === "checking") return;
-      (c.lines || []).forEach(function (l) { lines[clean(c.name) + "|" + clean(l.name)] = { name: l.name, v: Number(l.assigned) || 0 }; });
-      assigned += catAssigned(c);
+      var ckL = (c.lines || []).filter(function (l) { return l.system === "checking"; })[0];
+      (c.lines || []).forEach(function (l) { if (l.system !== "checking") lines[clean(c.name) + "|" + clean(l.name)] = { name: l.name, v: Number(l.assigned) || 0 }; });
+      assigned += catAssigned(c) - (ckL ? Number(ckL.assigned) || 0 : 0);
     });
     (m.incomes || []).forEach(function (i) { inc[clean(i.name)] = { name: i.name, v: Number(i.amount) || 0 }; income += Number(i.amount) || 0; });
     var tx = {};
@@ -17365,6 +17595,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (state.tab === "stats" && (!state.statsDoor || state.statsDoor === "dash")) {
       state.statsDoor = "dash";
       screen.innerHTML = renderDashboard();
+      dashApplyFolds(document.getElementById("dash"));
       bindNwScrubber(screen);
       bindMoneyInputs(screen);
     } else if (state.tab === "stats" && state.statsDoor === "vault") {
@@ -17380,7 +17611,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       searchActive = document.activeElement && document.activeElement.getAttribute("data-act") === "spend-search";
       caret = searchActive ? document.activeElement.selectionStart : null;
       if (state.tab === "budget") {
-        if (ensureCheckingEnvelope(month)) { totals = sums(month); saveState(); }
+        if (ensureCheckingEnvelope(month) || checkingMovedAtLoad) { checkingMovedAtLoad = false; totals = sums(month); saveState(); }
         screen.innerHTML = renderBudget(month, totals);
         bindEnvelopeHold(screen);
       }

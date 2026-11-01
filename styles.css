@@ -4803,10 +4803,6 @@ body.night .sg-grid td.sg-goalcol.empty { color: color-mix(in srgb, var(--gold) 
   border-radius: 12px; background: #fff8f7; color: #8c1d18; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .uncat-note { margin: 4px 0 8px; padding: 8px 10px; border-radius: 10px; background: #fdecea; color: #8c1d18; font-size: calc(13px * var(--fs-scale)); font-weight: 600; }
 /* Savings rate tile — tap Basic or True to pick the mode the retirement "Needed to stay on track" row follows. */
-.dash-sr-pick{display:block;width:100%;text-align:left;background:none;border:0;padding:2px 6px;margin:0 -6px;border-radius:10px;font:inherit;color:inherit;cursor:pointer}
-.dash-sr-pick .dash-mid,.dash-sr-pick .dash-sub,.dash-sr-pick .caption{display:block}
-.dash-sr-pick.on{background:var(--paper-2,rgba(0,0,0,.05));box-shadow:inset 0 0 0 1px var(--line,rgba(0,0,0,.12))}
-.dash-sr-pick.on .caption::after{content:" ✓"}
 .dash-of{font-size:calc(13px * var(--fs-scale));font-weight:500;font-family:inherit;letter-spacing:0;white-space:nowrap}
 
 /* Edit transaction — summary at the top, Save in the sticky top bar beside ✕. */
@@ -4933,10 +4929,8 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
 .dash-snap b{font-family:var(--ui);font-size:calc(17px * var(--fs-scale))}
 .dash .card.insight-card,.dash .card.grade-hero{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:12px 14px;margin:0 0 12px;box-shadow:none}
 .dash-three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;align-items:start}
-.dash-three .dash-sr-pick{margin:0;padding:6px}
 .dash-three .dash-avgtax{padding:6px}
 .dash-three .dash-avgtax .caption{display:block}
-.dash-sr-pick.locked .dash-sub{font-size:calc(18px * var(--fs-scale))}
 .wrap-tile-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
 .wrap-tile-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:10px;font:inherit;color:inherit;cursor:pointer}
 .est-footer{text-align:center;margin:16px 0 4px}
@@ -5227,3 +5221,55 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .modal:has(> .ed-add){flex-direction:column;justify-content:flex-end;align-items:center}
 .sheet.ed-add{flex:0 1 auto;min-height:0}
 @media (max-height:620px){.ed-pad button{padding:4px 0}.ed-pad .ed-done{padding:7px 0;margin-top:2px}.ed-hero .ed-amt-v{font-size:36px}.ed-head .sheet-top{margin-bottom:2px}}
+/* v37.5.70 stamp slot on the Budget hero ("Every dollar has a job"); same lock-outline look as the wrap-up preview. */
+.budget-hero .stamp-slot{flex:0 0 auto;max-width:112px;padding:10px 12px;text-align:center;font-size:calc(11px * var(--fs-scale));line-height:1.2;border-color:var(--muted);opacity:.85}
+.budget-hero .stamp-slot svg{width:22px;height:22px}
+.ed-pad button[data-k="00"]{font-size:calc(19px * var(--fs-scale))}
+/* v37.5.70 Dashboard folds: title + one headline until opened; explanations only when open. */
+.dash-foldable .dash-head{cursor:pointer}
+.dash-fold{margin-left:auto;background:none;border:0;padding:4px 6px;min-width:32px;min-height:28px;font:600 calc(13px * var(--fs-scale)) var(--ui);color:var(--muted);cursor:pointer}
+.grade-hero-top.dash-head,.dash-foldable>h3.dash-head{display:flex;align-items:center;gap:6px}
+.dash-folded>:not(.dash-head):not(.dash-headline){display:none!important}
+.dash-folded .dash-headline .caption,.dash-folded .dash-headline .plain-line,.dash-folded .help-q{display:none!important}
+.dash-folded .dash-headline{margin-bottom:0}
+/* v37.5.70 free-tier graphs */
+.dash-bars{display:flex;flex-direction:column;gap:6px;margin:8px 0 2px}
+.dash-bar-row{display:grid;grid-template-columns:minmax(0,34%) 1fr auto;align-items:center;gap:8px;font-size:calc(13px * var(--fs-scale))}
+.dash-bar-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.dash-bar-track{height:8px;border-radius:4px;background:var(--rule);overflow:hidden}
+.dash-bar-fill{display:block;height:100%;border-radius:4px;background:var(--moss)}
+.dash-bar-fill.dim{opacity:.45}
+.dash-bar-v{font-size:calc(12px * var(--fs-scale));color:var(--muted)}
+.dash-cols{display:flex;align-items:flex-end;gap:6px;height:84px;margin:10px 0 2px;padding-bottom:16px;position:relative}
+.dash-col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;position:relative}
+.dash-col-fill{display:block;width:100%;max-width:22px;border-radius:4px 4px 0 0;background:var(--moss)}
+.dash-col-lbl{position:absolute;bottom:-16px;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.dash-dots{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.dash-dot{width:22px;height:22px;border-radius:50%;border:1.5px dashed var(--rule);display:flex;align-items:center;justify-content:center;font-size:calc(10px * var(--fs-scale));color:var(--muted)}
+.dash-dot.on{border:1.5px solid var(--stamp,var(--moss));background:var(--stamp,var(--moss));color:#fff}
+.dash-dot.miss{border-style:solid;border-color:var(--muted)}
+.dash-two-stat{grid-template-columns:1fr 1fr}
+.dash-two-stat .dash-mid,.dash-two-stat .caption{display:block}
+/* v37.5.70 Pay sheet: full ZIP on phones; deduction lines on two rows with a $ / % switch. */
+.pay-sheet .pay-mini{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}
+.pay-sheet .pay-mini .pay-box input[data-act="pay-zip"]{flex:0 0 auto;width:6.2ch;min-width:6.2ch;font-size:calc(16px * var(--fs-scale));letter-spacing:0;text-align:right}
+.pay-sheet .pay-mini .pay-box span{white-space:nowrap}
+.pay-sheet .pay-ded:not(.pay-comp){grid-template-columns:auto minmax(0,1fr) auto 32px;grid-template-areas:"name name yr x" "seg input input .";row-gap:6px}
+.pay-sheet .pay-ded:not(.pay-comp)>.pay-ded-name{grid-area:name}
+.pay-sheet .pay-ded:not(.pay-comp)>.pay-seg{grid-area:seg}
+.pay-sheet .pay-ded:not(.pay-comp)>input[data-field="value"],.pay-sheet .pay-ded:not(.pay-comp)>.pay-ded-pct{grid-area:input}
+.pay-sheet .pay-ded:not(.pay-comp)>.pay-ded-yr{grid-area:yr}
+.pay-sheet .pay-ded:not(.pay-comp)>.pay-x{grid-area:x}
+.pay-seg{display:inline-flex;border:1px solid var(--rule);border-radius:9px;padding:2px;background:var(--paper);gap:2px}
+.pay-seg-b{border:0;background:none;border-radius:7px;padding:5px 9px;font:600 calc(12px * var(--fs-scale)) var(--ui);color:var(--muted);white-space:nowrap;cursor:pointer}
+.pay-seg-b.on{background:var(--card);color:var(--ink);box-shadow:0 0 0 1px var(--rule)}
+.pay-sheet .pay-ded-pct input{flex:1}
+/* v37.5.70 Try a loan: term + unit toggle, solved payment */
+.debt-sb-term-row{display:flex;gap:8px;align-items:center}
+.debt-sb-term-row input{flex:1 1 auto;min-width:0}
+.debt-sb-term-row .pay-seg{flex:0 0 auto}
+.debt-sb-pay{display:flex;flex-direction:column;gap:2px;margin:6px 0 10px}
+.debt-sb-pay b{font-size:1.5rem}
+/* v37.5.70 big-dollar inputs: fixed width, tabular digits, no reflow while typing */
+input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:clip;white-space:nowrap}
+.debt-sb-fields .field,#debt-edit .field{min-width:0}
