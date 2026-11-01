@@ -4127,6 +4127,7 @@
         state.year = toYM.year; state.month = toYM.month;
         ensureMonth(state.year, state.month);
         saveState(); render();
+        maybeOfferPlanCopy(rec, toYM);
         var sc2 = document.getElementById("screen");
         if (sc2) {
           sc2.classList.remove("month-roll-out");
@@ -4134,6 +4135,50 @@
         }
       }, reduce || !first ? 0 : 280);
     }, hold);
+  }
+  /* After a wrap-up rolls into a new month that's still empty, ask once: copy the plan, or start blank. */
+  function monthIsUntouchedPlan(m) {
+    if (!m || (m.transactions || []).length) return false;
+    if (window.PaperTrailImport && window.PaperTrailImport.isBlankMonth(m)) return true;
+    /* An auto-copied plan nobody has edited yet still counts as empty. */
+    var lines = [];
+    (m.categories || []).forEach(function (c) { if (c.system !== "checking") lines = lines.concat(c.lines || []); });
+    return lines.every(function (l) { return l.autoCopy || !(Number(l.assigned) || 0); }) &&
+      (m.incomes || []).every(function (i) { return i.autoCopy || !(Number(i.amount) || 0); });
+  }
+  function maybeOfferPlanCopy(fromRec, toYM) {
+    var key = ymKey(toYM.year, toYM.month), dest = state.months[key];
+    state.planCopyAsked = state.planCopyAsked || {};
+    if (!fromRec || state.planCopyAsked[key] || !monthIsUntouchedPlan(dest) || !(fromRec.categories || []).length) return;
+    var from = MONTH_NAMES[fromRec.month - 1], to = MONTH_NAMES[toYM.month - 1];
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet plan-copy-sheet" data-from="' + esc(ymKey(fromRec.year, fromRec.month)) + '" data-to="' + esc(key) + '">' +
+      "<h3>Copy " + esc(from) + "’s budget to " + esc(to) + "?</h3>" +
+      '<p class="empty">Brings over ' + esc(from) + "’s planned amounts and income lines. No transactions come along, and Checking stays as it is.</p>" +
+      '<div class="sheet-actions"><button type="button" data-act="plan-copy-blank">Start blank</button>' +
+      '<button class="primary" type="button" data-act="plan-copy-yes">Copy budget</button></div></div>';
+    armSheetA11y(modal);
+  }
+  function answerPlanCopy(copy) {
+    var sh = document.querySelector(".plan-copy-sheet");
+    if (!sh) return;
+    var fromKey = sh.getAttribute("data-from"), key = sh.getAttribute("data-to"), from = state.months[fromKey], dest = state.months[key];
+    var kb = key.split("-"), toYM = { year: Number(kb[0]), month: Number(kb[1]) };
+    state.planCopyAsked = state.planCopyAsked || {};
+    state.planCopyAsked[key] = copy ? "copy" : "blank";
+    if (monthIsUntouchedPlan(dest)) {
+      if (copy && from) copyPlanFromTo(from, toYM); // same copy new months use; Checking starts at $0 there
+      else if (!copy && dest) {
+        (dest.categories || []).forEach(function (c) {
+          if (c.system === "checking") return;
+          (c.lines || []).forEach(function (l) { l.assigned = 0; delete l.autoCopy; });
+          if (!(c.lines || []).length) c.assigned = 0; else c.assigned = 0;
+        });
+        (dest.incomes || []).forEach(function (i) { i.amount = 0; delete i.autoCopy; });
+      }
+    }
+    closeModal(); saveState(); render();
   }
   /* First open in a new month: the prior month ended at $0 but was never wrapped up → play the close once. */
   function maybeNewMonthStampClose() {
@@ -11462,19 +11507,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cents = parts.length > 1 ? parts[1].slice(0, 2) : null;
     // Always show cents once the pad is closed ("$42.50"); while typing, show what was typed and grey placeholder zeros.
     if (!edUi.pad) return esc(whole + "." + ((cents || "") + "00").slice(0, 2));
-    if (cents == null) return esc(whole);
+    /* Always draw the cents slot (ghosted until typed) so the number never changes shape mid-typing. */
+    if (cents == null) return esc(whole) + '<span class="ed-amt-ghost">.00</span>';
     return esc(whole + "." + cents) + (cents.length < 2 ? '<span class="ed-amt-ghost">' + "00".slice(cents.length) + "</span>" : "");
   }
+  function edAmtLen() { return String(edUi && edUi.amt || "").replace(".", "").length; }
   function renderEdAdd(month) {
     month = month || ensureMonth(state.year, state.month);
     var d = spendDraft, inc = d.type === "income";
     var h = '<form class="sheet ed-add" data-act="save-spend-sheet" novalidate>' +
-      '<div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      /* Title + amount stay pinned at the top of the sheet, so the number being typed is always in view
+       * (short screens and an open keyboard included). Fixed height: typing never moves anything. */
+      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<button type="button" class="ed-amt ed-hero' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="Amount"><span class="kicker">Amount</span><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + '">' + edAmountText() + "</span></button></div>" +
       (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
       '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>') +
       '<div class="ed-card">' +
-      '<button type="button" class="ed-row ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad"><span class="lbl">Amount</span><span class="mono ed-amt-v">' + edAmountText() + "</span></button>" +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
       '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>';
     if (inc) {
@@ -16138,7 +16187,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.68";
+  var APP_VERSION = "37.5.69";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -17510,6 +17559,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="primary" type="submit">Save</button></div></form>';
     bindMoneyInputs(modal);
     armSheetA11y(modal);
+    var f = modal.querySelector("form.sheet");
+    if (f && SAVE_ON_CLOSE[saveAct]) { f.setAttribute("data-save-on-close", "1"); f.__initial = sheetFormSnapshot(f); }
+  }
+  /* Budget line / envelope sheets: the top ✕ keeps your edits (saves) instead of throwing them away.
+   * Cancel at the bottom still discards; untouched sheets just close. */
+  var SAVE_ON_CLOSE = { "save-line-item": 1, "save-category": 1 };
+  function sheetFormSnapshot(f) {
+    return Array.prototype.map.call(f.elements, function (el) {
+      if (!el.name) return "";
+      var v = (el.type === "checkbox" || el.type === "radio") ? (el.checked ? "1" : "0") : el.value;
+      return el.name + "=" + v + "|" + (el.dataset && el.dataset.digits != null ? el.dataset.digits : "");
+    }).join("&");
+  }
+  function closeSavesSheet(actEl) {
+    var f = actEl && actEl.classList && actEl.classList.contains("sheet-x") ? actEl.closest("form[data-save-on-close]") : null;
+    if (!f || f.__saving || sheetFormSnapshot(f) === f.__initial) return false;
+    f.__saving = true; // one save per tap, even if ✕ is tapped again before the sheet closes
+    if (f.requestSubmit) f.requestSubmit(); else f.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    setTimeout(function () { f.__saving = false; }, 0); /* submit runs synchronously; if it was refused (e.g. empty name) ✕ can try again */
+    return true;
   }
 
   function readOptionalCents(el) {
@@ -18914,7 +18983,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "debt-open") { openDebtCalc(); }
+    else if (act === "plan-copy-yes" || act === "plan-copy-blank") answerPlanCopy(act === "plan-copy-yes");
     else if (act === "close-modal") {
+      if (closeSavesSheet(actEl)) return;
       pendingScreenUi = captureScreenUi();
       closeModal();
       render();

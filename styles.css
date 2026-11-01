@@ -5197,3 +5197,33 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 .ed-confirm details summary{cursor:pointer;margin:6px 0;font-size:calc(13px * var(--fs-scale))}
 .ed-c-actions{flex-direction:column;align-items:stretch;gap:8px}
 .ed-c-actions button{white-space:normal}
+
+/* v37.5.69 Add/Edit Transaction: same paper, serif hero and segmented control as Budget; pinned amount; calm keypad. */
+.sheet.ed-add{padding-bottom:0}
+.ed-head{position:sticky;top:-16px;z-index:4;margin:-16px -16px 12px;padding:0 16px 10px;background:var(--paper);border-bottom:1px solid var(--rule)}
+.ed-head .sheet-top{position:static;margin:0 -16px 0;border-bottom:0;padding:16px 16px 0}
+.ed-hero{display:block;width:100%;border:0;background:none;padding:6px 0 2px;margin:0;text-align:left;color:var(--ink);font:inherit}
+.ed-hero .kicker{display:block;margin:0 0 2px}
+.ed-hero .ed-amt-v{display:block;height:calc(44px * var(--fs-scale-lg));line-height:calc(44px * var(--fs-scale-lg));font-family:var(--serif);font-size:calc(40px * var(--fs-scale-lg));font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums lining-nums;white-space:nowrap;overflow:hidden;color:var(--ink)}
+.ed-hero .ed-amt-v.long{font-size:calc(30px * var(--fs-scale-lg))}
+.ed-hero.active .ed-amt-v{color:var(--ink)}
+.ed-hero.active .kicker{color:var(--moss)}
+.ed-hero.active .ed-amt-v::after{content:"";display:inline-block;width:2px;height:.8em;margin-left:3px;vertical-align:-.05em;background:var(--moss);animation:ed-caret 1s steps(1) infinite}
+@keyframes ed-caret{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.ed-hero.active .ed-amt-v::after{animation:none}}
+.ed-switch{display:flex;margin:0 0 12px;padding:3px;background:rgba(120,90,40,.12);border:1px solid var(--rule);border-radius:8px}
+.ed-switch button{flex:1;border:0;background:transparent;padding:7px 6px;border-radius:6px;font:calc(13px * var(--fs-scale)) var(--serif);color:var(--muted)}
+.ed-switch button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 0 var(--shadow)}
+.ed-card,.ed-split{border-radius:10px}
+.ed-row .lbl{font:calc(14px * var(--fs-scale)) var(--serif);color:var(--muted)}
+.ed-save{margin:4px 0 16px}
+.ed-pad{position:sticky;bottom:0;z-index:4;gap:0;margin:0 -16px;padding:4px 12px 10px;background:var(--paper);border-top:1px solid var(--rule)}
+.ed-pad button{padding:9px 0;border:0;border-radius:8px;background:none;font:500 calc(22px * var(--fs-scale)) var(--ui);font-variant-numeric:tabular-nums;color:var(--ink)}
+.ed-pad button:active{background:var(--rule)}
+.ed-pad .ed-done{margin-top:4px;padding:10px 0;border-radius:8px;background:var(--moss);color:#fff;font:600 calc(15px * var(--fs-scale)) var(--ui)}
+/* v37.5.69: Planned / Spent / Remaining stays pinned while the budget list scrolls (opaque so rows don't show through). */
+.mode-toggle{position:sticky;top:0;z-index:6;background-color:var(--paper);background-image:linear-gradient(rgba(31,122,97,.10),rgba(31,122,97,.10));box-shadow:0 -10px 0 var(--paper),0 4px 6px -4px var(--shadow)}
+/* Never taller than the space above the keyboard / tab bar: a taller sheet pushed its top (the amount) off screen. */
+.modal:has(> .ed-add){flex-direction:column;justify-content:flex-end;align-items:center}
+.sheet.ed-add{flex:0 1 auto;min-height:0}
+@media (max-height:620px){.ed-pad button{padding:4px 0}.ed-pad .ed-done{padding:7px 0;margin-top:2px}.ed-hero .ed-amt-v{font-size:36px}.ed-head .sheet-top{margin-bottom:2px}}
