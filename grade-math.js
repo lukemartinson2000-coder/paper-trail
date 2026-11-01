@@ -506,17 +506,17 @@
       strong: "Strong and building.",
       onTrack: "On track and growing.",
       fragile: "Fragile, with room to steady.",
-      distressed: "Under strain — small steps still count."
+      distressed: "Under strain."
     }[band.id];
     if (perfectScore) {
-      return lead + " Nothing is weak here. Keep going — look for ways to optimize.";
+      return lead + " Nothing is weak here.";
     }
     if (fooStep >= 1 && fooStep < 5) {
       var fooWeak = {
-        1: "Cash set aside for deductibles is the next dollar.",
-        2: "The employer match is the next dollar.",
-        3: "High-interest debt is the next dollar.",
-        4: "Emergency reserves are the next dollar."
+        1: "Cash for insurance deductibles isn’t marked as set aside.",
+        2: "The full employer match isn’t marked as captured.",
+        3: "High-interest debt is on the books.",
+        4: "Emergency reserves are under six months of essentials."
       }[fooStep];
       return lead + " " + fooWeak;
     }
@@ -738,7 +738,7 @@
           monthBasisPhrase(input.takeHomeBasis) + ").",
         sentence: rate >= 0.2
           ? "A healthy share of income is staying invested or reserved."
-          : "Raising the savings rate this month is the most direct lift here.",
+          : "The savings rate is under 20% of take-home this month.",
         provisional: false,
         omittedReason: null
       };
@@ -766,7 +766,7 @@
         whatWentIn: months.toFixed(1) + " months of essentials in Checking + Saving.",
         sentence: months >= 6
           ? "Cash covers a full half-year of essentials."
-          : "Park more cash toward 3, then 6, months of essentials.",
+          : "Cash covers less than six months of essentials.",
         provisional: false,
         omittedReason: null
       };
@@ -797,7 +797,7 @@
         whatWentIn: bits.join("; ") + ". Mortgage counts in the assets ratio only.",
         sentence: input.hasHighInterestConsumerDebt
           ? "High-APR consumer debt is the pressure point."
-          : "Leverage is contained; extra to cheap debt waits until later order-of-operations steps.",
+          : "Leverage is contained.",
         provisional: false,
         omittedReason: null
       };
@@ -826,7 +826,7 @@
           whatWentIn: "Net worth vs " + ageTargetMultiple(input.ageYears).toFixed(1) + "× income at age " + Math.round(input.ageYears) + ".",
           sentence: score >= 90
             ? "Net worth is keeping pace with the age target."
-            : "A 25% of gross pace (Roth, HSA, match, deferral) closes this gap.",
+            : "Net worth is below the age target.",
           provisional: false,
           omittedReason: null
         };
@@ -862,7 +862,7 @@
         whatWentIn: "Last-year ΔNW vs income, times consistency from " + years + " completed statement" + (years === 1 ? "" : "s") + ".",
         sentence: provisional
           ? "Early statements: the number is real, the trend is still provisional."
-          : "Keep logging the annual statement and stay the course.",
+          : "Trend from your completed annual statements.",
         provisional: provisional,
         omittedReason: null
       };
@@ -5325,7 +5325,7 @@
     var moneyIn = Math.max(0, fin(facts.moneyIn));
     var out = Math.max(0, fin(facts.moneyOut));
     var saved = Math.max(0, fin(facts.savedPlanned));
-    var shareTrue = facts.trueSavingsRate != null && isFinite(Number(facts.trueSavingsRate));
+    var shareTrue = false; /* v37.5.73: the card shows the one shared savings rate (planned savings ÷ planned take-home) */
     var rate = shareTrue ? facts.trueSavingsRate : facts.savingsRate;
     var hasRate = rate != null && isFinite(Number(rate));
     var days = Math.max(0, Math.round(fin(facts.daysLogged)));
@@ -5333,7 +5333,7 @@
     if (hasRate) {
       headline = shareTrue
         ? { value: "Saved " + pct(Number(rate)), label: "of gross pay, counting 401k, match, and HSA", sub: "True savings rate · confirmed pay stub" }
-        : { value: "Saved " + pct(Number(rate)), label: "of take-home, into retirement", sub: "Basic savings rate · retirement budget lines ÷ take-home" };
+        : { value: "Saved " + pct(Number(rate)), label: "of planned take-home", sub: "Savings rate · planned savings ÷ planned take-home" };
     } else if (days > 0) {
       headline = { value: days + (days === 1 ? " day" : " days"), label: "logged on paper", sub: "" };
     } else {
@@ -5342,7 +5342,7 @@
     var rows = [];
     rows.push({
       id: "saved",
-      label: "Retirement budget lines",
+      label: "Planned savings",
       value: show ? fmt(saved) : SHARE_MASK,
       masked: !show,
       mono: true,
@@ -5369,7 +5369,7 @@
     }
     if (facts.streak != null) {
       var streak = Math.max(0, Math.round(fin(facts.streak)));
-      rows.push({ id: "streak", label: "No-spend streak", value: streak + (streak === 1 ? " day" : " days"), masked: false, mono: false, note: "" });
+      rows.push({ id: "streak", label: "Weekly streak", value: streak + (streak === 1 ? " week" : " weeks"), masked: false, mono: false, note: "" });
     }
     var score = Number(facts.gradeScore);
     if (facts.gradeScore != null && isFinite(score)) {
@@ -5407,7 +5407,7 @@
     assert(!noStreak.rows.some(function (r) { return r.id === "streak" || r.id === "grade"; }), "no streak/grade rows before there is data", errors);
     var blankDeck = buildWrappedDeck({ premium: true, periodName: "September 2026", streak: null, gradeScore: null });
     var blankText = JSON.stringify(blankDeck);
-    assert(blankText.indexOf("starts after your first logged purchase") > 0 && blankText.indexOf("Distressed") < 0, "blank wrap: no fake streak or grade", errors);
+    assert(blankText.indexOf("starts the first week you log something") > 0 && blankText.indexOf("Distressed") < 0, "blank wrap: no fake streak or grade", errors);
     assert(blankText.indexOf("Nothing on the books yet") > 0 && !/NaN|Infinity|undefined/.test(blankText), "blank wrap ledger guidance, NaN-safe", errors);
   }
 
@@ -6920,23 +6920,6 @@
     };
   }
 
-  function pad2(n) {
-    n = Number(n) || 0;
-    return (n < 10 ? "0" : "") + n;
-  }
-
-  function parseISODateLocal(iso) {
-    var parts = String(iso || "").split("-");
-    if (parts.length < 3) return null;
-    var date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-    if (isNaN(date.getTime())) return null;
-    return date;
-  }
-
-  function formatISODateLocal(date) {
-    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
-  }
-
   function normalizeMerchant(name) {
     return String(name || "")
       .toLowerCase()
@@ -6944,31 +6927,6 @@
       .replace(/[^a-z0-9]+/g, " ")
       .replace(/\s+/g, " ")
       .replace(/^\s+|\s+$/g, "");
-  }
-
-  function noSpendStreak(outflowDates, todayISO, earliestISO) {
-    var outflow = {};
-    (outflowDates || []).forEach(function (day) {
-      if (day) outflow[String(day).slice(0, 10)] = true;
-    });
-    if (!todayISO) return 0;
-    var keys = Object.keys(outflow);
-    if (!earliestISO && !keys.length) return 0;
-    var floor = earliestISO ? String(earliestISO).slice(0, 10) : keys.sort()[0];
-    var cursor = parseISODateLocal(String(todayISO).slice(0, 10));
-    var stop = parseISODateLocal(floor);
-    if (!cursor || !stop) return 0;
-    var streak = 0;
-    var guard = 0;
-    while (guard < 8000) {
-      var iso = formatISODateLocal(cursor);
-      if (outflow[iso]) break;
-      if (cursor < stop) break;
-      streak += 1;
-      cursor.setDate(cursor.getDate() - 1);
-      guard += 1;
-    }
-    return streak;
   }
 
   function runwayMonths(emergencyAmount, essentialMonthlyBurn) {
@@ -7276,9 +7234,9 @@
     if (opts.streak == null && trailMonths === 0 && zeroMonths === 0) {
       slides.push({
         id: "streak",
-        kicker: "No-spend streak",
+        kicker: "Weekly streak",
         title: "Not started",
-        lines: ["Your no-spend streak starts after your first logged purchase."],
+        lines: ["Your weekly streak starts the first week you log something."],
         chip: ""
       });
     } else if (trailMonths > 0 || zeroMonths > 0 || (Number(opts.streak) || 0) > 0) {
@@ -7286,30 +7244,30 @@
       if (trailMonths > 0) delight.push(trailMonths + (trailMonths === 1 ? " trail-set month" : " trail-set months"));
       if (zeroMonths > 0) delight.push(zeroMonths + (zeroMonths === 1 ? " zero-leftover month" : " zero-leftover months"));
       var streak = Number(opts.streak) || 0;
-      if (streak > 0) delight.push(streak + (streak === 1 ? " day" : " days") + " no-spend streak");
+      if (streak > 0) delight.push(streak + (streak === 1 ? " week" : " weeks") + " logged in a row");
       slides.push({
         id: "delight",
         kicker: "On the trail",
         title: delight[0] || "Streaks",
-        lines: delight.slice(1).concat(["Consecutive calendar days with $0 outflow count toward the streak."]),
-        chip: streak > 0 ? (streak + (streak === 1 ? " day" : " days")) : "",
+        lines: delight.slice(1).concat(["Weekly streak = weeks in a row (Monday to Sunday) with at least one transaction logged or a budget edit."]),
+        chip: streak > 0 ? (streak + (streak === 1 ? " week" : " weeks")) : "",
         chart: {
           type: "bars",
           rows: [
             trailMonths > 0 ? { title: "Trail-set", amount: trailMonths, id: "trail" } : null,
             zeroMonths > 0 ? { title: "Zero leftover", amount: zeroMonths, id: "zero" } : null,
-            streak > 0 ? { title: "No-spend days", amount: streak, id: "streak" } : null
+            streak > 0 ? { title: "Weeks logged in a row", amount: streak, id: "streak" } : null
           ].filter(Boolean)
         }
       });
     } else {
       var streakOnly = Number(opts.streak) || 0;
-      var streakLabel = streakOnly + (streakOnly === 1 ? " day" : " days");
+      var streakLabel = streakOnly + (streakOnly === 1 ? " week" : " weeks");
       slides.push({
         id: "streak",
-        kicker: "No-spend streak",
+        kicker: "Weekly streak",
         title: streakLabel,
-        lines: ["Consecutive calendar days with $0 outflow."],
+        lines: ["Weeks in a row (Monday to Sunday) with something logged."],
         chip: streakLabel
       });
     }
@@ -7409,12 +7367,12 @@
       id: "close",
       kicker: "Share card",
       title: opts.periodName || "Your wrap",
-      lines: ["A card you can keep."],
+      lines: [],
       chip: "",
       share: {
         period: opts.periodName || "",
         saved: moneyLabel(savedAmt),
-        streak: opts.streak == null ? "not started" : ((Number(opts.streak) || 0) + ((Number(opts.streak) || 0) === 1 ? " day" : " days")),
+        streak: opts.streak == null ? "not started" : !(Number(opts.streak) > 0) ? "starts with your next log" : (Number(opts.streak) + (Number(opts.streak) === 1 ? " week" : " weeks")),
         grade: (opts.gradeScore == null ? "—" : String(opts.gradeScore)) + (opts.gradeBand ? " · " + opts.gradeBand : "")
       }
     });
@@ -7612,7 +7570,6 @@
     wrappedRecap: wrappedRecap,
     rankedNeeds: rankedNeeds,
     normalizeMerchant: normalizeMerchant,
-    noSpendStreak: noSpendStreak,
     runwayMonths: runwayMonths,
     merchantRule: merchantRule,
     suggestMerchantLegs: suggestMerchantLegs,
@@ -7663,6 +7620,7 @@
     shareCardModel: shareCardModel,
     monthMoneyIn: monthMoneyIn,
     US_PERSONAL_SAVING_RATE: US_PERSONAL_SAVING_RATE,
+    US_PERSONAL_SAVING_YEAR: US_PERSONAL_SAVING_YEAR,
     WRAPPED_PEER_MIN_N: WRAPPED_PEER_MIN_N
   };
 

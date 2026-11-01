@@ -5204,3 +5204,45 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .ed-picker-foot{position:sticky;bottom:0;padding:10px 0 4px;background:var(--paper)}
 .ed-picker-foot .ed-picker-close{width:100%;min-height:46px}
 .ed-alloc-status .ed-left{display:block;font:700 calc(18px * var(--fs-scale)) var(--ui);margin-bottom:2px}
+
+/* v37.5.73 quarterly fridge card: weeks logged, months closed at $0, savings rate. No dollar amounts. */
+.fridge-card {
+  margin: 14px 0 4px;
+  padding: 18px 18px 16px;
+  background: var(--card);
+  border: 1px solid var(--gold);
+  border-top: 4px solid var(--gold);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px var(--shadow);
+}
+.fridge-card .fc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.fridge-card .fc-brand { font-family: var(--script); font-size: calc(24px * var(--fs-scale)); color: var(--moss); line-height: 1; }
+.fridge-card .fc-period { font: 700 calc(12px * var(--fs-scale))/1.2 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.fridge-card .fc-sec { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.fridge-card .fc-sec:last-child { border-bottom: 0; padding-bottom: 2px; }
+.fridge-card .fc-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.fridge-card .fc-lbl { font: 600 calc(14px * var(--fs-scale))/1.25 var(--serif); color: var(--ink); }
+.fridge-card .fc-val { font-size: calc(17px * var(--fs-scale)); font-weight: 700; color: var(--ink); white-space: nowrap; }
+.fridge-card .fc-val small { font-size: 0.72em; font-weight: 500; color: var(--muted); }
+.fridge-card .fc-weeks { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; margin-top: 10px; }
+.fridge-card .fc-wk { display: block; aspect-ratio: 1; border: 1.5px solid var(--rule); border-radius: 3px; background: transparent; }
+.fridge-card .fc-wk.on { background: var(--moss); border-color: var(--moss); }
+.fridge-card .fc-stamps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.fridge-card .fc-stamp { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.fridge-card .fc-emblem, .fridge-card .fc-empty { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; }
+.fridge-card .fc-emblem { border: 2px solid var(--stamp); transform: rotate(-8deg); background: var(--highlight); }
+.fridge-card .fc-emblem .stamp-emblem { width: 30px; height: 30px; }
+.fridge-card .fc-empty { border: 1.5px dashed var(--rule); }
+.fridge-card .fc-mon { font: 600 calc(11px * var(--fs-scale))/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.fridge-card .fc-stamp.on .fc-mon { color: var(--moss); }
+.fridge-card .fc-big { font-size: calc(30px * var(--fs-scale-lg)); font-weight: 700; color: var(--moss); line-height: 1; }
+.fridge-card .fc-note { margin: 4px 0 0; text-align: right; font-size: calc(12px * var(--fs-scale)); color: var(--muted); }
+.wrap-slide[data-slide="q-close"] h2 { margin-bottom: 4px; }
+@media (max-width: 370px) {
+  .fridge-card { padding: 16px 14px 14px; }
+  .fridge-card .fc-weeks { gap: 3px; }
+  .fridge-card .fc-emblem, .fridge-card .fc-empty { width: 42px; height: 42px; }
+}
+.wrap-tile-btns { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.dash-streak { display: flex; align-items: center; gap: 8px; margin: 4px 4px 10px; color: var(--muted); }
+.dash-streak-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); flex: none; }

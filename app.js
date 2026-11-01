@@ -3349,6 +3349,7 @@
 
   function saveState() {
     addedAutoCache = {};
+    try { noteWeekActivity(); } catch (e) {}
     try {
       if (loadFailure) {
         saveBlocked = true;
@@ -4030,13 +4031,31 @@
   /* v37.5.70 "Every dollar has a job": an empty dashed stamp slot (lock outline, never the emblem) shows the month is on
    * track for its stamp. The stamp itself stays hidden until the month is wrapped up. */
   function stampSlotHtml() {
-    return '<div class="stamp-locked stamp-slot" role="img" aria-label="Stamp slot: every dollar has a job. Wrap up to reveal the stamp.">' +
+    return '<div class="stamp-locked stamp-slot" role="img" aria-label="Stamp slot: every dollar has a job.">' +
       '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>' +
       "<span>Your stamp is waiting</span></div>";
   }
   function monthIsFuture(month) {
     var now = new Date();
     return month.year * 12 + month.month > now.getFullYear() * 12 + now.getMonth() + 1;
+  }
+  /* v37.5.73 (owner): "Wrap up" and the move to next month are only offered in the month's last 2 days, and stay
+   * available after the month ends until it is wrapped. Before that the month stays fully editable, no prompt. */
+  function wrapWindowOpen(month) {
+    if (!month || month.closedAt) return false;
+    var t = dashToday(), cur = t.getFullYear() * 12 + t.getMonth() + 1, mi = Number(month.year) * 12 + Number(month.month);
+    if (mi < cur) return true;
+    if (mi > cur) return false;
+    return t.getDate() >= new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate() - 1;
+  }
+  /* v37.5.73: last month's wrap-up stays offered from this month's Budget until it is wrapped (needs a plan with income). */
+  function carryWrapMonth(month) {
+    var now = currentYearMonth();
+    if (!month || Number(month.year) !== now.year || Number(month.month) !== now.month) return null;
+    var pv = offsetMonth(now.year, now.month, -1), rec = state.months && state.months[ymKey(pv.year, pv.month)];
+    if (!rec || rec.closedAt) return null;
+    try { if (!(sums(rec).income > 0)) return null; } catch (e) { return null; }
+    return rec;
   }
   function wrapMonthHtml(month, totals) {
     var name = MONTH_NAMES[month.month - 1];
@@ -4046,7 +4065,9 @@
         (totals.stamped ? "" : " · stamp hidden until every dollar has a job again") +
         ' · <button type="button" class="link-btn" data-act="unwrap-month">Undo wrap-up</button></p>';
     }
-    if (!(totals.income > 0) || monthIsFuture(month)) return "";
+    var carry = wrapWindowOpen(month) && totals.income > 0 ? null : carryWrapMonth(month);
+    if (carry) return '<button class="wrap-month-btn" type="button" data-act="wrap-prev-month">Wrap up ' + esc(MONTH_NAMES[carry.month - 1]) + " ›</button>";
+    if (!(totals.income > 0) || monthIsFuture(month) || !wrapWindowOpen(month)) return "";
     var nx = offsetMonth(month.year, month.month, 1);
     return '<button class="wrap-month-btn" type="button" data-act="wrap-month">Wrap up ' + esc(name) +
       ' and go to ' + esc(MONTH_NAMES[nx.month - 1]) + " ›</button>";
@@ -4526,7 +4547,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       (month.categories.length ? "" : " disabled") + ">Add</button></div>" +
       '<div class="row"><span>Spent this month</span><span class="mono">' + money(totals.spent) + "</span></div>" +
       (totals.refunds > 0 ? '<div class="row dense"><span class="caption">Refunds netted out</span><span class="mono caption">' + money(totals.refunds) + "</span></div>" : "") +
-      '<div class="row"><span>Take-home received this month</span><span class="mono moss">+' + money(totals.received) + "</span></div>" +
       '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
       esc(spendSearch) + '">' +
       '';
@@ -4540,7 +4560,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<p class="section-label">Transactions</p>';
     var txs = sortTxNewestFirst((month.transactions || []).filter(function (tx) { return !txNeedsCategory(month, tx) && txMatches(month, tx, spendSearch); }), month.transactions || []);
     if (!month.transactions.length) {
-      html += '<p class="empty">Spend from a category, or log a paycheck as Income. Expenses reduce that envelope’s remaining amount; income counts toward Received.</p>';
+      html += '<p class="empty">Spend from a category, or log a paycheck as Income. Expenses reduce that envelope’s remaining amount; income counts toward the month’s take-home on Budget.</p>';
     } else if (!txs.length) {
       html += '<p class="empty">No transactions match that search.</p>';
     }
@@ -5148,7 +5168,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="plain-line">' + esc(srLine) + "</p></section>";
     html += debtCardHtml();
     html += dashReservesHtml(dMonth);
-    html += wrapEntryHtml(dMonth);
+    html += weeklyStreakHtml() + wrapEntryHtml();
     // 5
     var R = dashRetirement(), I = R.I;
     html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
@@ -5251,13 +5271,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out;
   }
   function dashOnTrackRowHtml(R, rrow) {
-    var o = dashOnTrackRow(R), D = R.dms, M = o.mode === "true" ? "True" : "Basic";
+    var o = dashOnTrackRow(R), M = o.mode === "true" ? "True" : "Basic";
     var help = "Needed to stay on track is a target: the yearly saving that reaches My number at " + R.I.retireAge + " (monthly savings needed " + moneyWhole(R.needMonth) + " × 12 = " + moneyWhole(o.needYear) + ") ÷ " +
       (o.mode === "true" ? "your yearly gross pay (" + moneyWhole(o.base) + ", this year’s True gross so far × 12 ÷ " + o.tr.months + " month" + (o.tr.months === 1 ? "" : "s") + " with a True rate)" : R.thBasis + " (" + (o.base ? moneyWhole(o.base) : "not available yet") + ")") + ".\n\n" +
       "You’re saving … now is measured: this year so far (Jan–" + MONTH_NAMES[currentYearMonth().month - 1] + "), in the Savings rate tile’s mode (tap Basic or True there). " +
       (o.mode === "true"
         ? "True = retirement budget lines + 401k (you + employer) + HSA ÷ gross pay (" + moneyWhole(o.tr.savings) + " ÷ " + moneyWhole(o.tr.gross) + "), each month by the same rule as the monthly True rate."
-        : "Basic = the shared retirement money set ÷ take-home for the same months" + (D.ytdTakeHome ? " (" + moneyWhole(D.year) + " ÷ " + moneyWhole(D.ytdTakeHome) + ")" : "") + " — the same number as the Income statement’s year-to-date savings rate.") +
+        : "Now = planned savings ÷ planned take-home, Jan through this month — the one savings rate used across the app (Dashboard, Wrapped, Income statement).") +
       (o.fell ? "\n\nTrue isn’t available yet (it needs a confirmed pay stub on Premium), so this row uses Basic." : "") +
       "\n\nThe tile’s monthly rates can swing: a 3-paycheck month has more take-home and stub 401k in one month, so it can run well above or below your year. The target and \u201cnow\u201d are both yearly, so compare these two." +
       "\n\n" + ESTIMATE_DISCLAIMER;
@@ -6233,8 +6253,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var thInfo = GM.monthTakeHome(sums(used).income, used.transactions || [], used.incomes || [], takeHomeOpts(used));
     var takeHome = thInfo.amount;
     if (!(takeHome > 0) && income > 0) takeHome = income; // fall back to planned/annualized income already resolved
-    var savingsEnv = retireEnvTotal(used.categories || []).total;
-    var savingsRate = GM.basicSavingsRate({ savings: savingsEnv, takeHome: takeHome }).rate;
+    var savingsRate = sharedSavingsRate([used]).rate; /* v37.5.73: the one shared rate */
     var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
     var latestYear = years.length ? years[years.length - 1] : 2025;
     var cashYear = latestYear;
@@ -6429,7 +6448,55 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       source: source + (band.all ? " No birthday entered, so this compares with all ages." : ""),
       help: wrapHelp(["Percentiles are estimates for U.S. families (households), placed between the 5th, 10th … 95th percentile points of the SCF 2025 public data."]) };
   }
-  function compareWrapSlides() {
+  /* v37.5.73 (owner): "how would the median American score?" The app's own grade formula (GradeMath.evaluate) run on
+   * the only inputs we have sourced figures for — nothing invented:
+   *  - Spend (weight 0.20): savings rate. Median side = U.S. personal saving rate (BEA, via FRED A072RC1A156NBEA),
+   *    an aggregate rate (total saving ÷ total after-tax income), not a median household's rate.
+   *  - Accumulation (weight 0.20): net worth ÷ (age-target multiple × income). Median side = SCF 2025 median net worth
+   *    and median family income (before tax) for your age band, at your age. Needs your birthday; without it both
+   *    sides leave it out (your own grade does too).
+   *  - Resilience, Leverage and Trajectory are left out on both sides: no sourced median for months of cash vs
+   *    essentials, consumer-debt ratios or year-over-year statements in the app's data.
+   * "You" is scored on the same parts so the bars compare like with like; your full grade is shown in text. */
+  function scoreCompare(month) {
+    var GM = window.GradeMath;
+    if (!GM || !GM.evaluate || booksEmpty()) return null;
+    var input = buildGradeInput(month), full = GM.evaluate(input);
+    var age = input.ageYears, band = scf25Band(age), useAcc = age != null;
+    var medInc = SCF25_PCT.INCOME[band.id][9], medNw = SCF25_NW_MEDIAN[band.id];
+    function partial(sr, nw, inc) {
+      return GM.evaluate({ savingsRate: sr, ageYears: useAcc ? age : null, netWorth: useAcc ? nw : null, annualIncome: useAcc ? inc : null, completedStatementYears: 0 });
+    }
+    var youP = partial(input.savingsRate, input.netWorth, input.annualIncome);
+    var medP = partial(GM.US_PERSONAL_SAVING_RATE, medNw, medInc);
+    function used(g) { return g.sections.filter(function (x) { return x.score != null; }).map(function (x) { return x.title; }); }
+    var parts = used(medP).filter(function (t) { return used(youP).indexOf(t) >= 0; });
+    if (!parts.length) return null;
+    return { full: full.score, you: youP.score, median: medP.score, parts: parts, band: band, age: age, useAcc: useAcc,
+      medInc: medInc, medNw: medNw, usRate: GM.US_PERSONAL_SAVING_RATE, usYear: GM.US_PERSONAL_SAVING_YEAR };
+  }
+  function scoreCompareSlide(month) {
+    var c = null;
+    try { c = scoreCompare(month); } catch (e) { c = null; }
+    if (!c) return null;
+    var omitted = ["Resilience", "Leverage", "Trajectory"].concat(c.useAcc ? [] : ["Accumulation"]);
+    return { id: "cmp-score", tidy: true, kicker: "You vs the median American",
+      title: "Your score vs the median American",
+      sub: "Your Paper Trail score is " + c.full + ". Both bars use the same formula on " + c.parts.join(" and ") + " only.",
+      score: { you: c.you, median: c.median, bandLabel: c.band.all ? "All ages" : "Age " + c.band.label },
+      source: "Estimate. Median American scored with Paper Trail’s formula on: savings rate " + Math.round(c.usRate * 1000) / 10 + "% (U.S. personal saving rate, " + c.usYear + ", BEA via FRED — an all-U.S. average, not a median household)" +
+        (c.useAcc ? "; net worth " + moneyWhole(c.medNw) + " and income " + moneyWhole(c.medInc) + " (SCF 2025 medians, " + cmpWho(c.band) + ", at your age)" : "") +
+        ". Left out (no sourced median): " + omitted.join(", ") + "." + (c.useAcc ? "" : " Add a birthday to include Accumulation."),
+      help: wrapHelp(["The score is a weighted average of section scores (0–100). Spend scores the savings rate; Accumulation scores net worth against an age-based multiple of income. Sections without a sourced median are left out for both you and the median, and the weights are re-scaled over what’s left.",
+        "Savings rate source: BEA personal saving rate (saving ÷ disposable personal income), annual " + c.usYear + ", FRED series A072RC1A156NBEA.",
+        "Net worth and income: Federal Reserve Survey of Consumer Finances 2025 (2025 dollars); income is family income before taxes for 2024."]) };
+  }
+  function scoreVizHtml(c) {
+    function bar(label, v, cls) { return '<div class="cmp-row ' + cls + '"><span class="cmp-lbl">' + esc(label) + '</span><div class="cmp-track"><i style="width:' + Math.max(0, Math.min(100, v)) + '%"></i></div><span class="cmp-val mono">' + v + "</span></div>"; }
+    return '<div class="cmp-viz cmp-score">' + bar("You", c.you, "is-you") + bar("Median American", c.median, "is-med") +
+      '<p class="cmp-pct-note">Out of 100 · ' + esc(c.bandLabel) + " · estimate</p></div>";
+  }
+  function compareWrapSlides(month) {
     var GM = window.GradeMath, age = GM && GM.ageYears ? GM.ageYears(birthdayISO()) : null, band = scf25Band(age);
     var out = [], nw = Number(latestNetWorthHeadline().amount) || 0;
     out.push(cmpSlide("cmp-nw", "Net worth", nw, SCF25_NW_MEDIAN[band.id], SCF25_PCT.NETWORTH[band.id], band, SCF25_SOURCE_NW));
@@ -6439,6 +6506,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       sub: "Median family income before taxes for " + cmpWho(band) + ": " + moneyWhole(incMed) + ". Add your gross pay on the Income statement to see where you land.",
       compare: { you: null, median: incMed, medText: moneyWhole(incMed), pct: null, bandLabel: band.all ? "All ages" : "Age " + band.label },
       source: SCF25_SOURCE_INC + (band.all ? " No birthday entered, so this compares with all ages." : "") });
+    var sc = month ? scoreCompareSlide(month) : null;
+    if (sc) out.push(sc);
     return out;
   }
   function cmpVizHtml(c) {
@@ -7084,6 +7153,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var monthCount = 0;
     var basisMonths = [];
     var periodMonths = [];
+    var planTh = 0;
     Object.keys(state.months || {}).forEach(function (key) {
       var rec = state.months[key];
       if (!rec) return;
@@ -7101,7 +7171,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (recStart >= bounds.start && recStart <= bounds.end) {
         monthCount += 1;
         periodMonths.push({ year: Number(rec.year), month: Number(rec.month) });
-        savings += retireEnvTotal(rec.categories || []).total; // Retirement only
+        var shp = planMonthSavingsParts(rec); /* v37.5.73: shared plan rule (was retirement lines only) */
+        if (shp.takeHome > 0) { savings += shp.savings; planTh += shp.takeHome; }
         // V37.5.59 Basic denominator, per month: planned until EVERY planned paycheck that month is
         // received, then Received. The annual rate sums each month's denominator under this rule.
         var plannedMo = (rec.incomes || []).reduce(function (n, item) { return n + (Number(item.amount) || 0); }, 0);
@@ -7133,14 +7204,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return {
       txs: txs,
-      income: takeHome, // Wrapped take-home = Basic per-month rule
+      income: roundCents(planTh), // v37.5.73: planned take-home, the shared savings-rate denominator
       receivedLogged: income,
       takeHomeBasis: basisMonths.sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); }),
       periodMonths: periodMonths.sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); }),
       daysLogged: Object.keys(days).length,
-      savingsPlanned: savings,
-      savedPlanned: savings,
-      takeHomePlanned: takeHome,
+      savingsPlanned: roundCents(savings),
+      savedPlanned: roundCents(savings),
+      takeHomePlanned: roundCents(planTh),
+      receivedTakeHome: takeHome,
       monthCount: monthCount
     };
   }
@@ -7161,8 +7233,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * (per month: planned until every planned paycheck is received, then Received — v37.5.59 rule),
    * summed across the months inside the period. */
   function periodSavingsRate(bounds) {
-    var bag = activityInPeriod(bounds);
-    return gm().basicSavingsRate({ savings: bag.savingsPlanned, takeHome: bag.takeHomePlanned }).rate;
+    return sharedSavingsRate(monthsInBounds(bounds)).rate;
   }
 
   function merchantStory(txs, limit) {
@@ -7226,56 +7297,85 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     };
   }
 
-  function outflowLedger() {
-    var dates = [];
-    var earliest = null;
-    Object.keys(state.months || {}).forEach(function (key) {
-      var rec = state.months[key];
-      if (!rec) return;
-      (rec.incomes || []).forEach(function (item) {
-        var date = item.date || isoDate(rec.year, rec.month, 1);
-        if (!earliest || date < earliest) earliest = date;
-      });
-      (rec.transactions || []).forEach(function (tx) {
-        var date = tx.date || isoDate(rec.year, rec.month, 1);
-        if (!earliest || date < earliest) earliest = date;
-        // Outflow = a purchase that day. Income and money-back refunds are not outflow.
-        if (!isIncomeTx(tx) && gm().txSummary(tx).purchase > 0) dates.push(date);
+  /* v37.5.73 (owner): the no-spend streak is gone (it rewarded not using the app). Weekly logging streak instead:
+   * consecutive weeks (Monday–Sunday) with at least one transaction logged or a budget edit. Weeks are recorded in
+   * state.weekLog (Monday ISO → 1) when you log or edit; older books without a record derive from transaction dates.
+   * The current week doesn't break the streak until it is over. */
+  function weekStartIso(iso) {
+    var d = new Date(String(iso).slice(0, 10) + "T12:00:00");
+    d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    return dashIso(d);
+  }
+  function loggedWeeks() {
+    var set = {};
+    Object.keys(state.weekLog || {}).forEach(function (k) { if (state.weekLog[k]) set[weekStartIso(k)] = 1; });
+    Object.keys(state.months || {}).forEach(function (k) {
+      var rec = state.months[k];
+      ((rec && rec.transactions) || []).forEach(function (tx) {
+        if (tx.autoCopy || !tx.date) return;
+        if (!(Math.abs(Number(tx.amount) || 0) > 0)) return;
+        set[weekStartIso(tx.date)] = 1;
       });
     });
-    return { dates: dates, earliest: earliest };
+    return set;
   }
-
-  function currentNoSpendStreak() {
-    if (!window.GradeMath || !window.GradeMath.noSpendStreak) return 0;
-    var bag = outflowLedger();
-    var today = new Date();
-    return window.GradeMath.noSpendStreak(
-      bag.dates,
-      isoDate(today.getFullYear(), today.getMonth() + 1, today.getDate()),
-      bag.earliest
-    );
+  function weeklyLogStreak() {
+    var set = loggedWeeks(), w = weekStartIso(dashIso(dashToday())), n = 0;
+    if (!set[w]) w = isoMinusDays(w, 7);
+    for (var guard = 0; guard < 600 && set[w]; guard++) { n++; w = isoMinusDays(w, 7); }
+    return n;
   }
-
-  /* A streak only means something after the first logged purchase. */
-  function hasExpenseHistory() {
-    var months = state.months || {};
-    return Object.keys(months).some(function (key) {
-      return ((months[key] && months[key].transactions) || []).some(function (tx) { return !isIncomeTx(tx); });
+  function markWeekLogged() {
+    if (!state.weekLog || typeof state.weekLog !== "object") state.weekLog = {};
+    state.weekLog[weekStartIso(dashIso(dashToday()))] = 1;
+  }
+  /* What counts as "you logged or edited": a transaction or a planned amount changed, right after your own tap or
+   * typing. Opening a month or an auto-copied plan doesn't count. */
+  var weekSig = null, lastUserAct = 0;
+  ["click", "input", "change", "keydown"].forEach(function (ev) { document.addEventListener(ev, function () { lastUserAct = Date.now(); }, true); });
+  function booksSignature() {
+    var parts = [];
+    Object.keys(state.months || {}).sort().forEach(function (k) {
+      var rec = state.months[k]; if (!rec) return;
+      (rec.transactions || []).forEach(function (t) { parts.push(t.id + ":" + t.amount + ":" + (t.date || "")); });
+      (rec.categories || []).forEach(function (c) { (c.lines || []).forEach(function (l) { if (!l.autoCopy && Number(l.assigned)) parts.push(l.id + "=" + l.assigned); }); });
+      (rec.incomes || []).forEach(function (i) { if (!i.autoCopy && Number(i.amount)) parts.push(i.id + "+" + i.amount); });
     });
+    return parts.join("|");
+  }
+  function noteWeekActivity() {
+    var sig = "";
+    try { sig = booksSignature(); } catch (e) { return; }
+    if (weekSig !== null && sig !== weekSig && Date.now() - lastUserAct < 4000) markWeekLogged();
+    weekSig = sig;
   }
 
   /* One Wrapped tile with the annual wrap and the quarterly check-in. */
-  function wrapEntryHtml(month) {
+  /* Weekly logging streak on the Dashboard: one quiet line, only once there is a streak. */
+  function weeklyStreakHtml() {
+    var n = weeklyLogStreak();
+    if (!(n > 0)) return "";
+    return '<p class="dash-streak caption" id="dash-streak"><span class="dash-streak-dot" aria-hidden="true"></span>Logged ' + n + (n === 1 ? " week" : " weeks in a row") + "</p>";
+  }
+  /* v37.5.73 (owner): annual Wrapped opens in the last week of December (Dec 25) and stays through January
+   * (then it is last year's). null = hidden. */
+  function annualWrapYear() {
+    var t = dashToday(), m = t.getMonth() + 1;
+    if (m === 12 && t.getDate() >= 25) return t.getFullYear();
+    if (m === 1) return t.getFullYear() - 1;
+    return null;
+  }
+  function wrapEntryHtml() {
     state.wrapCadence = "year";
-    var bounds = periodBounds(month.year, month.month, "year");
-    var av = quarterAvail(), last = av[av.length - 1];
+    var Y = annualWrapYear(), av = quarterAvail(), last = av[av.length - 1];
+    if (Y == null && !last) return "";
     return '<section class="card insight-card wrap-tile" id="dash-wrapped"><p class="kicker">Wrapped</p>' +
-      '<div class="wrap-tile-btns"><button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + esc(bounds.name) + "</strong>" +
-      '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" +
-      '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>' + (last ? "Q" + last.q + " " + last.year + (last.done ? "" : " so far") : "First check-in") + "</strong>" +
-      '<span class="caption">90-day check-in</span></button></div>' +
-      '<p class="plain-line">A quick, swipeable recap of your money, including how you compare with people your age.</p></section>';
+      '<div class="wrap-tile-btns">' +
+      (Y != null ? '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
+        '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" : "") +
+      (last ? '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>Q' + last.q + " " + last.year + "</strong>" +
+        '<span class="caption">Quarterly check-in</span></button>' : "") + "</div>" +
+      '<p class="plain-line">A quick, swipeable recap of your money' + (Y != null ? ", including how you compare with people your age." : ".") + "</p></section>";
   }
 
   /* One Wrapped page per spending category for the year.
@@ -7558,7 +7658,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       compareLine: compareLine,
       compareLines: compareLines,
       compareFootnote: compareFootnote,
-      streak: hasExpenseHistory() ? currentNoSpendStreak() : null,
+      streak: Object.keys(loggedWeeks()).length ? weeklyLogStreak() : null,
       trailSetMonths: trailSetMonths,
       zeroLeftoverMonths: zeroLeftoverMonths,
       paystubStack: paystubStack,
@@ -7616,7 +7716,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     var bounds = periodBounds(month.year, month.month, "year");
     var bag = activityInPeriod(bounds);
-    var rate = gm().basicSavingsRate({ savings: bag.savingsPlanned, takeHome: bag.takeHomePlanned }).rate;
+    var rate = sharedSavingsRate(monthsInBounds(periodBounds(Y, 1, "year"))).rate;
     if (rate != null && bag.takeHomePlanned > 0) {
       var saved = Math.max(0, Math.min(bag.savingsPlanned, bag.takeHomePlanned));
       out.push({ id: "g-rate", kicker: "Savings rate · " + Y, title: "That’s a " + wrapPct(rate) + " savings rate",
@@ -7624,7 +7724,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           { label: "Saved", amount: saved, ink: "var(--moss)" },
           { label: "Everything else", amount: Math.max(0, bag.takeHomePlanned - saved), ink: "var(--rule)" }
         ] },
-        footnote: "Basic savings rate: retirement budget lines " + moneyWhole(bag.savingsPlanned) + " ÷ take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross)." });
+        footnote: "Savings rate: planned savings " + moneyWhole(bag.savingsPlanned) + " ÷ planned take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross). Same rule as the Dashboard." });
     }
     if (inv.length && start > 0 && adds > 0 && hasY) { // Needs this year's column (no end balance → no growth)
       var growth = end - start - adds;
@@ -7722,8 +7822,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       : facts.trueSavingsState === "locked" ? "True savings rate: Premium with a pay stub"
       : "True savings rate: add a pay stub";
     var help = [];
-    help.push("Basic savings rate = retirement budget lines " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(takeHome) +
-      " = " + wrapRatePct(basic) + ". Take-home is after tax: finished months count what you received; the current month counts planned paychecks until they all arrive.");
+    help.push("Savings rate = planned savings " + moneyWhole(saved) + " ÷ planned take-home " + moneyWhole(takeHome) +
+      " = " + wrapRatePct(basic) + ". Planned savings = your Savings group (Checking included) plus Roth, house fund and other savings lines; planned take-home = your planned paychecks. Same rule as the Dashboard.");
     if (tr != null && d && d.rows) {
       var parts = d.rows.filter(function (r) { return r.id === "savings" || Number(r.amount) > 0; }).map(function (r) { return r.label.replace(/\s*\((period|\d+ mo)\)/, "") + " " + moneyWhole(r.amount); });
       help.push("True savings rate = " + parts.join(" + ") + " ÷ " +
@@ -7890,28 +7990,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = Math.round(now * 100) - Math.round(prior * 100);
     return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
   }
-  function quarterHasData(year, q) {
-    var b = periodBounds(year, q * 3, "quarter"), hit = false;
-    Object.keys(state.months || {}).forEach(function (k) {
-      var rec = state.months[k];
-      (rec && rec.transactions || []).forEach(function (tx) {
-        var d = tx.date || isoDate(rec.year, rec.month, 1);
-        if (d >= b.start && d <= b.end && Math.abs(Number(tx.amount) || 0) > 0) hit = true;
-      });
-    });
-    return hit;
+  /* v37.5.73 (owner): a quarter's check-in exists only once the quarter is closed — all 3 months wrapped up. */
+  function quarterClosed(year, q) {
+    for (var m = q * 3 - 2; m <= q * 3; m++) { var rec = state.months && state.months[ymKey(year, m)]; if (!rec || !rec.closedAt) return false; }
+    return true;
   }
   function quarterAvail() {
-    return quarterAvailAll().filter(function (a) { return quarterHasData(a.year, a.q); });
-  }
-  function quarterAvailAll() {
-    var t = dashToday(), Y = t.getFullYear(), curQ = Math.floor(t.getMonth() / 3) + 1, out = [];
-    for (var q = 1; q <= 4; q++) { // Q4 shows while in progress
-      if (q < curQ) out.push({ year: Y, q: q, done: true });
-      else if (q === curQ) out.push({ year: Y, q: q, done: false });
-    }
-    if (!out.length) for (var q2 = 1; q2 <= 3; q2++) out.push({ year: Y - 1, q: q2, done: true });
-    return out;
+    var t = dashToday(), Y = t.getFullYear(), out = [];
+    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterClosed(yy, q)) out.push({ year: yy, q: q, done: true }); });
+    return out.slice(-4);
   }
   function quarterBounds(year, q, toDate) {
     var b = periodBounds(year, q * 3, "quarter");
@@ -7921,8 +8008,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return b;
   }
+  /* Weeks of a period by their Thursday (Mon–Sun weeks), and which ones had a log. */
+  function quarterWeeks(b) {
+    var set = loggedWeeks(), w = weekStartIso(b.start), out = { logged: 0, total: 0, flags: [] };
+    if (isoMinusDays(w, -3) < b.start) w = isoMinusDays(w, -7);
+    for (var g = 0; g < 20; g++) {
+      if (isoMinusDays(w, -3) > b.end) break;
+      var on = !!set[w];
+      out.flags.push(on); out.total++; if (on) out.logged++;
+      w = isoMinusDays(w, -7);
+    }
+    return out;
+  }
+  function quarterStamps(year, q) {
+    var out = [];
+    for (var m = q * 3 - 2; m <= q * 3; m++) {
+      var rec = state.months && state.months[ymKey(year, m)], ok = false;
+      try { ok = !!rec && monthStampEarned(rec, sums(rec)); } catch (e) {}
+      out.push({ year: year, month: m, name: MONTH_NAMES[m - 1].slice(0, 3), earned: ok });
+    }
+    return out;
+  }
   function priorQuarter(year, q) { return q > 1 ? { year: year, q: q - 1 } : { year: year - 1, q: 4 }; }
-  function basicOf(bag) { return bag.takeHomePlanned > 0 ? gm().basicSavingsRate({ savings: bag.savingsPlanned, takeHome: bag.takeHomePlanned }).rate : null; }
+  function basicOf(bag) { return bag.takeHomePlanned > 0 ? bag.savingsPlanned / bag.takeHomePlanned : null; } /* = sharedSavingsRate over the same months */
   function spendTxsBetween(start, end) {
     var out = [];
     Object.keys(state.months || {}).forEach(function (k) {
@@ -7948,15 +8056,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var rate = basicOf(bag), prate = basicOf(pbag);
     var slides = [];
     var qName = "Q" + q + " " + year;
+    var wk = quarterWeeks(b);
     // 1) 90-day savings rate (Free)
     var saved = Math.max(0, bag.savingsPlanned), th = Math.max(0, bag.takeHomePlanned);
     slides.push({ id: "q-rate", tidy: true, kicker: "Your 90-day savings rate",
       title: rate == null ? "No paychecks logged yet" : wrapRatePct(rate) + " saved" + wrapArrow(rate, prate),
       sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) === Math.round(prate * 100) ? "Same as last quarter, " + wrapRatePct(prate) : (Math.round(rate * 100) > Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter") : "First quarter on file — no arrow yet",
       graph: th > 0 ? { type: "stack", segs: [{ label: "Saved", amount: Math.min(saved, th), ink: "var(--moss)" }, { label: "Everything else", amount: Math.max(0, th - saved), ink: "var(--rule)" }] } : null,
-      help: wrapHelp(["Basic savings rate for " + b.name + " = retirement budget lines " + moneyWhole(saved) + " ÷ take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + ".",
+      help: wrapHelp(["Savings rate for " + b.name + " = planned savings " + moneyWhole(saved) + " ÷ planned take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + " (each month weighted by its planned take-home; same rule as the Dashboard).",
         prate != null ? "Last quarter (" + pb.name + "): " + wrapRatePct(prate) + ". The arrow compares whole percents." : "No prior quarter on file, so there’s no arrow yet.",
-        "Take-home: finished months count what you received; the current month counts planned paychecks until they all arrive."]) });
+        "Planned savings = your Savings group (Checking included) plus Roth, house fund and other savings lines."]) });
     var premium = all || isPremium();
     if (premium) {
       // 2) Plot twist
@@ -8009,24 +8118,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var lead = bars.slice().sort(function (a, c) { return c.pct - a.pct; })[0];
         slides.push({ id: "q-build", tidy: true, kicker: "Building it",
           title: Math.round(lead.pct * 100) + "% to " + lead.label.replace(/ \(6 months\)$/, ""),
-          sub: bars.length > 1 ? bars.length + " goals in progress" : "Keep feeding it",
+          sub: bars.length > 1 ? bars.length + " goals in progress" : "1 goal in progress",
           progress: bars,
           help: wrapHelp(["Emergency fund: what you have on hand (Order of operations step) ÷ 6 months of your Budget essentials.",
             "Upcoming purchases: progress ÷ the cost. Progress comes from the source shown on each goal: a Net worth account’s latest balance, or everything budgeted to a budget line across all months so far. Only goals with a source show here."]) });
       }
-      // streak inside the quarter
-      var days = {}; spendTxsBetween(b.start, b.end).forEach(function (r) { days[r.date] = 1; });
-      var run = 0, bestRun = 0, d0 = new Date(b.start + "T12:00:00"), dEnd = b.end;
-      if (Object.keys(days).length) {
-        for (var guard = 0; guard < 100; guard++) {
-          var iso = dashIso(d0); if (iso > dEnd) break;
-          if (days[iso]) run = 0; else { run++; if (run > bestRun) bestRun = run; }
-          d0.setDate(d0.getDate() + 1);
-        }
-      }
-      if (bestRun >= 3) {
-        slides.push({ id: "q-streak", tidy: true, kicker: "On a roll", title: bestRun + " days in a row at $0", sub: "Your longest no-spend run this quarter",
-          help: wrapHelp(["The longest run of calendar days in " + b.name + " with no spending logged. Savings transfers and debt payments count as spending days here, the same way the annual no-spend streak counts any outflow."]) });
+      // weeks logged inside the quarter (v37.5.73: replaces the no-spend run)
+      if (wk.logged > 0) {
+        slides.push({ id: "q-streak", tidy: true, kicker: "Showing up", title: "Logged " + wk.logged + " of " + wk.total + " weeks", sub: wk.logged === wk.total ? "Every week this quarter" : "Weeks with a transaction or a budget edit",
+          help: wrapHelp(["A week (Monday to Sunday) counts when you logged at least one transaction or edited your budget. A week belongs to the quarter its Thursday falls in, so a quarter has 13 weeks (sometimes 14). Weeks from before this was tracked come from your transaction dates."]) });
       }
     }
     // 5) Pace check (Free)
@@ -8034,9 +8134,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!premium) {
       slides.push({ id: "q-locked", tidy: true, kicker: "Premium", title: "Plot twists and glow-ups", sub: "Your biggest surprise, your best cut, goal progress and a share card are on Premium.", locked: true });
     } else {
-      slides.push({ id: "q-close", tidy: true, kicker: "Frame it", title: b.name, sub: "A card for the fridge.",
-        share: { period: b.name, saved: moneyWhole(Math.round(saved)), streak: bestRun > 0 ? bestRun + " days" : "not yet", grade: rate == null ? "—" : wrapRatePct(rate) + " saved" },
-        help: shareShowAmounts ? "Dollar amounts are on for this preview." : "Dollar amounts are hidden on the card until you turn them on." });
+      slides.push({ id: "q-close", tidy: true, kicker: "Share", title: qName, sub: "",
+        fridge: { period: qName, weeks: wk, stamps: quarterStamps(year, q), rate: rate },
+        help: wrapHelp(["Weeks logged: weeks (Monday to Sunday) with a transaction or a budget edit, out of the quarter's weeks.",
+          "Stamps: months wrapped up with every dollar assigned ($0 left).",
+          "Savings rate: planned savings ÷ planned take-home across the quarter's three months, each month weighted by its planned take-home — the same rule as the Dashboard. No dollar amounts on this card."]) });
     }
     return slides;
   }
@@ -8090,7 +8192,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var ok = have >= needC * 0.95;
     return { id: "q-pace", tidy: true, kicker: "Pace check",
       title: ok ? (have >= needC * 1.05 ? "Ahead of pace" : "Right on pace") : "Behind by " + moneyWhole(Math.round(gapMo)) + "/mo",
-      sub: ok ? "Nudge: on autopilot? Bump it 1% at your next raise." : "Nudge: add " + moneyWhole(Math.round(gapMo)) + " a month to your 401k or IRA.",
+      sub: "Saving now vs the yearly amount your retirement goal needs.",
       graph: { type: "pair", bars: [{ label: "Saving now", value: have, text: moneyWhole(Math.round(have)) + "/yr", ink: "var(--moss)" }, { label: "Needed", value: needC, text: moneyWhole(Math.round(needC)) + "/yr", ink: "var(--plum)" }] },
       help: wrapHelp(["Yearly savings goal = the yearly contribution (rising with inflation) that grows your " + moneyWhole(Math.round(R.inv.balance)) + " invested into the nest egg you need by " + I.retireAge + ": " + moneyWhole(Math.round(R.needNominal)) + " (" + moneyWhole(Math.round(I.spend)) + " a year in today’s dollars ÷ 4%, at " + Math.round(I.infl) + "% inflation and " + Math.round(I.ret) + "% return).",
         "Saving now = this year’s additions to your retirement and taxable lines, plus employer 401k money: " + moneyWhole(Math.round(have)) + " a year. Needed: " + moneyWhole(Math.round(needC)) + " a year.",
@@ -8150,7 +8252,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { id: "a-pastyou", tidy: true, kicker: "You vs past you", title: title, sub: sub, graph: graph, help: wrapHelp(help) };
   }
   var ANNUAL_KICKERS = { hook: "Your year, on paper", "spent-saved": "Follow the money", merchants: "Your regulars", "g-added": "Building it",
-    "g-contrib": "Money making money", "savings-rate": "Pay yourself first", close: "Frame it" };
+    "g-contrib": "Money making money", "savings-rate": "Savings rate", close: "Share" };
   function annualOrder(slides, facts, month) {
     var by = {}, cats = [];
     slides.forEach(function (sl) { if (!sl) return; if (String(sl.id).indexOf("category-") === 0) cats.push(sl); else by[sl.id] = sl; });
@@ -8166,12 +8268,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div class="wp-track"><i style="width:' + p + '%"></i></div><p class="wp-note">' + esc(b.note) + "</p></div>";
     }).join("") + "</div>";
   }
+  /* The quarterly fridge card: weeks logged (a row of boxes), months closed at $0 (stamps), savings rate. */
+  function fridgeCardHtml(f) {
+    var w = f.weeks || { logged: 0, total: 0, flags: [] };
+    var boxes = w.flags.map(function (on, i) { return '<i class="fc-wk' + (on ? " on" : "") + '" title="Week ' + (i + 1) + (on ? " · logged" : "") + '"></i>'; }).join("");
+    var nStamp = f.stamps.filter(function (x) { return x.earned; }).length;
+    var stamps = f.stamps.map(function (x) {
+      return '<div class="fc-stamp' + (x.earned ? " on" : "") + '">' + (x.earned ? '<span class="fc-emblem">' + stampEmblemSvg(x.month) + "</span>" : '<span class="fc-empty" aria-hidden="true"></span>') +
+        '<span class="fc-mon">' + esc(x.name) + "</span></div>";
+    }).join("");
+    return '<article class="fridge-card" aria-label="' + esc(f.period) + ' card">' +
+      '<header class="fc-head"><span class="fc-brand">Paper Trail</span><span class="fc-period">' + esc(f.period) + "</span></header>" +
+      '<section class="fc-sec"><div class="fc-row"><span class="fc-lbl">Weeks logged</span><span class="fc-val mono">' + w.logged + ' <small>of ' + w.total + "</small></span></div>" +
+      '<div class="fc-weeks" role="img" aria-label="' + w.logged + " of " + w.total + ' weeks logged">' + boxes + "</div></section>" +
+      '<section class="fc-sec"><div class="fc-row"><span class="fc-lbl">Months closed at $0</span><span class="fc-val mono">' + nStamp + ' <small>of 3</small></span></div>' +
+      '<div class="fc-stamps">' + stamps + "</div></section>" +
+      '<section class="fc-sec fc-rate"><div class="fc-row"><span class="fc-lbl">Savings rate</span><span class="fc-big mono">' + esc(wrapRatePct(f.rate)) + "</span></div>" +
+      '<p class="fc-note">of planned take-home</p></section></article>';
+  }
   function quarterPickerHtml() {
     var av = quarterAvail();
     if (av.length < 2) return "";
     return '<div class="wrap-qpick">' + av.map(function (a) {
       var on = wrapQuarter && wrapQuarter.year === a.year && wrapQuarter.q === a.q;
-      return '<button type="button" class="wrap-qbtn' + (on ? " on" : "") + '" data-wrapq="' + a.year + "-" + a.q + '">Q' + a.q + (a.done ? "" : ' <small class="wrap-q-prog">in progress</small>') + "</button>";
+      return '<button type="button" class="wrap-qbtn' + (on ? " on" : "") + '" data-wrapq="' + a.year + "-" + a.q + '">Q' + a.q + " " + a.year + "</button>";
     }).join("") + "</div>";
   }
   document.addEventListener("click", function (e) {
@@ -8182,7 +8302,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var parts = t.getAttribute("data-wrapq").split("-");
       wrapQuarter = { year: Number(parts[0]), q: Number(parts[1]) };
     } else {
-      var av = quarterAvail(); wrapQuarter = av[av.length - 1] || { year: dashToday().getFullYear(), q: Math.floor(dashToday().getMonth() / 3) + 1, empty: true };
+      var av = quarterAvail(); if (!av.length) return;
+      wrapQuarter = av[av.length - 1];
       captureModalReturnScreenTop();
     }
     wrapMode = "quarter"; wrapSlideIndex = 0;
@@ -8231,7 +8352,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!isQ && (t.id === "g-networth" || t.id === "g-networth-empty")) t.kicker = "The big number · " + month.year;
       return t;
     });
-    if (!isQ) { var cmp = compareWrapSlides(); if (cmp.length) deck.slides.splice.apply(deck.slides, [Math.max(0, deck.slides.length - 1), 0].concat(cmp)); }
+    if (!isQ) { var cmp = compareWrapSlides(month); if (cmp.length) deck.slides.splice.apply(deck.slides, [Math.max(0, deck.slides.length - 1), 0].concat(cmp)); }
     if (wrapSlideIndex >= deck.slides.length) wrapSlideIndex = deck.slides.length - 1;
     if (wrapSlideIndex < 0) wrapSlideIndex = 0;
     var slide = deck.slides[wrapSlideIndex];
@@ -8258,6 +8379,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="wrap-chart">' + pieSvg(slide.chart.slices, "", "label") + "</div>";
     }
     if (slide.compare) html += cmpVizHtml(slide.compare);
+    if (slide.score) html += scoreVizHtml(slide.score);
     if (slide.source) html += '<p class="wrap-source">' + esc(slide.source) + "</p>";
     if (slide.merch) html += wrapMerchHtml(slide.merch, slide.id === "merchants");
     if (slide.progress) html += wrapProgressHtml(slide.progress);
@@ -8267,19 +8389,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (slide.locked) {
       html += '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock the full wrap</button>';
     }
+    if (slide.fridge) html += fridgeCardHtml(slide.fridge);
     if (slide.share) {
-      var shareSaved = shareShowAmounts ? slide.share.saved : "••••";
-      if (isQ) {
-        html += '<article class="share-card"><p class="kicker">Paper Trail · quarterly</p><strong>' + esc(slide.share.period) + "</strong>" +
-          "<p>Savings rate " + esc(slide.share.grade) + "</p><p>Longest no-spend run " + esc(slide.share.streak) + "</p>" +
-          "<p>Retirement budget lines " + esc(shareSaved) + "</p></article>";
-      } else
+      /* v37.5.73: the old "Retirement budget lines ••••" row never showed a figure here (it was always masked, and the
+       * show-amounts switch lives only on the PNG sheet). The card now shows the shared savings rate; dollars stay on
+       * the PNG sheet behind its switch. */
       html += '<article class="share-card"><p class="kicker">Paper Trail</p><strong>' +
         esc(slide.share.period) + "</strong>" +
-        "<p>Retirement budget lines " + esc(shareSaved) + "</p>" +
-        "<p>No-spend streak " + esc(slide.share.streak) + "</p>" +
+        "<p>Savings rate " + esc(wrapRatePct(facts.savingsRate)) + " of planned take-home</p>" +
+        "<p>Weekly streak " + esc(slide.share.streak) + "</p>" +
         "<p>Grade " + esc(slide.share.grade) + "</p></article>" +
-        (isQ ? "" : '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>');
+        '<button class="matters-btn share-open" type="button" data-act="share-card-open">Save share card (PNG)</button>';
     }
     html += "</div>";
     html += '<div class="wrap-nav wrap-nav-pills">';
@@ -8558,7 +8678,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function ytdSavingsRate(year, month) {
     var set = retireMoneySet(year, 1, month), th = annualTakeHomeFor(year);
     var thY = th > 0 ? roundCents(th * set.months / 12) : null;
-    return { set: set, takeHomeYear: th, takeHome: thY, rate: thY > 0 ? set.total / thY : null };
+    var recs = [];
+    for (var m = 1; m <= month; m++) { var r = state.months && state.months[ymKey(year, m)]; if (r) recs.push(r); }
+    var sh = sharedSavingsRate(recs); /* v37.5.73: the one shared rate (was retirement set ÷ statement take-home) */
+    return { set: set, takeHomeYear: th, takeHome: thY, rate: sh.rate, planSavings: sh.savings, planTakeHome: sh.takeHome, shared: sh };
   }
   /* True year to date = each month's True numerator ÷ True denominator (stub gross + Budget
    * take-home a stub doesn't cover), summed Jan..month over months that have a True rate. Same rule as the monthly True. */
@@ -8596,17 +8719,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
     return roundCents(Math.max(0, total));
   }
-  function dashSavingsRate(month) {
-    month = month || ensureMonth(state.year, state.month);
+  /* v37.5.73 (owner): ONE savings rate everywhere — Dashboard, Wrapped (annual + quarterly), the share card, the
+   * Income statement, the grade and the Budget notes all call sharedSavingsRate. Rate = planned savings ÷ planned
+   * take-home. Planned savings = every line in the built-in Savings group (Checking included) + any other savings
+   * line GradeMath.isSavingsEnvelope counts (Roth, House fund…). Planned take-home = the month's planned income
+   * lines; with none, the Pay plan's take-home ÷ 12. Over several months it is Σ savings ÷ Σ take-home, i.e. the
+   * monthly rates averaged weighted by planned take-home. */
+  function planMonthSavingsParts(month) {
     var savings = dashPlannedSavings(month), th = 0, basis = "plan";
     try { th = Number(sums(month).income) || 0; } catch (e) {}
     if (!(th > 0)) {
       try { th = (Number(estimateCompensation(state.compensation || defaultCompensation()).takeHome) || 0) / 12; } catch (e) {}
       basis = "pay";
     }
-    if (!(th > 0)) return { rate: null, state: "no-income", savings: savings, takeHome: 0, basis: basis };
-    var rate = savings / th;
-    return { rate: rate, state: rate > 1 ? "over" : "ok", savings: savings, takeHome: roundCents(th), basis: basis };
+    return { savings: savings, takeHome: th > 0 ? roundCents(th) : 0, basis: basis };
+  }
+  function sharedSavingsRate(months) {
+    var sv = 0, th = 0, basis = "plan", n = 0;
+    (months || []).forEach(function (m) {
+      if (!m) return;
+      var q = planMonthSavingsParts(m);
+      if (!(q.takeHome > 0)) return;
+      sv += q.savings; th += q.takeHome; n++; if (q.basis === "pay") basis = "pay";
+    });
+    sv = roundCents(sv); th = roundCents(th);
+    if (!(th > 0)) return { rate: null, state: "no-income", savings: sv, takeHome: 0, basis: basis, months: n };
+    var rate = sv / th;
+    return { rate: rate, state: rate > 1 ? "over" : "ok", savings: sv, takeHome: th, basis: basis, months: n };
+  }
+  /* Budget months whose first day falls inside a period (Wrapped month / quarter / year). */
+  function monthsInBounds(bounds) {
+    return Object.keys(state.months || {}).map(function (k) { return state.months[k]; }).filter(function (rec) {
+      if (!rec) return false;
+      var st = isoDate(rec.year, rec.month, 1);
+      return st >= bounds.start && st <= bounds.end;
+    }).sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); });
+  }
+  function dashSavingsRate(month) {
+    month = month || ensureMonth(state.year, state.month);
+    var r = sharedSavingsRate([month]);
+    if (r.rate == null) { var q = planMonthSavingsParts(month); r.savings = q.savings; r.basis = q.basis; }
+    return r;
   }
   function dashSavingsRateText(d) {
     if (!d || d.rate == null) return "—";
@@ -8630,7 +8783,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       takeHomePeriod: th.period,
       paychecksPlanned: th.plannedCount || 0,
       paychecksReceived: th.receivedCount || 0,
-      basic: gm().basicSavingsRate({ savings: set.total, takeHome: th.amount }),
+      basic: (function () { var sh = sharedSavingsRate([month]); return gm().basicSavingsRate({ savings: sh.savings, takeHome: sh.takeHome }); })(),
       trueRate: gm().trueSavingsRate({ excludeHsa: !hsaCountsForTrue(),
         premium: isPremium(),
         snapshot: plan.payStubSnapshot || null,
@@ -9793,7 +9946,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. " +
     "401k is already in it once: your pre-tax 401k and employer 401k are part of Total income and never subtracted, so they aren't added back again. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
     "The small figure under each year is the change versus the prior year. Whole dollars.";
-  var SAV_RATE_HELP = "Savings rate = retirement money ÷ Take-home.\n\n" +
+  var SAV_RATE_HELP = "Savings rate = planned savings ÷ planned take-home, the same rule as the Dashboard and Wrapped: your Savings group (Checking included) plus Roth, house fund and other savings lines ÷ your planned paychecks. A year with no Budget uses the statement: retirement money ÷ Take-home.\n\nThe dollars listed above are your retirement money for the year.\n\n" +
     "Retirement money is one set, the same one the Dashboard and the monthly Basic / True savings rates use (only the period differs): " +
     "budget lines that feed a Net worth account in the Retirement group (Feeds account), budget lines not linked yet whose name says Roth / IRA / HSA / retire, " +
     "401k (you, traditional + Roth) and employer 401k from your pay stubs (or this statement / Pay settings without stubs), HSA from your pay stubs (you + employer), " +
@@ -9935,16 +10088,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* The shared retirement money set (retireMoneySet) replaces retireParts, so this row, the Dashboard
      * and the monthly Basic / True rates count the same money. retireParts stays for reference only. */
     function retireContrib(y) { return retireMoneySet(y, 1, 12).total; }
+    function isYearShared(y) {
+      var cy = currentYearMonth(), recs = [];
+      for (var m = 1; m <= 12; m++) {
+        if (Number(y) * 12 + m > cy.year * 12 + cy.month) break;
+        var r = state.months && state.months[ymKey(Number(y), m)]; if (r) recs.push(r);
+      }
+      var sh = sharedSavingsRate(recs);
+      return sh.rate == null ? null : sh;
+    }
     var savRP = retireMoneySet(sel, 1, 12);
     var cymNow = currentYearMonth(), ytdLine = "";
     if (Number(sel) === cymNow.year) {
       var yr = ytdSavingsRate(sel, cymNow.month);
-      ytdLine = "\n\nYear to date (Jan–" + MONTH_NAMES[cymNow.month - 1] + "): " + money(yr.set.total) + " ÷ take-home " + (yr.takeHome ? money(yr.takeHome) + " (" + money(yr.takeHomeYear) + " × " + cymNow.month + "/12)" : "—") +
-        " = " + (yr.rate == null ? "—" : pctWhole(yr.rate)) + ". The Dashboard’s “now” savings rate is this same number.";
+      ytdLine = "\n\nYear to date (Jan–" + MONTH_NAMES[cymNow.month - 1] + "): planned savings " + money(yr.planSavings || 0) + " ÷ planned take-home " + (yr.planTakeHome ? money(yr.planTakeHome) : "—") +
+        " = " + (yr.rate == null ? "—" : pctWhole(yr.rate)) + ". The Dashboard and Wrapped use this same rule.";
     }
     var savHelp = sel + " counted:\n" + (savRP.parts.length ? savRP.parts.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing yet") +
       (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + ytdLine + "\n\n" + SAV_RATE_HELP;
     html += sgRow("Savings rate", years, function (y) {
+      /* v37.5.73: years with a Budget use the one shared rate (planned savings ÷ planned take-home, months up to
+       * this one); a year with no Budget months keeps the statement's retirement money ÷ Take-home. */
+      var shY = isYearShared(y);
+      if (shY) return sgCell("is", "", y, shY.rate, { calc: true, on: y === sel, text: pct(shY.rate) });
       var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
       return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
     }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(savHelp));
@@ -12878,7 +13044,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="row"><span>Estimated taxes</span><span class="mono">' + money(est.totalTax) + "</span></div>" +
       '<p class="caption">Estimates only — not tax advice. Rough federal + state/local from job ZIP + FICA for a ' +
       ({ married: "married", hoh: "head of household" }[filingStatusOf(state.compensation)] || "single") + " filer.</p>" +
-      '<p class="caption">Basic savings rate = this month’s retirement budget lines ÷ take-home (finished months use what you received; the current month uses planned take-home until every paycheck arrives, then what you received).</p>' +
+      '<p class="caption">Savings rate = this month’s planned savings (Savings group, Checking included, plus Roth, house fund and other savings lines) ÷ planned take-home. Same rule as the Dashboard and Wrapped.</p>' +
       compTrueLineHtml() +
       (est.zipHelper ? '<p class="caption">' + esc(est.zipHelper) + "</p>" : "");
   }
@@ -16268,7 +16434,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.72";
+  var APP_VERSION = "37.5.73";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -17420,6 +17586,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
 
   function render() {
+    if (weekSig === null) { try { weekSig = booksSignature(); } catch (e) {} }
     addedAutoCache = {};
     /* Insights merged into the Dashboard; an old "insights" tab lands there. */
     if (state.tab === "insights") { state.tab = "stats"; state.statsDoor = "dash"; }
@@ -18672,7 +18839,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       saveState();
       paintPayoffCard();
     } else if (act === "open-wrapped") {
-      openWrapped(month);
+      var wy = annualWrapYear();
+      if (wy != null) openWrapped(ensureMonth(wy, 12));
     } else if (act === "set-plan") {
       setPlan(actEl.getAttribute("data-plan"));
       /* Repaint the screen behind the Profile sheet too, so one click visibly flips
@@ -18987,7 +19155,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "copy-month") copyBudgetOntoNext();
     else if (act === "copy-last-month") copyLastMonthOntoCurrent();
     else if (act === "start-month") openRitual();
-    else if (act === "wrap-month") openWrapMonth();
+    else if (act === "wrap-month") { if (wrapWindowOpen(monthRecord())) openWrapMonth(); }
+    else if (act === "wrap-prev-month") { var cw = carryWrapMonth(monthRecord()); if (cw) { state.year = cw.year; state.month = cw.month; saveState(); render(); openWrapMonth(); } }
     else if (act === "wrap-month-go" || act === "wrap-add-checking" || act === "wrap-cover-checking") {
       var wm = monthRecord(), wp = wrapPlan(wm), wck = checkingLine(wm);
       if (wck && wck.line && (act === "wrap-add-checking" && wp.kind === "add" || act === "wrap-cover-checking" && wp.kind === "cover")) {
