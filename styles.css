@@ -5246,3 +5246,33 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .wrap-tile-btns { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 .dash-streak { display: flex; align-items: center; gap: 8px; margin: 4px 4px 10px; color: var(--muted); }
 .dash-streak-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); flex: none; }
+/* v37.5.74: Add Transaction with the keyboard up — pad collapsed, Amount pinned, Save reachable. */
+.sheet.ed-add{overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sheet.ed-add.ed-kb .ed-head{padding-bottom:6px}
+.sheet.ed-add.ed-kb .ed-hero .ed-amt-v{font-size:calc(30px * var(--fs-scale-lg));height:calc(36px * var(--fs-scale-lg));line-height:calc(36px * var(--fs-scale-lg))}
+body.ed-typing .tab-bar{display:none!important}
+body.ed-typing .modal:not(.wrap-open){bottom:0}
+/* v37.5.74 flat envelopes (no subcategory): the header amount is the planned amount and is tappable. */
+.envelope-head button.line-assigned-btn.env-flat-amt{flex-shrink:0;font-family:var(--mono);min-height:36px;margin:-6px -6px -6px 0;padding:6px;border-radius:8px;font-size:calc(18px * var(--fs-scale)) !important;font-weight:600 !important;color:var(--ink);text-decoration:underline dotted rgba(120,90,40,.35);text-underline-offset:4px}
+.envelope-head button.line-assigned-btn.env-flat-amt.moss{color:var(--moss)}
+.envelope-head button.line-assigned-btn.env-flat-amt.rust{color:var(--danger)}
+.envelope-head button.line-assigned-btn.env-flat-amt:active{background:var(--rule)}
+.ed-item-row.ed-flat{margin-top:12px}
+.ed-item-row.ed-flat .ed-item>span:first-child{font-weight:600}
+.env-flat-edit{display:block;width:100%;margin:10px 0 4px}
+/* v37.5.74 reorder subcategories inside an envelope: big ↑ / ↓ targets. */
+.env-subs{list-style:none;margin:0 0 12px;padding:0;border:1px solid var(--rule);border-radius:10px;background:var(--card)}
+.env-sub{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 14px;min-height:52px}
+.env-sub+.env-sub{border-top:1px solid var(--rule)}
+.env-sub-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(16px * var(--fs-scale)) var(--ui);color:var(--ink)}
+.env-sub-mv{flex:0 0 44px;width:44px;height:44px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);color:var(--ink);font:600 20px var(--ui);padding:0}
+.env-sub-mv:disabled{opacity:.3}
+.env-sub-mv:not(:disabled):active{background:var(--rule)}
+/* v37.5.74: "$X left to budget" pinned under the sticky Planned / Spent / Remaining bar while planning. */
+.left-to-budget.ltb-pin{position:sticky;top:var(--mt-h,40px);z-index:5;margin:-10px 0 8px;padding:8px 16px 8px;background:var(--paper);box-shadow:0 4px 6px -4px var(--shadow)}
+.screen.has-fab .left-to-budget.ltb-pin{padding-right:64px;padding-left:64px}
+
+/* v37.5.74 Net worth keypad: app fits the visible area while typing in #screen (no page pan, one sticky header). */
+body.kb-fit{overflow:hidden}
+body.kb-fit .phone{position:fixed;top:0;left:0;right:0;height:var(--vvh,100dvh)!important}
+body.kb-fit .screen{padding-bottom:0}

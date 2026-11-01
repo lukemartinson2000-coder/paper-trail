@@ -3,21 +3,20 @@
   "use strict";
 
   var STORAGE_KEY = "PaperTrail.preview.v6";
-  var DEFAULT_ENVELOPES = [
-    "Savings",
-    "Giving",
-    "Housing",
-    "Food",
-    "Health",
-    "Entertainment",
-    "Subscriptions",
-    "Transportation",
-    "Personal",
-    "Utilities",
-    "Insurance",
-    "Miscellaneous",
-    "Debt"
-  ];
+  /* v37.5.74 (owner): new-user default layout. Existing books are never rewritten. */
+  var DEFAULT_ENVELOPES = ["Savings", "Housing", "Giving", "Food", "Transportation", "Subscriptions", "Insurance", "Health", "Personal", "Debt"];
+  var DEFAULT_LINES = {
+    Savings: ["Checking", "High yield savings", "Roth IRA", "Travel fund"],
+    Housing: ["Mortgage", "Utilities", "HOA"],
+    Giving: ["Charity", "Gifts"],
+    Food: ["Groceries", "Restaurants"],
+    Transportation: ["Gas", "Parking", "Maintenance"],
+    Subscriptions: ["Streaming", "Cell phone", "Storage"],
+    Insurance: ["Health", "Car", "Homeowners"],
+    Health: ["Gym membership", "Doctor", "Medication"],
+    Personal: ["Entertainment", "Clothing", "Miscellaneous"],
+    Debt: ["Student loan", "Auto", "Mortgage"]
+  };
   var MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
@@ -789,7 +788,7 @@
     var cat = (month.categories || []).filter(function (c) { return c.id === leg.categoryId; })[0];
     if (leg.lineId && cat) {
       var line = (cat.lines || []).filter(function (l) { return l.id === leg.lineId; })[0];
-      if (line) return cat.name + " · " + line.name;
+      if (line) return lineLabel(cat, line);
     }
     return cat && !leg.lineId ? cat.name : "Needs a category";
   }
@@ -1030,8 +1029,7 @@
 
   function defaultLineNames(envelope) {
     /* New-user default. Existing users' months are never rewritten. */
-    if (envelope === "Giving") return ["Tithes / Charity"];
-    return envelope === "Food" ? ["Groceries", "Restaurants"] : [envelope];
+    return Object.prototype.hasOwnProperty.call(DEFAULT_LINES, envelope) ? DEFAULT_LINES[envelope].slice() : [envelope];
   }
 
 
@@ -1063,6 +1061,30 @@
     var lines = cat.lines || [];
     if (!lines.length) return Number(cat.assigned) || 0;
     return lines.reduce(function (n, line) { return n + (Number(line.assigned) || 0); }, 0);
+  }
+
+  /* v37.5.74 (owner): an envelope can have no subcategory. A flat envelope keeps one hidden line (named after
+   * the envelope) that holds its planned amount, so transactions, remaining, copy, import and wrap-up all keep
+   * working on a lineId. Only envelopes marked flat (new users' defaults, or one whose last subcategory was
+   * removed) are flat; existing books are never rewritten. */
+  function isFlat(cat) {
+    return !!(cat && cat.flat === true && !cat.system && (cat.lines || []).length === 1 && !cat.lines[0].system);
+  }
+  function lineLabel(cat, line) { return isFlat(cat) ? cat.name : cat.name + " · " + line.name; }
+  function flatDefault(name) { return name !== "Savings" && name !== "Debt" && defaultLineNames(name).length === 1 && defaultLineNames(name)[0] === name; }
+  /* A flat envelope that gained lines some other way (Reorder, EveryDollar import) stops being flat; its hidden
+   * line is dropped only when it holds nothing ($0 planned, no transactions). */
+  function settleFlat(month) {
+    (month.categories || []).forEach(function (cat) {
+      if (!cat.flat) return;
+      var lines = cat.lines || [];
+      if (lines.length === 1 && !cat.system) { if (lines[0].name !== cat.name) lines[0].name = cat.name; return; }
+      var hid = lines.filter(function (l) { return l.name === cat.name; })[0];
+      if (hid && lines.length > 1 && !(Number(hid.assigned) || 0) && !(month.transactions || []).some(function (t) {
+        return txLegs(t).some(function (leg) { return String(leg.lineId) === String(hid.id); });
+      })) { cat.lines = lines.filter(function (l) { return l !== hid; }); reindexLines(cat); }
+      delete cat.flat;
+    });
   }
 
   function findLine(month, lineId) {
@@ -1121,7 +1143,7 @@
     var cat = month.categories.filter(function (c) { return c.id === tx.categoryId; })[0];
     if (tx.lineId && cat) {
       var line = (cat.lines || []).filter(function (l) { return l.id === tx.lineId; })[0];
-      if (line) return cat.name + " · " + line.name;
+      if (line) return lineLabel(cat, line);
     }
     return cat ? cat.name : "Needs a category";
   }
@@ -1165,10 +1187,15 @@
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.categoryId === id; });
     }).length;
     var assigned = catAssigned(cat);
+    /* v37.5.74: a Debt envelope's loans that are on Net worth come off it with the envelope (same as deleting the line). */
+    var nwDebts = /^debt$/i.test(cat.name) ? (cat.lines || []).filter(function (l) { return findNwLiabilityByName(l.name); }) : [];
     var message = "Delete " + cat.name + "?\n\n" + (spendCount === 0 ? "This envelope has no transactions."
       : uncatMoveText(spendCount) + ". Amounts, dates, merchants and notes stay; pick a new envelope for " + (spendCount === 1 ? "it" : "them") + " in Transactions.") +
-      (assigned > 0 ? "\n\n" + money(assigned) + " assigned returns to Left to assign." : "");
+      (assigned > 0 ? "\n\n" + money(assigned) + " planned returns to Left to budget." : "\n\nNothing is planned in it, so your totals don’t change.") +
+      (nwDebts.length ? "\n\nNet worth: " + nwDebts.map(function (l) { return l.name; }).join(", ") + (nwDebts.length === 1 ? " is" : " are") + " removed from your liabilities." : "") +
+      "\n\nOnly this month changes; other months keep their own copy.";
     if (!window.confirm(message)) return;
+    nwDebts.forEach(function (l) { removeBudgetNwLiability(l.name); });
     uncategorizeLegs(month, function (leg) { return leg.categoryId === id; });
     month.categories = month.categories.filter(function (c) { return c.id !== id; });
     reindexCategories(month);
@@ -1187,6 +1214,16 @@
     var found = findLine(month, lineId);
     if (!found) return;
     if (found.line.system === "checking") { window.alert("Checking is locked: it can’t be renamed or deleted, because savings and wrap-up depend on it."); return; }
+    if ((found.cat.lines || []).length === 1 && !found.cat.system && !/^debt$/i.test(found.cat.name)) {
+      /* Last subcategory: the envelope goes flat and keeps the amount and transactions. */
+      if (!window.confirm("Remove " + found.line.name + "?\n\n" + found.cat.name + " keeps " + money(Number(found.line.assigned) || 0) +
+        " planned as one amount, with no subcategory. Its transactions stay in " + found.cat.name + ".")) return;
+      found.line.name = found.cat.name;
+      delete found.line.autoCopy;
+      found.cat.flat = true;
+      closeModal(); saveState(); render();
+      return;
+    }
     var spendCount = (month.transactions || []).filter(function (t) {
       return !isIncomeTx(t) && txLegs(t).some(function (leg) { return leg.lineId === lineId; });
     }).length;
@@ -1242,8 +1279,13 @@
           name: name,
           assigned: 0,
           sortOrder: i,
+          flat: tpl && tpl.flat && lineNames.length === 1 ? true : undefined,
+          system: name === "Savings" ? "savings" : undefined,
           lines: lineNames.map(function (lineName, li) {
-            return { id: nextId(), name: lineName, assigned: 0, sortOrder: li, loanBalance: 0, loanApr: 0, loanMinPayment: 0, loanOriginalBalance: 0, loanDebtType: "" };
+            var nl = { id: nextId(), name: lineName, assigned: 0, sortOrder: li, loanBalance: 0, loanApr: 0, loanMinPayment: 0, loanOriginalBalance: 0, loanDebtType: "" };
+            /* Savings › Checking is the locked system line wrap-up parks leftovers in (never a second plain copy). */
+            if (name === "Savings" && lineName === "Checking") nl.system = "checking";
+            return nl;
           })
         };
       }),
@@ -3427,12 +3469,13 @@
     if (state.months[key]) {
       migrateIncome(state.months[key]);
       migrateTransactions(state.months[key]);
+      settleFlat(state.months[key]);
       syncAllBudgetLoansToNetWorth(state.months[key]);
       return state.months[key];
     }
 
     var templates = DEFAULT_ENVELOPES.map(function (name) {
-      return { name: name, lineNames: defaultLineNames(name) };
+      return { name: name, lineNames: defaultLineNames(name), flat: flatDefault(name) };
     });
     var earlier = Object.keys(state.months).map(function (k) {
       return state.months[k];
@@ -3446,7 +3489,7 @@
       migrateSubsections(earlier[0]);
       templates = sortedCategories(earlier[0]).map(function (c) {
         var names = sortedLines(c).map(function (l) { return l.name; });
-        return { name: c.name, lineNames: names.length ? names : defaultLineNames(c.name) };
+        return { name: c.name, lineNames: names.length ? names : defaultLineNames(c.name), flat: isFlat(c) };
       });
     }
     state.months[key] = emptyMonth(year, month, templates);
@@ -4398,7 +4441,7 @@
     if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
     else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
     html += modeToggleHtml() +
-      '<p class="left-to-budget' + (ltb < 0 ? " over" : ltb === 0 ? " zero" : "") + '" id="left-to-budget">' +
+      '<p class="left-to-budget' + (ltb < 0 ? " over" : ltb === 0 ? " zero" : "") + (ltb !== 0 && !month.closedAt ? " ltb-pin" : "") + '" id="left-to-budget">' +
       (ltb > 0 ? '<span class="mono moss">' + money(ltb) + "</span> left to budget"
         : ltb < 0 ? '<span class="mono rust">' + money(-ltb) + "</span> over budget"
         : totals.income > 0 || totals.assigned > 0 ? "Every dollar has a job" : "") + "</p>"; /* No line on an empty month */
@@ -4439,8 +4482,11 @@
         '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + esc(cat.id) + '">' +
         '<div class="name">' + esc(cat.name) + "</div>" +
         "</button>" +
-        '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>";
-      sortedLines(cat).forEach(function (line, lineIndex) {
+        (isFlat(cat)
+          ? '<button class="line-assigned-btn env-flat-amt mono ' + amountClass + '" type="button" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(cat.lines[0].id) +
+            '" aria-label="' + esc(envelopeMode() + " " + money(shown) + " for " + cat.name) + '">' + money(shown) + "</button></div>"
+          : '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>");
+      (isFlat(cat) ? [] : sortedLines(cat)).forEach(function (line, lineIndex) {
         var lineSpent = spentOnLine(month, line.id);
         var lineShown = envelopeAmount(Number(line.assigned) || 0, lineSpent);
         html += '<div class="envelope-line">';
@@ -4458,13 +4504,22 @@
         html += "</div>";
       });
       html += '<button class="add-line" type="button" data-act="add-line" data-id="' + esc(cat.id) +
-        '" aria-label="Add subsection to ' + esc(cat.name) + '">+</button>';
+        '" aria-label="Add ' + (isFlat(cat) ? "a subcategory" : "subsection") + " to " + esc(cat.name) + '">+</button>';
       html += "</div>";
     });
     if (!(totals.assigned > 0) && !(totals.spent > 0) && previousPlanMonth()) {
       html += '<button class="copy-month" type="button" data-act="copy-last-month">Copy last month’s budget</button>';
     }
     return html;
+  }
+
+  /* v37.5.74 (owner): while there are still dollars to budget (or it's over), "$X left to budget" stays pinned
+   * just under the sticky Planned / Spent / Remaining bar as the envelopes scroll. Once every dollar has a job
+   * (or the month is wrapped up) it is a normal, unpinned line. */
+  function pinLeftToBudget(screen) {
+    var bar = screen.querySelector(".mode-toggle"), ltb = screen.querySelector(".left-to-budget.ltb-pin");
+    if (!bar || !ltb) return;
+    screen.style.setProperty("--mt-h", Math.max(0, Math.round(bar.getBoundingClientRect().height)) + "px");
   }
 
   function fooBudgetStripHtml(month) {
@@ -10326,6 +10381,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var ae = document.activeElement;
       var typing = !!(ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT") && ae.type !== "checkbox" && ae.type !== "radio");
       document.body.classList.toggle("kb-up", up && typing);
+      /* v37.5.74: iOS pans the whole page (visualViewport.offsetTop > 0) when the number pad opens, while
+       * #screen (the real scroller) keeps its full height under the keyboard. Sticky headers then sit in the
+       * wrong place and the old translateY "compensation" drew the frozen year header a second time.
+       * Shrink the app to the visible area and undo the pan, so sticky / scrolling stay inside #screen. */
+      var modal = document.getElementById("modal");
+      var fit = !!(vv && up && typing && ae.closest && ae.closest("#screen") && (!modal || modal.hidden));
+      document.body.classList.toggle("kb-fit", fit);
+      if (fit) {
+        document.documentElement.style.setProperty("--vvh", Math.round(vv.height) + "px");
+        if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0);
+      }
       if (vv) document.documentElement.style.setProperty("--vv-bottom", Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + "px");
     }
     if (window.visualViewport) {
@@ -10404,9 +10470,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     fl.firstChild.scrollLeft = wrap.scrollLeft;
     var screen = document.getElementById("screen"), head = wrap.querySelector("thead");
     if (!screen || !head) return;
-    var vv = window.visualViewport, off = vv && document.body.classList.contains("kb-up") ? Math.max(0, vv.offsetTop) : 0;
-    fl.firstChild.style.transform = off ? "translateY(" + off + "px)" : "";
-    var top = fl.getBoundingClientRect().top + off;
+    /* No visualViewport offset here: #screen is the sticky container, so shifting the clone by the page pan
+     * moved it twice (the duplicate header in the keyboard bug). kb-fit keeps the pan at 0 instead. */
+    fl.firstChild.style.transform = "";
+    var top = fl.getBoundingClientRect().top;
     var hr = head.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
     var show = hr.top < top - 0.5 && wr.bottom > top + hr.height + 8;
     fl.classList.toggle("on", show);
@@ -11149,6 +11216,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           sortOrder: i,
           autoCopy: true,
           system: cat.system || undefined,
+          flat: isFlat(cat) || undefined,
           lines: sortedLines(cat).map(function (line, li) {
             /* AutoCopy marks a copied-forward line you haven't touched; an
              * EveryDollar plan refresh may drop it if EveryDollar has no such line and
@@ -11295,10 +11363,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
 
-  function openEnvelopeEdit(cat) {
+  /* v37.5.74 (owner): reorder subcategories inside the envelope with large ↑ / ↓ buttons; saved at once. */
+  function envSubsHtml(cat) {
+    var lines = isFlat(cat) ? [] : sortedLines(cat);
+    if (lines.length < 2) return "";
+    return '<p class="section-label">Subcategories</p><ol class="env-subs" aria-label="Subcategory order">' + lines.map(function (line, i) {
+      return '<li class="env-sub" data-line="' + esc(line.id) + '"><span class="env-sub-name">' + esc(line.name) + "</span>" +
+        '<button type="button" class="env-sub-mv" data-act="env-sub-up" data-id="' + esc(line.id) + '" aria-label="Move ' + esc(line.name) + ' up"' + (i === 0 ? " disabled" : "") + ">↑</button>" +
+        '<button type="button" class="env-sub-mv" data-act="env-sub-down" data-id="' + esc(line.id) + '" aria-label="Move ' + esc(line.name) + ' down"' + (i === lines.length - 1 ? " disabled" : "") + ">↓</button></li>";
+    }).join("") + "</ol>";
+  }
+  function openEnvelopeEdit(cat, nameDraft) {
     openSheet("Edit envelope",
-      field("Name", "name", cat.name) +
+      field("Name", "name", nameDraft != null ? nameDraft : cat.name) +
       '<input type="hidden" name="id" value="' + esc(cat.id) + '">' +
+      envSubsHtml(cat) +
       '<p class="caption">Reorder envelopes or move lines between them with ⇅ at the top of Budget.</p>' +
       (cat.system === "savings" ? '<p class="caption">Savings is built in: rename it if you like, but it can’t be deleted. It holds your Checking line, where wrap-up parks leftover dollars.</p>'
         : cat.system === "checking" ? CHECKING_LOCK_NOTE
@@ -11348,6 +11427,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       html += '<div class="ro-group" data-cat="' + esc(cat.id) + '"><div class="ro-ghead"><span class="ro-name">' + esc(cat.name) + "</span>" +
         '<span class="ro-handle" role="button" aria-label="Drag to reorder ' + esc(cat.name) + '" data-drag="group">⠿</span></div><div class="ro-items">';
       sortedLines(cat).forEach(function (line) {
+        if (isFlat(cat)) { html += '<div class="ro-item ro-flat" hidden data-line="' + esc(line.id) + '"></div>'; return; }
         html += '<div class="ro-item" data-line="' + esc(line.id) + '"><span class="ro-name">' + esc(line.name) + "</span>" +
           '<span class="ro-handle" role="button" aria-label="Drag to move ' + esc(line.name) + '" data-drag="item">⠿</span></div>';
       });
@@ -11483,8 +11563,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="row"><span>Planned</span><span class="mono">' + money(assigned) + "</span></div>" +
       '<div class="row"><span>Spent</span><span class="mono">' + money(spent) + "</span></div>" +
       '<div class="row"><span>Remaining</span><span class="mono ' + (remaining < 0 ? "ink" : tone(remaining)) + '">' + money(remaining) + "</span></div>";
-    html += '<p class="section-label">Lines</p>';
-    sortedLines(cat).forEach(function (line) {
+    if (isFlat(cat)) html += '<button type="button" class="add-line env-flat-edit" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(cat.lines[0].id) + '">Change planned amount</button>' +
+      '<p class="caption">No subcategories. Tap + under ' + esc(cat.name) + " on Budget to add one.</p>";
+    else html += '<p class="section-label">Lines</p>';
+    (isFlat(cat) ? [] : sortedLines(cat)).forEach(function (line) {
       var lineSpent = spentOnLine(month, line.id);
       var lineLeft = (Number(line.assigned) || 0) - lineSpent;
       html += '<div class="detail-line">' +
@@ -12051,9 +12133,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var lastCat = null;
       edLines(month).forEach(function (x) {
         if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
-        if (x.cat !== lastCat) { h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>"; lastCat = x.cat; }
+        var xf = isFlat(x.cat);
+        if (x.cat !== lastCat && !xf) h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>";
+        lastCat = x.cat;
         var on = edUi.multi && !!sel[x.line.id];
-        h += '<div class="ed-item-row' + (on ? " on" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
+        h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
           "<span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>" +
           '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + on + '" aria-label="Split with ' + esc(x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
       });
@@ -12066,6 +12150,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.hidden = false;
     modal.innerHTML = h;
     armSheetA11y(modal);
+    edFit();
     if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
@@ -12083,6 +12168,44 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var big = !(total > 0) ? "Enter the amount first" : left < 0 ? "Over by " + formatMoney(-left, 2) : "Left to allocate " + formatMoney(left, 2) + (left === 0 ? " ✓" : "");
     return '<strong class="ed-left ' + cls + '" data-left="' + left.toFixed(2) + '">' + big + '</strong><span class="caption"><span class="mono">' + formatMoney(sum, 2) + "</span> of <span class=\"mono\">" + formatMoney(total, 2) + "</span> allocated</span>";
   }
+  /* v37.5.74 (tester bug): typing the merchant on iPhone left the number pad up under the iOS keyboard, so the
+   * amount was cut off at the top and the pad, Save and keyboard overlapped. Any typed field in the Add sheet now
+   * collapses the pad (tap Amount to bring it back), and the sheet is fitted to the visible viewport (above the
+   * keyboard) with the Amount header pinned, so Save scrolls into reach. */
+  function edFit() {
+    var sh = document.querySelector("#modal .sheet.ed-add");
+    if (!sh) return;
+    var vv = window.visualViewport, h = vv ? vv.height : window.innerHeight, top = vv ? vv.offsetTop : 0;
+    sh.style.maxHeight = Math.max(220, Math.min(h * 0.94, h - 8)) + "px";
+    sh.style.marginBottom = Math.max(0, window.innerHeight - h - top) + "px";
+    var ae = document.activeElement, typing = !!(ae && sh.contains(ae) && ae.matches("input, select, textarea"));
+    sh.classList.toggle("ed-kb", typing || !!(vv && window.innerHeight - h > 120));
+    document.body.classList.toggle("ed-typing", typing);
+  }
+  function edCollapsePad() {
+    if (!edUi) return;
+    edUi.pad = false;
+    var f = document.querySelector("#modal .sheet.ed-add");
+    if (!f) return;
+    var pad = f.querySelector(".ed-pad"); if (pad) pad.parentNode.removeChild(pad);
+    var hero = f.querySelector(".ed-hero"); if (hero) hero.classList.remove("active");
+    edFit();
+  }
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (!t || !t.closest || !t.closest("#modal .sheet.ed-add")) return;
+    if (t.matches("input, select, textarea")) {
+      edCollapsePad();
+      setTimeout(function () { edFit(); try { t.scrollIntoView({ block: "nearest" }); } catch (x) {} }, 60);
+    }
+  });
+  document.addEventListener("focusout", function (e) {
+    if (e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add")) setTimeout(edFit, 0);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", edFit);
+    window.visualViewport.addEventListener("scroll", edFit);
+  }
   function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
   function edSyncAmount() {
     spendDraft.amount = roundCents(edCentsValue(edUi.amt));
@@ -12096,7 +12219,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
     edUi.err = ""; edUi.focusSearch = false;
     if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
-    else if (a === "pad") edUi.pad = true;
+    else if (a === "pad") { edUi.pad = true; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
     else if (a === "done") edUi.pad = false;
     else if (a === "key") {
       var k = b.getAttribute("data-k"), s = edUi.amt;
@@ -12648,7 +12771,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       sortedLines(cat).forEach(function (line) {
         html += '<option value="' + esc(cat.id + ":" + line.id) + '"' +
           (line.id === selectedId ? " selected" : "") + ">" +
-          esc(cat.name + " · " + line.name) + "</option>";
+          esc(lineLabel(cat, line)) + "</option>";
       });
     });
     return html + "</select></label>";
@@ -14350,7 +14473,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var s = freshState();
     var cur = currentYearMonth();
     var templates = DEFAULT_ENVELOPES.map(function (name) {
-      return { name: name, lineNames: defaultLineNames(name) };
+      return { name: name, lineNames: defaultLineNames(name), flat: flatDefault(name) };
     });
     s.months = {};
     s.months[ymKey(cur.year, cur.month)] = emptyMonth(cur.year, cur.month, templates);
@@ -16434,7 +16557,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.73";
+  var APP_VERSION = "37.5.74";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -17632,6 +17755,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (state.tab === "budget") {
         if (ensureCheckingEnvelope(month) || checkingMovedAtLoad) { checkingMovedAtLoad = false; totals = sums(month); saveState(); }
         screen.innerHTML = renderBudget(month, totals);
+        pinLeftToBudget(screen);
         bindEnvelopeHold(screen);
       }
       else if (state.tab === "spend") {
@@ -17726,6 +17850,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function closeModal() {
+    document.body.classList.remove("ed-typing");
     moneyWholeModal = false;
     ritual = { step: 0, destKey: ritual.destKey };
     var modal = document.getElementById("modal");
@@ -19452,22 +19577,30 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openEnvelopeDetail(cat, month);
     } else if (act === "add-line") {
       var addCat = month.categories.filter(function (c) { return c.id === actEl.getAttribute("data-id"); })[0];
+      var addFlat = isFlat(addCat);
       var addFields = field("Name", "name", "") +
         field(addCat && /^debt$/i.test(addCat.name) ? "This month’s payment" : "Assigned",
-          "assigned", "0", "number");
+          "assigned", addFlat ? String(Number(addCat.lines[0].assigned) || 0) : "0", "number") +
+        (addFlat ? '<p class="caption">' + esc(addCat.name) + "’s " + esc(money(addCat.lines[0].assigned)) + " and its transactions move into this subcategory.</p>" : "");
       if (addCat && /^debt$/i.test(addCat.name)) {
+        /* v37.5.74: every loan detail right here (all optional) — no second trip in for the rate. */
         addFields += field("Balance", "loanBalance", "0", "number") +
-          '<p class="caption">Payment is this month’s assigned amount. Balance is what you still owe — it also appears on the net worth statement.</p>';
+          '<label class="field">APR % <span class="caption">(optional)</span><input name="loanApr" inputmode="decimal" type="text" value="" placeholder="e.g. 6.5"></label>' +
+          field("Min payment", "loanMinPayment", "0", "number") +
+          field("Original balance", "loanOriginalBalance", "0", "number") +
+          debtTypeSelect("loanDebtType", "", "") +
+          '<p class="caption">All optional — fill in what you know, change it any time. Payment is this month’s assigned amount. A balance adds this loan to Net worth as a liability (and keeps it in step when you edit or delete the line).</p>';
       }
       if (addCat && /^savings$/i.test(addCat.name)) addFields += feedsAccountFieldHtml("");
-      openSheet("New line",
+      openSheet(addFlat ? "New subcategory" : "New line",
         addFields +
         '<input type="hidden" name="categoryId" value="' + esc(actEl.getAttribute("data-id")) + '">',
         "save-new-line");
     } else if (act === "edit-line-item") {
       var found = findLine(month, actEl.getAttribute("data-id"));
       if (!found) return;
-      var lineFields = (found.line.system === "checking" ? "" : field("Name", "name", found.line.name)) +
+      var lineFlat = isFlat(found.cat);
+      var lineFields = (found.line.system === "checking" || lineFlat ? "" : field("Name", "name", found.line.name)) +
         field(found.cat && /^debt$/i.test(found.cat.name) ? "This month’s payment" : "Assigned",
           "assigned", String(found.line.assigned), "number");
       if (found.cat && /^debt$/i.test(found.cat.name)) {
@@ -19480,10 +19613,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           '<p class="caption">Assigned is this month’s payment. Balance, APR, min, and type persist on the line. In the spirit of Money Guy’s Financial Order of Operations — estimates, not advice.</p>';
       }
       if (found.cat && /^savings$/i.test(found.cat.name)) lineFields += feedsAccountFieldHtml(found.line.name);
-      openSheet((found.cat ? found.cat.name + " · " : "") + found.line.name,
+      openSheet(found.cat ? lineLabel(found.cat, found.line) : found.line.name,
         lineFields +
         lineSpendList(month, found.line.id) +
         (found.line.system === "checking" ? CHECKING_LOCK_NOTE + '<p class="caption">Checking balance across months: ' + esc(formatMoney(checkingBalance(month), 2)) + ".</p>"
+          : lineFlat ? '<p class="caption">' + esc(found.cat.name) + " has no subcategories, so this is its planned amount. Tap + under it on Budget to add one.</p>"
           : deleteBtnHtml("delete-line", "Delete " + esc(found.line.name), ' data-id="' + esc(found.line.id) + '"')) +
         '<input type="hidden" name="id" value="' + esc(found.line.id) + '">',
         "save-line-item");
@@ -19496,6 +19630,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         focusAmount();
         setTimeout(focusAmount, 60);
       }
+    } else if (act === "env-sub-up" || act === "env-sub-down") {
+      var subFound = findLine(month, actEl.getAttribute("data-id"));
+      if (!subFound) return;
+      var nameIn = document.querySelector('#modal input[name="name"]'), draftName = nameIn ? nameIn.value : null;
+      var subId = subFound.line.id, dir = act === "env-sub-up" ? "up" : "down";
+      moveLine(month, subId, act === "env-sub-up" ? -1 : 1);
+      openEnvelopeEdit(subFound.cat, draftName);
+      var again = document.querySelector('#modal [data-act="env-sub-' + dir + '"][data-id="' + subId + '"]');
+      if (again && !again.disabled) again.focus();
+      else { var other = document.querySelector('#modal [data-act="env-sub-' + (dir === "up" ? "down" : "up") + '"][data-id="' + subId + '"]'); if (other) other.focus(); }
     } else if (act === "envmenu-line-up" || act === "envmenu-line-down") {
       closeModal();
       moveLine(month, actEl.getAttribute("data-id"), act === "envmenu-line-up" ? -1 : 1);
@@ -19769,7 +19913,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var name = (data.name || "").replace(/^\s+|\s+$/g, "") || "Envelope";
       if (data.id) {
         month.categories.forEach(function (c) {
-          if (c.id === data.id) { c.name = name; delete c.autoCopy; }
+          if (c.id === data.id) { c.name = name; delete c.autoCopy; if (isFlat(c)) c.lines[0].name = name; }
         });
       } else {
         var lines = name === "Food"
@@ -19778,6 +19922,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         month.categories.push({
           id: nextId(),
           name: name,
+          flat: name === "Food" ? undefined : true,
           assigned: assigned,
           sortOrder: month.categories.length,
           lines: lines
@@ -19786,7 +19931,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     } else if (act === "save-new-line") {
       var parent = month.categories.filter(function (c) { return c.id === data.categoryId; })[0];
-      if (parent) {
+      if (parent && isFlat(parent)) {
+        /* First subcategory: the flat amount (and its transactions) carry into it. */
+        var carried = parent.lines[0];
+        carried.name = (data.name || "").replace(/^\s+|\s+$/g, "") || "Line";
+        carried.assigned = Number(data.assigned) || 0;
+        delete carried.autoCopy;
+        delete parent.flat;
+        if (Object.prototype.hasOwnProperty.call(data, "feedsAccount")) setLineFeed(carried.name, data.feedsAccount || "");
+      } else if (parent) {
         if (!parent.lines) parent.lines = [];
         var createdLine = {
           id: nextId(),
@@ -19796,10 +19949,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           loanBalance: Object.prototype.hasOwnProperty.call(data, "loanBalance")
             ? (Number(data.loanBalance) || 0)
             : 0,
-          loanApr: 0,
-          loanMinPayment: 0,
-          loanOriginalBalance: 0,
-          loanDebtType: ""
+          loanApr: Number(String(data.loanApr || "").replace(/[^0-9.]/g, "")) || 0,
+          loanMinPayment: Number(data.loanMinPayment) || 0,
+          loanOriginalBalance: Number(data.loanOriginalBalance) || 0,
+          loanDebtType: data.loanDebtType || ""
         };
         parent.lines.push(createdLine);
         if (Object.prototype.hasOwnProperty.call(data, "feedsAccount")) setLineFeed(createdLine.name, data.feedsAccount || "");

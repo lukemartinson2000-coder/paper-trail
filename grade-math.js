@@ -6733,24 +6733,25 @@
     if (has(["starbucks", "chipotle", "mcdonald", "restaurant", "cantina", "doordash", "uber eats", "cafe"])) {
       return map("Food", "Restaurants");
     }
-    if (has(["shell", "exxon", "chevron", "gas", "uber", "lyft", "parking"])) {
-      return map("Transportation", "Transportation");
+    /* v37.5.74: mapped onto the new-user default envelopes. */
+    if (has(["shell", "exxon", "chevron", "gas"])) return map("Transportation", "Gas");
+    if (has(["parking", "uber", "lyft"])) return map("Transportation", "Parking");
+    if (has(["icloud", "dropbox", "google one"])) return map("Subscriptions", "Storage");
+    if (has(["verizon", "at&t", "t-mobile"])) return map("Subscriptions", "Cell phone");
+    if (has(["netflix", "spotify", "hulu", "disney+", "apple.com", "youtube premium"])) {
+      return map("Subscriptions", "Streaming");
     }
-    if (has(["netflix", "spotify", "hulu", "disney+", "apple.com", "icloud", "youtube premium"])) {
-      return map("Subscriptions", "Subscriptions");
-    }
-    if (has(["pg&e", "electric", "water", "utility", "comcast", "xfinity", "verizon", "at&t"])) {
-      return map("Utilities", "Utilities");
+    if (has(["pg&e", "electric", "water", "utility", "comcast", "xfinity"])) {
+      return map("Housing", "Utilities");
     }
     if (has(["geico", "state farm", "allstate", "progressive", "insurance"])) {
-      return map("Insurance", "Insurance");
+      return map("Insurance", "Car");
     }
-    if (has(["cvs", "walgreens", "pharmacy", "dentist", "hospital"])) {
-      return map("Health", "Health");
-    }
-    if (has(["rent", "mortgage", "landlord", "hoa"])) return map("Housing", "Housing");
-    if (has(["amazon", "target"])) return map("Miscellaneous", "Miscellaneous");
-    return map("Miscellaneous", "Miscellaneous");
+    if (has(["cvs", "walgreens", "pharmacy"])) return map("Health", "Medication");
+    if (has(["dentist", "hospital", "clinic"])) return map("Health", "Doctor");
+    if (has(["hoa"])) return map("Housing", "HOA");
+    if (has(["rent", "mortgage", "landlord"])) return map("Housing", "Mortgage");
+    return map("Personal", "Miscellaneous");
   }
 
   function topMerchants(transactions, limit) {
