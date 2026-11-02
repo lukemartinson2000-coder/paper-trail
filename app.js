@@ -39,6 +39,7 @@
     "var(--berry)"
   ];
 
+  var IT_PRE_RET = /^(?!.*roth).*(401\s*\(?k|403\s*\(?b|\b457)/i;
   var PRETAX_SPECS = [
     { id: "medical", name: "Medical Insurance", method: "fixed" },
     { id: "dental", name: "Dental", method: "fixed" },
@@ -598,7 +599,7 @@
     (plan.preTax || []).forEach(function (row, i) {
       if (row.id === "401k") employee401k = preTaxAmounts[i];
       if (row.id === "hsa") hsa = preTaxAmounts[i];
-      if (row.id !== "401k") ficaShield += preTaxAmounts[i];
+      if (row.id !== "401k" && !IT_PRE_RET.test(String(row.name || ""))) ficaShield += preTaxAmounts[i]; /* 401k/403b/457 deferrals still pay FICA */
     });
     var pcPost = 0;
     pcRows.forEach(function (r) {
@@ -2798,23 +2799,53 @@
     return state.incomeYear;
   }
 
+  /* Name of the grouped yearly screens on Stats; change it here only ("Yearly check-in" is the alternative). */
+  var ANNUAL_REVIEW_NAME = "Annual review";
+  var ANNUAL_REVIEW_DOORS = { review: 1, statement: 1, worth: 1, paystubs: 1 };
   function statsSegmentHtml(active) {
-    /* Income statement left, Net worth right. Default door stays worth. */
-    /* Vault is a full-width outline button directly under the two pills. */
+    /* Two pills: Dashboard and the annual review group; Vault is a full-width outline button under them.
+     * Inside a grouped screen, a back row returns to the annual review list. */
+    var inReview = !!ANNUAL_REVIEW_DOORS[active];
     return '<div class="stats-doors">' +
-      '<div class="stats-seg" role="tablist" aria-label="Statement">' +
+      '<div class="stats-seg" role="tablist" aria-label="Stats">' +
       '<button type="button" role="tab" data-act="stats-door" data-door="dash"' +
       (active === "dash" ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
       ">Dashboard</button>" +
-      '<button type="button" role="tab" data-act="stats-door" data-door="statement"' +
-      (active === "statement" ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
-      ">Income statement</button>" +
-      '<button type="button" role="tab" data-act="stats-door" data-door="worth"' +
-      (active === "worth" ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
-      ">Net worth</button>" +
+      '<button type="button" role="tab" data-act="stats-door" data-door="review"' +
+      (inReview ? ' class="on" aria-selected="true"' : ' aria-selected="false"') +
+      ">" + esc(ANNUAL_REVIEW_NAME) + "</button>" +
       "</div>" +
-      '<button class="stats-vault" type="button" data-act="stats-door" data-door="vault">Vault</button>' +
+      '<div class="stats-vault-row"><button class="stats-vault" type="button" data-act="stats-door" data-door="vault">Vault</button></div>' +
+      (inReview && active !== "review" ? '<button type="button" class="ar-back" data-act="stats-door" data-door="review">‹ ' + esc(ANNUAL_REVIEW_NAME) + "</button>" : "") +
       "</div>";
+  }
+
+  function renderAnnualReview() {
+    var stubs = confirmedPayStubs().length, c = state.compensation || {};
+    var payData = stubs > 0 || !!c.trueManual;
+    var wrapY = annualWrapYear(), q = quarterAvail(), lastQ = q[q.length - 1];
+    var row = function (attrs, title, cap, quiet) {
+      return '<li><button type="button" class="ar-row' + (quiet ? " ar-quiet" : "") + '" ' + attrs + '><span class="ar-txt"><strong>' + title + '</strong><span class="caption">' + cap + '</span></span><span class="chev" aria-hidden="true">›</span></button></li>';
+    };
+    var wrapRow = wrapY != null ? row('data-act="open-wrapped"', "Wrapped", "Your " + wrapY + " recap, story style", false)
+      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", true)
+      : (function () {
+        /* Not open yet: a quiet progress bar from Jan 1 to Dec 25 of this year (not tappable). */
+        var t = dashToday(), y = t.getFullYear();
+        var a0 = new Date(y, 0, 1).getTime(), a1 = new Date(y, 11, 25).getTime(), now = new Date(y, t.getMonth(), t.getDate()).getTime();
+        var pct = Math.max(0, Math.min(100, Math.round((now - a0) / (a1 - a0) * 100)));
+        var left = Math.max(0, Math.round((a1 - now) / 864e5));
+        return '<li><div class="ar-row ar-quiet ar-off ar-wrap-load" aria-disabled="true"><span class="ar-txt"><strong>Wrapped</strong>' +
+          '<span class="ar-load" role="progressbar" aria-label="Wrapped ' + y + ' loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><span class="ar-load-fill" style="--ar-p:' + pct + '%"></span></span>' +
+          '<span class="caption">Loading… opens Dec 25 · ' + left + (left === 1 ? " day" : " days") + " left</span></span></div></li>";
+      })();
+    return statsSegmentHtml("review") +
+      '<section class="ar-list-wrap"><h2 class="ar-h">' + esc(ANNUAL_REVIEW_NAME) + '</h2>' +
+      '<p class="caption ar-sub">Your year in one place.</p><ul class="ar-list">' +
+      row('data-act="stats-door" data-door="worth"', "Net worth", "What you own minus what you owe", false) +
+      row('data-act="stats-door" data-door="statement"', "Income statement", "What came in and went out this year", false) +
+      row('data-act="stats-door" data-door="paystubs"', "Pay stubs", payData ? "Your pay, deductions and true savings rate" : "Add a pay stub to see your true savings rate", !payData) +
+      wrapRow + "</ul></section>";
   }
 
   function calendarYearPickerHtml(act, years, selected, aria, opts) {
@@ -4002,10 +4033,10 @@
       return;
     }
     var leading = '<button class="icon-btn" type="button" data-act="prev-month" aria-label="Previous month">‹</button>';
-    /* The month title opens a month/year jump picker (‹ › stay). Budget adds ⇅ Reorder and +. */
+    /* The month title opens a month/year jump picker (‹ › stay). Budget adds ⇅ Reorder and a green + (Add transaction). */
     var budgetTools = state.tab === "budget"
       ? '<button class="icon-btn bar-tool" type="button" data-act="open-reorder" aria-label="Reorder budget">⇅</button>' +
-        '<button class="icon-btn bar-tool" type="button" data-act="add-category" aria-label="Add envelope">+</button>'
+        '<button class="icon-btn bar-tool bar-add-tx" type="button" data-act="add-spend" aria-label="Add transaction" title="Add transaction">+</button>'
       : "";
     el.innerHTML =
       leading +
@@ -4249,6 +4280,7 @@
     state.year = rec.year; state.month = rec.month; state.tab = "budget";
     saveState();
     var reduce = stampReduceMotion();
+    if (first) seasonCloseRun();
     stampLandKey = first && !reduce ? key : "";
     render();
     stampLandKey = "";
@@ -4516,6 +4548,8 @@
     if (!(totals.assigned > 0) && !(totals.spent > 0) && previousPlanMonth()) {
       html += '<button class="copy-month" type="button" data-act="copy-last-month">Copy last month’s budget</button>';
     }
+    /* Adding a category lives here, after the last envelope; the green + in the top bar adds a transaction. */
+    html += '<button class="add-category-btn" type="button" data-act="add-category">+ Add category</button>';
     return html;
   }
 
@@ -5187,7 +5221,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var dm = null; try { dm = debtCalcModel(); } catch (e) {}
     html += '<div class="dash-snap" id="dash-snap">' +
       '<div><span class="lbl">Grade</span><b>' + (grade ? grade.score : "—") + "</b></div>" +
-      '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + "</b></div>" +
+      '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + '</b><span class="dash-snap-sub">' +
+        (function () { var t = currentYearMonth(); return Number(state.year) === t.year && Number(state.month) === t.month ? "this month" : esc(MONTH_NAMES[state.month - 1].slice(0, 3) + " " + state.year); })() + "</span></div>" +
       '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel(dm.withX.months)) : "—") + "</b></div></div>";
     if (grade) {
       html += (isPremium() ? premiumGradeHeroHtml(grade) : gradeGlimpseHtml(grade)).replace("</section>", '<p class="plain-line">One number for how your money habits are set up. 100 is perfect.</p></section>');
@@ -6980,6 +7015,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet debt-sheet" id="debt-sheet" data-sandbox="1">' + debtSandboxHtml() + "</div>";
     armSheetA11y(modal);
+    debtSbFit();
   }
   /* v37.5.70: big-dollar inputs (Try a loan, Add / Edit a loan) show thousands commas as you type. Caps at
    * 9 whole digits + 2 decimals; the caret stays after the same digit it followed. Field width is fixed in CSS. */
@@ -7008,9 +7044,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var el = e.target, k = el && el.getAttribute && el.getAttribute("data-debt-sb");
     if (!k || !debtSandbox) return;
     debtSandbox[k] = el.value;
-    var out = document.getElementById("debt-sb-out");
-    if (out) out.innerHTML = debtSandboxOutHtml();
+    debtSbPaintOut();
   }, true);
+  /* Results repaint once per frame and only when they changed; the sheet keeps a fixed height and the results
+   * box reserves its space, so the fields never move while typing. */
+  var debtSbRaf = 0;
+  function debtSbPaintOut() {
+    if (debtSbRaf) return;
+    debtSbRaf = requestAnimationFrame(function () {
+      debtSbRaf = 0;
+      var out = document.getElementById("debt-sb-out"), sh = document.getElementById("debt-sheet");
+      if (!out || !debtSandbox) return;
+      var html = debtSandboxOutHtml();
+      if (out.innerHTML === html) return;
+      var st = sh ? sh.scrollTop : 0;
+      out.innerHTML = html;
+      if (sh && sh.scrollTop !== st) sh.scrollTop = st;
+    });
+  }
+  /* The sandbox sheet follows the visible viewport (keypad open on iOS shrinks visualViewport, not vh). */
+  function debtSbFit() {
+    var sh = document.getElementById("debt-sheet");
+    if (!sh || !sh.getAttribute("data-sandbox")) return;
+    var vv = window.visualViewport, h = vv ? vv.height : window.innerHeight;
+    sh.style.setProperty("--sb-vh", Math.round(h) + "px");
+    var a = document.activeElement;
+    if (a && sh.contains(a) && a.getAttribute("data-debt-sb")) {
+      var r = a.getBoundingClientRect(), sr = sh.getBoundingClientRect();
+      if (r.bottom > sr.bottom - 8 || r.top < sr.top + 60) sh.scrollTop += r.top - sr.top - 80;
+    }
+  }
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", debtSbFit);
+  window.addEventListener("resize", debtSbFit);
 
   function openDebtCalc() {
     captureModalReturnScreenTop();
@@ -7085,7 +7150,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (to !== (sbu.unit === "months" ? "months" : "years")) {
         sbu.unit = to;
         if (tm > 0) sbu.term = String(to === "months" ? tm : Math.round(tm / 12 * 100) / 100);
-        var sh = document.getElementById("debt-sheet"); if (sh) sh.innerHTML = debtSandboxHtml();
+        /* update in place: no full repaint, so nothing shifts and the sheet keeps its scroll */
+        var ti = document.querySelector('[data-debt-sb="term"]');
+        if (ti) { ti.value = sbu.term || ""; ti.setAttribute("aria-label", "Term in " + to); }
+        Array.prototype.forEach.call(document.querySelectorAll('[data-debt="sb-unit"]'), function (x) {
+          var on = x.getAttribute("data-to") === to; x.classList.toggle("on", on); x.setAttribute("aria-pressed", String(on));
+        });
+        debtSbPaintOut();
       }
     }
     else if (a === "sb-save") {
@@ -10542,6 +10613,600 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (td && !td.classList.contains("editing")) { e.preventDefault(); sgOpen(td); }
   });
 
+  /* ---- DRAFT (next7, design preview): "Pay stubs" door next to Vault — annual Income tracker + two savings rates. ----
+   * Reads the existing data only: confirmed pay stubs (confirmedPayStubs), the Pay sheet (estimateCompensation) and the
+   * Income statement's typed years (state.annualStatement). Typed past-year cells write the same Income statement keys.
+   * The shared Budget savings rate (sharedSavingsRate) is called, never changed. */
+  var itOpenGrp = {};
+  /* A brand-new line's first save pre-sets the savings circle when its name contains a retirement word; it is
+   * never re-guessed after that (the flag rides along in the form and the table circle changes it). */
+  var IT_NEW_SAVES = /401\s*\(?k|403\s*\(?b|457|ira|roth|pension/i;
+  var IT_RET = /401\s*\(?k|403\s*\(?b|457|\broth\b|\bira\b|\bhsa\b|retire|pension/i;
+  /* Default rule: retirement contributions (401k, 403b, 457, IRA, Roth, pension) and HSA count; other benefits
+   * (health/dental/vision premiums, life insurance, legal plan…) don't. Typed-in pay: which lines count toward savings is the user's checkbox (trueLines[].saves). Lines saved before the
+   * checkbox existed get it once from the old name rule so numbers don't move; after that names are never read. */
+  function itTrueSavesMap(c) {
+    if (!c || !c.trueManual) return {};
+    var changed = false;
+    if (k401TypeOf(c) === "roth") { /* oldest draft: a Roth-type 401k becomes its own after-tax line */
+      var k = (c.preTax || []).filter(function (r) { return r.id === "401k"; })[0];
+      if (k && Number(k.value) > 0) { c.postTax = (c.postTax || []).concat([{ id: "tl" + nextId(), name: /roth/i.test(k.name || "") ? k.name : "Roth 401k", method: k.method, value: k.value, on: true }]); k.value = 0; k.on = false; }
+      c.k401Type = "traditional"; c.k401Since = ""; changed = true;
+    }
+    var list = Array.isArray(c.trueLines) ? c.trueLines : [], byId = {};
+    list.forEach(function (x) { byId[x.id] = x; });
+    var add = function (r, tax) {
+      if (r.on === false || !(Number(r.value) > 0)) return;
+      var e = byId[r.id];
+      if (!e) { e = { id: r.id, tax: tax }; list.push(e); byId[r.id] = e; changed = true; }
+      if (typeof e.saves !== "boolean") { e.saves = IT_RET.test(String(r.name || "")); changed = true; } /* one-time migration */
+    };
+    (c.preTax || []).forEach(function (r) { add(r, "pre"); });
+    (c.postTax || []).forEach(function (r) { add(r, "post"); });
+    if (changed) { c.trueLines = list; try { saveState(); } catch (e) {} }
+    var out = {};
+    list.forEach(function (x) { out[x.id] = !!x.saves; });
+    return out;
+  }
+  function itStubsForYear(y) {
+    return confirmedPayStubs().filter(function (s) { return String(s.payDate || "").slice(0, 4) === String(y); });
+  }
+  function itAdd(map, name, amt, ret, rowId) {
+    amt = Number(amt) || 0;
+    if (!amt) return;
+    if (!map[name]) map[name] = { name: name, amount: 0, ret: !!ret };
+    if (rowId && !map[name].rowId) map[name].rowId = rowId;
+    map[name].amount = roundCents(map[name].amount + amt);
+  }
+  function itList(map) { return Object.keys(map).map(function (k) { return map[k]; }); }
+  function itSum(list) { return roundCents(list.reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)); }
+  function itShown(list, total) { return list.some(function (l) { return l.amount != null; }) ? total : null; }
+  function itChecksPerYear() {
+    var est = null;
+    try { est = estimateCompensation(state.compensation || defaultCompensation()); } catch (e) {}
+    return est && est.paychecksPerYear > 0 ? est.paychecksPerYear : 26;
+  }
+  function itLatestStub() {
+    return confirmedPayStubs().slice().sort(function (a, b) { var x = String(a.payDate || ""), z = String(b.payDate || ""); return x < z ? -1 : x > z ? 1 : 0; }).pop() || null;
+  }
+  /* itYear(y): the current year so far (feeds the headline). itYear(y, true): "Your pay now" on a yearly basis:
+   * the latest pay stub × paychecks a year when stubs exist (stubs win), else the typed-in pay / Pay sheet for a full year. */
+  /* Employer contributions count toward savings by default when they are retirement or HSA money; the user can switch
+   * each kind off. Stored per kind in compensation.erSaves. */
+  function itErKey(name) { return /hsa/i.test(name) ? "erHsa" : /401\s*\(?k|403\s*\(?b|457|ira|roth|pension|match/i.test(name) ? "er401k" : "erOther"; }
+  function itErCounts(name) {
+    var k = itErKey(name), m = (state.compensation && state.compensation.erSaves) || {};
+    return typeof m[k] === "boolean" ? m[k] : k !== "erOther";
+  }
+  function itYear(y, now) {
+    var cy = currentYearMonth().year, pre = {}, tax = {}, post = {}, grossL = {}, d = { year: y, er: 0, erKnown: false, now: !!now }, erL = {};
+    var latest = now ? itLatestStub() : null, stubs = now ? (latest ? [latest] : []) : itStubsForYear(y);
+    var k = now && latest ? itChecksPerYear() : 1, m = function (v) { return v == null || v === "" ? v : roundCents((Number(v) || 0) * k); };
+    if (stubs.length) {
+      var net = 0, anyNet = false;
+      stubs.forEach(function (s0) {
+        var s = {};
+        ["gross", "net", "employee401k", "hsa", "fsa", "federalTax", "stateTax", "socialSecurity", "medicare", "fica", "otherTaxes", "employer401k", "employer401kBase", "employerHsa"].forEach(function (f) { s[f] = m(s0[f]); });
+        s.otherDeductions = (s0.otherDeductions || []).map(function (o) { return o ? { name: o.name, amount: m(o.amount), preTax: o.preTax } : o; });
+        itAdd(grossL, "Gross pay", s.gross);
+        /* Roth 401k on a stub: the stub's own "Roth" line, or Pay settings' 401k type when the stub has one 401k line. */
+        var e401 = Number(s.employee401k) || 0, rothShare = k401TypeOf(state.compensation) === "roth" ? 1 : 0;
+        itAdd(pre, "401k (traditional)", roundCents(e401 * (1 - rothShare)), true);
+        if (rothShare) itAdd(post, "Roth 401k", roundCents(e401 * rothShare), true);
+        itAdd(pre, "HSA", s.hsa, true);
+        itAdd(pre, "FSA", s.fsa);
+        (s.otherDeductions || []).forEach(function (o) {
+          if (!o) return;
+          var nm = String(o.name || "Other"), r = IT_RET.test(nm);
+          if (o.preTax === false || /\broth\b|after[\s-]*tax|post[\s-]*tax/i.test(nm)) itAdd(post, nm, o.amount, r); else itAdd(pre, nm, o.amount, r);
+        });
+        itAdd(tax, "Federal", s.federalTax);
+        itAdd(tax, "State", s.stateTax);
+        itAdd(tax, "FICA", (Number(s.socialSecurity) || 0) + (Number(s.medicare) || 0) || s.fica);
+        itAdd(tax, "Other taxes", s.otherTaxes);
+        if (Number(s.net) > 0) { net += Number(s.net); anyNet = true; }
+        var er = (Number(s.employer401k) || 0) + (Number(s.employer401kBase) || 0) + (Number(s.employerHsa) || 0);
+        if (er > 0) { d.er += er; d.erKnown = true; }
+        itAdd(erL, "Employer 401k", roundCents((Number(s.employer401k) || 0) + (Number(s.employer401kBase) || 0)));
+        itAdd(erL, "Employer HSA", s.employerHsa);
+      });
+      d.source = now ? "from your pay stub" : stubs.length + " pay stub" + (stubs.length === 1 ? "" : "s");
+      if (now) d.sourceNote = "Latest stub (" + usDate(latest.payDate) + ") × " + k + " paychecks a year";
+      d.stubs = stubs;
+      d.netTyped = anyNet ? roundCents(net) : null;
+    } else if (y === cy) {
+      var plan = state.compensation || defaultCompensation(), est = null;
+      try { est = estimateCompensation(plan); } catch (e) {}
+      if (!est || !(est.cashPay > 0)) return null;
+      var checks = est.paychecksPerYear, t = new Date(), start = new Date(cy, 0, 1);
+      var soFar = Math.max(1, Math.min(checks, Math.floor((t - start) / 86400000 / 365 * checks)));
+      var f = now ? 1 : soFar / checks;
+      itAdd(grossL, "Gross pay", roundCents(est.cashPay * f));
+      if (plan.trueManual) {
+        /* Typed-in lines: each named line lands in its own group; savings = retirement / HSA names. */
+        var svMap = itTrueSavesMap(plan);
+        (plan.preTax || []).forEach(function (r) { if (r.on !== false) itAdd(pre, r.name || "Pre-tax", roundCents(deductionAmount(r, est.cashPay, 0) * f), !!svMap[r.id], r.id); });
+        (plan.postTax || []).forEach(function (r) { if (r.on !== false) itAdd(post, r.name || "After-tax", roundCents(deductionAmount(r, est.cashPay, 0) * f), !!svMap[r.id], r.id); });
+      } else {
+            itAdd(pre, "401k (traditional)", roundCents(est.employee401kTraditional * f), true);
+        itAdd(pre, "HSA", roundCents(est.hsa * f), true);
+        itAdd(pre, "Other pre-tax", roundCents((est.preTaxTotal - est.employee401kTraditional - est.hsa) * f));
+      }
+      itAdd(tax, "Federal", roundCents(est.federalTax * f));
+      itAdd(tax, "State", roundCents((est.stateTax + est.localTax + est.statePayroll) * f));
+      itAdd(tax, "FICA", roundCents(est.fica * f));
+      if (!plan.trueManual) {
+            itAdd(post, "Roth 401k", roundCents(est.employee401kRoth * f), true);
+        itAdd(post, "Other after-tax", roundCents((est.postTaxTotal - est.employee401kRoth) * f));
+      }
+      var erE = est.employerMatch + est.employerBase;
+      if (erE > 0 || plan.employerMatchKnown) { d.er = roundCents(erE * f); d.erKnown = true; itAdd(erL, "Employer 401k", d.er); }
+      d.source = now ? "from your pay" : (plan.trueManual ? "Typed-in pay × " : "Pay sheet × ") + soFar + " of " + checks + " checks";
+      if (now) d.sourceNote = "Yearly, " + checks + " paychecks";
+      d.estimate = true;
+      d.typedIn = !!plan.trueManual;
+    } else return null;
+    d.grossLines = itList(grossL); d.gross = itSum(d.grossLines);
+    d.pre = itList(pre); d.tax = itList(tax); d.post = itList(post);
+    d.preT = itSum(d.pre); d.taxT = itSum(d.tax); d.postT = itSum(d.post);
+    d.net = d.netTyped != null ? d.netTyped : roundCents(d.gross - d.preT - d.taxT - d.postT);
+    d.retPayroll = roundCents(d.pre.concat(d.post).reduce(function (n, l) { return n + (l.ret ? l.amount : 0); }, 0));
+    /* Employer money: its own lines, each with a "counts toward savings" choice (default on for retirement and HSA). */
+    d.erLines = itList(erL).filter(function (l) { return l.amount > 0 || (l.name === "Employer 401k" && d.erKnown); }).map(function (l) {
+      return { name: l.name, amount: l.amount, key: itErKey(l.name), ret: itErCounts(l.name) };
+    });
+    d.erCounted = roundCents(d.erLines.reduce(function (n, l) { return n + (l.ret ? l.amount : 0); }, 0));
+    return d;
+  }
+  /* Budget months of a year (current year: through this month). */
+  function itBudgetMonths(y) {
+    var t = currentYearMonth();
+    return Object.keys(state.months || {}).map(function (k) { return state.months[k]; }).filter(function (m) {
+      return m && Number(m.year) === Number(y) && !(Number(y) === t.year && Number(m.month) > t.month);
+    });
+  }
+  /* Budget savings lines that ARE payroll money (401k / 403b / 457 / HSA by name) are left out of the True numerator
+   * when payroll already has that money, so it isn't counted twice. Roth IRA, brokerage, Checking stay (paid from take-home). */
+  function itBudgetPayrollDup(months, d) {
+    if (!d || !(d.retPayroll > 0)) return 0;
+    var isSav = gm().isSavingsEnvelope || function () { return false; }, dup = 0;
+    months.forEach(function (m) {
+      (m.categories || []).forEach(function (cat) {
+        (cat.lines || []).forEach(function (l) {
+          if (!(cat.system === "savings" || l.system === "checking" || isSav(cat.name, l.name))) return;
+          if (/401\s*\(?k|403\s*\(?b|457|\bhsa\b/i.test(String(l.name || ""))) dup += Math.max(0, Number(l.assigned) || 0);
+        });
+      });
+    });
+    return roundCents(dup);
+  }
+  function itRates(y, d) {
+    var months = itBudgetMonths(y), sh = sharedSavingsRate(months);
+    var out = { budget: sh, months: months.length, trueRate: null, why: "" };
+    if (!d || !(d.gross > 0)) { out.why = "No gross pay for " + y + " yet."; return out; }
+    var budgetSav = sh.takeHome > 0 ? sh.savings : 0, dup = itBudgetPayrollDup(months, d);
+    /* Employer money that counts as savings is pay the employer adds on top of gross, so it joins the denominator too;
+     * counting it on top only would inflate the rate. */
+    var erC = d.erCounted || 0;
+    var num = roundCents(Math.max(0, budgetSav - dup) + d.retPayroll + erC);
+    /* Income the budget plans that isn't on these stubs (side gig, a partner's pay) has no known gross; it counts at take-home. */
+    var other = sh.takeHome > 0 && d.net > 0 && sh.takeHome - d.net > Math.max(1, d.net * 0.02) ? roundCents(sh.takeHome - d.net) : 0;
+    var den = roundCents(d.gross + other + erC);
+    out.erCounted = erC;
+    out.trueRate = den > 0 ? num / den : null;
+    out.num = num; out.den = den; out.budgetSav = budgetSav; out.dup = dup; out.other = other;
+    if (!(sh.takeHome > 0)) out.why = "No budget for " + y + ", so only payroll savings count.";
+    return out;
+  }
+  function itAmtCell(v) { return '<td class="it-now-v mono">' + (v == null ? "—" : moneyWhole(v)) + "</td>"; }
+  function itSvMark(l, d) {
+    if (l && l.rowId && d.typedIn) return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-saves" data-row="' + esc(l.rowId) + '" aria-pressed="' + !!l.ret + '" aria-label="Counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button>';
+    if (l && l.ret) return '<span class="it-sv on static" role="img" aria-label="Counts toward savings"><span></span></span>';
+    return '<span class="it-sv blank" aria-hidden="true"></span>';
+  }
+  function itErMark(l) {
+    return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-er-saves" data-k="' + l.key + '" aria-pressed="' + !!l.ret + '" aria-label="' + esc(l.name) + ' counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button>';
+  }
+  function itGroupRow(id, title, d, total, lines) {
+    var list = d[lines] || [], open = !!itOpenGrp[id], canOpen = list.length > 0;
+    var name = canOpen ? '<button type="button" class="it-now-g" data-act="it-toggle" data-g="' + id + '" aria-expanded="' + open + '"><span class="it-now-chev' + (open ? " open" : "") + '" aria-hidden="true">›</span>' + esc(title) + "</button>" : esc(title);
+    var html = '<tr class="it-now-grp"><th scope="row">' + name + "</th>" + itAmtCell(total) + "</tr>";
+    if (open) list.forEach(function (l) { html += '<tr class="it-now-line"><th scope="row"><span class="it-now-nm">' + itSvMark(l, d) + '<span class="it-now-lbl">' + esc(l.name) + "</span></span></th>" + itAmtCell(l.amount) + "</tr>"; });
+    return html;
+  }
+  function renderPayStubsDoor() {
+    var cy = currentYearMonth().year, Dcy = itYear(cy), d = itYear(cy, true), nStubs = confirmedPayStubs().length;
+    var html = '<div class="sg-pass it-pass">' + statsSegmentHtml("paystubs") +
+      '<div class="sg-title"><h2>Pay &amp; savings</h2>' + helpQ("Your pay now, on a yearly basis: gross pay, what comes out before taxes, taxes, what comes out after taxes, and the net pay that reaches your account.\n\n" +
+        "With pay stubs saved it uses your latest stub times your paychecks a year. With none it uses the pay you typed in. Tap a circle to choose which lines count toward savings.\n\n" + ESTIMATE_DISCLAIMER) + "</div>";
+    html += itHeadlineHtml(cy, Dcy);
+    if (d) {
+      html += '<section class="card it-now"><div class="it-now-h"><h3>Your pay now</h3><span class="caption it-src">' + esc(d.source) + (d.sourceNote ? " · " + esc(d.sourceNote) : "") + "</span></div>" +
+        '<table class="it-now-t"><tbody>';
+      html += itGroupRow("gross", "Gross pay", d, itShown(d.grossLines, d.gross), "grossLines");
+      html += itGroupRow("pre", "Pre-tax deductions", d, itShown(d.pre, d.preT), "pre");
+      html += itGroupRow("tax", "Taxes", d, itShown(d.tax, d.taxT), "tax");
+      html += itGroupRow("post", "Post-tax deductions", d, itShown(d.post, d.postT), "post");
+      html += '<tr class="it-now-tot"><th scope="row">Net pay</th>' + itAmtCell(d.gross > 0 ? d.net : null) + "</tr>";
+      html += '<tr class="it-now-erh"><th scope="row" colspan="2"><span class="it-now-sub">Paid by your employer (on top of your pay)</span></th></tr>';
+      if (d.erLines.length) d.erLines.forEach(function (l) {
+        html += '<tr class="it-now-er"><th scope="row"><span class="it-now-nm">' + itErMark(l) + '<span class="it-now-lbl">' + esc(l.name) + "</span></span></th>" + itAmtCell(l.amount) + "</tr>";
+      });
+      else html += '<tr class="it-now-er"><th scope="row"><span class="it-now-nm"><span class="it-sv blank" aria-hidden="true"></span><span class="it-now-lbl">Employer 401k match</span></span></th>' + itAmtCell(null) + "</tr>";
+      html += "</tbody></table>";
+      html += '<p class="it-key"><span class="it-sv on it-key-dot" aria-hidden="true"><span></span></span> counts toward savings · ' + (d.typedIn ? "tap a circle to change it" : "tap an employer circle to change it") + "</p></section>";
+    } else {
+      html += '<section class="card it-now"><h3>Your pay now</h3><p class="caption">Add a pay stub or type in your pay to see it here.</p></section>';
+    }
+    if (nStubs) html += '<button type="button" class="it-stubs-link" data-act="it-stubs">Pay stubs (' + nStubs + ") ›</button>";
+    html += "</div>";
+    return html;
+  }
+
+  /* ONE headline Savings rate (owner, pt1340u). Free: the shared basic rate "from your budget". Premium: a
+   * "See your true savings rate" prompt until a confirmed stub or the typed-in pay setup exists; then the headline is
+   * the gross-based rate "from your pay stub" with a tap-to-see math breakdown. */
+  function itTrueReady() {
+    var c = state.compensation || {};
+    return confirmedPayStubs().length > 0 || (!!c.trueManual && Number(c.baseSalary) > 0);
+  }
+  /* January nudge: pay (latest stub, or typed-in pay) last updated before Jan 1 of this year. Dismissed until next January. */
+  function itPayUpdatedAt() {
+    var st = itLatestStub(), c = state.compensation || {};
+    if (st) return String(st.confirmedAt || st.payDate || "").slice(0, 10);
+    return c.trueManual ? String(c.trueUpdatedAt || "").slice(0, 10) : "";
+  }
+  function itNewYearDue() {
+    var t = currentYearMonth(), c = state.compensation || {};
+    if (t.month !== 1 || !isPremium() || !itTrueReady()) return false;
+    if (Number(c.itNewYearDismissed) === t.year) return false;
+    var u = itPayUpdatedAt();
+    return !u || u < t.year + "-01-01";
+  }
+  function itNewYearHtml() {
+    if (!itNewYearDue()) return "";
+    var stubs = confirmedPayStubs().length > 0;
+    return '<div class="it-ny" role="note"><strong>New year: update your pay ' + (stubs ? "stub" : "") + '</strong>' +
+      '<span class="caption">Raises, new deductions and tax changes usually start in January.</span><div class="it-ny-acts">' +
+      '<button type="button" class="primary" data-act="vault-add-paystub">Upload a new stub</button>' +
+      (state.compensation && state.compensation.trueManual ? '<button type="button" data-act="it-true-manual">Edit typed-in pay</button>' : "") +
+      '<button type="button" class="text-btn" data-act="it-ny-dismiss">Not now</button></div></div>';
+  }
+  function itHeadlineHtml(cy, d) {
+    var ybm = itBudgetMonths(cy), sh = sharedSavingsRate(ybm);
+    /* Same rule as the Dashboard (planned savings ÷ planned take-home) but over the year so far, so name the months. */
+    var mNums = ybm.map(function (m) { return Number(m.month); }), span = mNums.length ? MONTH_NAMES[Math.min.apply(null, mNums) - 1].slice(0, 3) + (mNums.length > 1 ? "–" + MONTH_NAMES[Math.max.apply(null, mNums) - 1].slice(0, 3) : "") + " " + cy : String(cy);
+    var basicCap = "of take-home, from your budget · " + span;
+    var basicTxt = sh.rate == null ? "—" : (sh.state === "over" ? "100%+" : pctWhole(sh.rate));
+    var html = '<section class="card it-head">';
+    if (isPremium() && itTrueReady() && d && d.gross > 0) {
+      var R = itRates(cy, d);
+      /* Shown in whole $ and whole %, all from the same rounded parts so "num ÷ den = %" always agrees with the headline. */
+      var wB = Math.round(Math.max(0, R.budgetSav - R.dup)), wP = Math.round(d.retPayroll + (R.erCounted || 0)), wT = wB + wP, wD = Math.round(R.den || 0), wE = Math.round(R.erCounted || 0);
+      var rateTxt = wD > 0 ? Math.round(wT / wD * 100) + "%" : "—";
+      html += '<button type="button" class="it-head-btn" data-act="it-math" aria-expanded="' + !!itMathOpen + '">' +
+        '<span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + (d.estimate ? "of gross pay, from your pay" : "of gross pay, from your pay stub") + '</span></span>' +
+        '<span class="it-head-n">' + rateTxt + '<small>' + (itMathOpen ? "Hide math ▴" : "See the math ▾") + "</small></span></button>";
+      if (itMathOpen) {
+        html += '<div class="it-math"><div class="row"><span>Saved in budget</span><span class="mono">' + moneyWhole(wB) + "</span></div>" +
+          '<div class="row"><span>Saved from your paycheck<br><small class="caption">' + (d.estimate ? "Lines marked Counts toward savings" : "401k, Roth 401k, HSA") + "</small></span><span class=\"mono\">" + moneyWhole(wP - wE) + "</span></div>" +
+          '<div class="row"><span>Employer money counted<br><small class="caption">' + (!d.erKnown ? "Employer match unknown" : wE > 0 ? d.erLines.filter(function (l) { return l.ret; }).map(function (l) { return esc(l.name); }).join(", ") : "None counted (turn a circle on in the table)") + "</small></span><span class=\"mono\">" + moneyWhole(wE) + "</span></div>" +
+          '<div class="row it-math-tot"><span>Total saved</span><span class="mono">' + moneyWhole(wT) + "</span></div>" +
+          '<div class="row"><span>' + (wE > 0 ? "Gross pay + employer money counted" : "Gross pay") + (R.other > 0 ? '<br><small class="caption">+ ' + moneyWhole(R.other) + " budgeted income not on your pay, at take-home</small>" : "") + '</span><span class="mono">' + moneyWhole(wD) + "</span></div>" +
+          '<p class="caption">' + moneyWhole(wT) + " ÷ " + moneyWhole(wD) + " = " + rateTxt + "." + (wE > 0 ? " Employer money you count as savings is added to both sides, since it is pay on top of your gross." : "") + " Each dollar counts once: budget lines named 401k or HSA aren’t added again" + (R.dup > 0 ? " (" + moneyWhole(R.dup) + " left out)" : "") + ". Budget-only rate (of take-home, " + span + "): " + basicTxt + ".</p>" +
+          (d.estimate ? '<button type="button" class="it-edit-pay" data-act="it-true-manual">Change your typed-in pay ›</button>' : "") + "</div>";
+      }
+    } else {
+      html += '<div class="it-head-btn static"><span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + basicCap + '</span></span>' +
+        '<span class="it-head-n">' + basicTxt + "</span></div>";
+      if (isPremium()) {
+        html += '<button type="button" class="it-true-cta" data-act="it-true-setup"><strong>See your true savings rate ›</strong>' +
+          '<span class="caption">Includes payroll savings like 401k and HSA, measured against gross pay</span></button>';
+      } else {
+        html += '<div class="it-true-cta locked"><span class="kicker">Premium</span><strong>True savings rate</strong>' +
+          '<span class="caption">Includes payroll savings like 401k and HSA, measured against gross pay</span>' +
+          '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock true savings rate</button></div>';
+      }
+    }
+    return html + itNewYearHtml() + "</section>";
+  }
+  var itMathOpen = false;
+  function openItTrueSetup() {
+    var modal = document.getElementById("modal");
+    captureModalReturnScreenTop();
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet it-setup it-sheet"><div class="sheet-top"><h3>See your true savings rate</h3>' +
+      '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<p class="caption it-setup-lead">Includes payroll savings like 401k and HSA, measured against gross pay. Pick one:</p>' +
+      '<button type="button" class="it-choice" data-act="vault-add-paystub"><strong>Upload a pay stub</strong><span class="caption">Read on this device. You review the numbers before anything is saved.</span></button>' +
+      '<button type="button" class="it-choice" data-act="it-true-manual"><strong>Type it in</strong><span class="caption">Your pay, ZIP, 401k, HSA, other deductions and employer match.</span></button>' +
+      '<div class="sheet-actions"><button type="button" data-act="close-modal">Not now</button></div></div>';
+    armSheetA11y(modal);
+  }
+  /* Typed-in pay. Each amount has its own $ / % toggle (% = percent of yearly pay), remembered in the existing pay settings:
+   * a deduction row's method ("fixed" = $ a year, "percentGross" = % of pay) and employer401kMatchIsPercent. Boxes start
+   * truly empty: no placeholder, no example and no 0. % takes plain decimals to hundredths (4.25). Field names avoid the
+   * form handler's cents fields (match, amount, base, assigned, additions). */
+  function itAmtNum(v) {
+    var t = String(v == null ? "" : v).replace(/[^0-9.]/g, "");
+    var dot = t.indexOf(".");
+    if (dot >= 0) t = t.slice(0, dot + 1) + t.slice(dot + 1).replace(/\./g, "");
+    return t === "" || t === "." ? null : Number(t);
+  }
+  function itAmtShow(v, pct) {
+    var n = Number(v);
+    if (!(n > 0)) return "";
+    return pct ? String(Math.round(n * 100) / 100) : commaMoneyText(String(Math.round(n * 100) / 100));
+  }
+  /* Typed-in pay: yearly pay, checks, ZIP, then a free list of named deduction lines (each $ a year | % of pay and
+   * Pre-tax | After-tax), plus employer match on its own row. Stored in the existing pay settings: pre-tax lines are
+   * preTax rows, after-tax lines postTax rows; plan.trueLines keeps the order the user typed. */
+  function itTrueLines(c) {
+    var rows = [];
+    var sv = itTrueSavesMap(c);
+    (c.preTax || []).forEach(function (r) { if (r.on !== false && Number(r.value) > 0) rows.push({ id: r.id, name: r.name, value: r.value, pct: r.method !== "fixed", tax: "pre", saves: c.trueManual ? !!sv[r.id] : r.id === "401k" || r.id === "hsa" }); });
+    (c.postTax || []).forEach(function (r) { if (r.on !== false && Number(r.value) > 0) rows.push({ id: r.id, name: r.name, value: r.value, pct: r.method !== "fixed", tax: "post", saves: c.trueManual ? !!sv[r.id] : false }); });
+    if (!rows.length && !c.trueManual) return [{ name: "401k", value: "", pct: true, tax: "pre", saves: true }, { name: "HSA", value: "", pct: false, tax: "pre", saves: true }, { name: "Roth 401k", value: "", pct: true, tax: "post", saves: true }];
+    var order = (c.trueLines || []).map(function (x) { return x.id; });
+    return rows.sort(function (a, b) { var i = order.indexOf(a.id), j = order.indexOf(b.id); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
+  }
+  var itLineSeq = 0;
+  function itUnitHtml(label, pct) {
+    return '<span class="it-unit-toggle" role="group" aria-label="' + esc(label) + ' in dollars or percent">' +
+      '<button type="button" data-act="it-unit" data-u="usd" aria-pressed="' + !pct + '"' + (pct ? "" : ' class="on"') + '>$ a year</button>' +
+      '<button type="button" data-act="it-unit" data-u="pct" aria-pressed="' + !!pct + '"' + (pct ? ' class="on"' : "") + '>% of pay</button></span>';
+  }
+  function itLineSumText(nm, raw, pct) {
+    var v = String(raw || "").trim();
+    return { name: String(nm || "").trim() || "New deduction", amt: v ? (pct ? v + "%" : "$" + v) : "" };
+  }
+  function itLineHtml(l) {
+    var n = ++itLineSeq, pct = !!l.pct, post = l.tax === "post", shown = itAmtShow(l.value, pct), sm = itLineSumText(l.name, shown, pct);
+    /* Collapsed: one compact row (savings dot, name, amount). Tap to open the details; one line open at a time. */
+    return '<div class="it-line" data-it-line="' + n + '" data-it-amt="ln' + n + '">' +
+      '<button type="button" class="it-line-sum" data-act="it-line-open" aria-expanded="false">' +
+        '<span class="it-sv' + (l.saves === true ? " on" : " blank") + ' static" aria-hidden="true"><span></span></span>' +
+        '<span class="it-sum-name">' + esc(sm.name) + '</span><span class="it-sum-amt mono">' + esc(sm.amt) + (sm.amt ? "" : '<span class="it-sum-empty">Add amount</span>') + '</span><span class="it-sum-chev" aria-hidden="true">›</span></button>' +
+      '<div class="it-line-body">' +
+      '<div class="it-line-top"><input class="it-line-name" name="lnName' + n + '" type="text" autocomplete="off" aria-label="Deduction name" data-it-clear="1" value="' + esc(l.name || "") + '">' +
+      '<button type="button" class="it-line-x" data-act="it-line-x" aria-label="Remove ' + esc(l.name || "this deduction") + '">✕</button></div>' +
+      '<div class="it-amt-row"><span class="it-amt-unit" aria-hidden="true">' + (pct ? "%" : "$") + '</span>' +
+      '<input name="lnAmt' + n + '" type="text" inputmode="decimal" autocomplete="off" data-it-clear="1" aria-label="' + esc((l.name || "Deduction") + " amount") + '" value="' + esc(shown) + '">' +
+      '<input type="hidden" name="lnAmt' + n + 'Unit" value="' + (pct ? "pct" : "usd") + '">' + itUnitHtml(l.name || "Deduction", pct) + "</div></div>" +
+      '<input type="hidden" name="lnSave' + n + '" value="' + (l.saves === true ? "1" : l.saves === false ? "0" : "") + '">' +
+      '<input type="hidden" name="lnTax' + n + '" value="' + (post ? "post" : "pre") + '"></div>';
+  }
+  /* Refresh a collapsed row's name/amount from its inputs (no re-render, so focus and caret stay). */
+  function itLineSumSync(line) {
+    if (!line) return;
+    var nm = line.querySelector(".it-line-name"), am = line.querySelector('input[name^="lnAmt"]:not([type=hidden])'), u = line.querySelector('input[type=hidden][name$="Unit"]');
+    if (!nm || !am) return;
+    var amRaw = am.value === "" && am.__prev != null && !am.__cleared ? am.__prev : am.value;
+    var nmRaw = nm.value === "" && nm.__prev != null && !nm.__cleared ? nm.__prev : nm.value;
+    var sm = itLineSumText(nmRaw, amRaw, u && u.value === "pct");
+    line.querySelector(".it-sum-name").textContent = sm.name;
+    line.querySelector(".it-sum-amt").innerHTML = sm.amt ? esc(sm.amt) : '<span class="it-sum-empty">Add amount</span>';
+  }
+  function itLineOpen(line, on) {
+    var form = line && line.closest("form");
+    if (!form) return;
+    [].forEach.call(form.querySelectorAll(".it-line.open"), function (o) {
+      if (o === line && on) return;
+      o.classList.remove("open"); o.querySelector(".it-line-sum").setAttribute("aria-expanded", "false"); itLineSumSync(o);
+    });
+    if (on) { line.classList.add("open"); line.querySelector(".it-line-sum").setAttribute("aria-expanded", "true"); }
+  }
+
+  function openItTrueManual() {
+    var c = migrateCompensation(state.compensation || defaultCompensation());
+    var plain = function (name, label, val, mode) {
+      return '<label class="field"><span>' + esc(label) + '</span><input name="' + name + '" type="text" inputmode="' + (mode || "decimal") + '" autocomplete="off" data-it-clear="1" value="' + esc(val || "") + '"></label>';
+    };
+    var checks = Number(c.paychecksPerYear) || 26, erPct = c.employer401kMatchIsPercent !== false;
+    itLineSeq = 0;
+    openSheet("Type in your pay",
+      '<p class="caption">Before anything comes out. Name each deduction and pick $ a year or % of pay.</p>' +
+      plain("salary", "Yearly pay (gross, $)", Number(c.baseSalary) > 0 ? commaMoneyText(String(c.baseSalary)) : "") +
+      '<label class="field"><span>Paychecks a year</span><select name="checks">' + [[52, "Weekly (52)"], [26, "Every 2 weeks (26)"], [24, "Twice a month (24)"], [12, "Monthly (12)"]].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === checks ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" +
+      plain("zip", "ZIP code (for state tax)", c.zipCode || "", "numeric") +
+      (function () {
+        /* A line's group is its tax status: pre-tax lines come out before taxes, after-tax lines after. */
+        var all = itTrueLines(c);
+        return ["pre", "post"].map(function (t) {
+          var pre = t === "pre";
+          return '<p class="section-label it-lines-h">' + (pre ? "Pre-tax deductions" : "After-tax deductions") + '</p><div class="it-lines" data-it-group="' + t + '">' +
+            all.filter(function (l) { return (l.tax === "post" ? "post" : "pre") === t; }).map(itLineHtml).join("") + "</div>" +
+            '<button type="button" class="it-add-line" data-act="it-line-add" data-t="' + t + '">' + (pre ? "+ Add a pre-tax deduction" : "+ Add an after-tax deduction") + "</button>";
+        }).join("");
+      })() +
+      '<p class="section-label it-lines-h">Paid by your employer</p>' +
+      '<div class="field it-amt it-er" data-it-amt="erMatchAmt"><div class="it-er-top">' + (function () { var on = itErCounts("Employer 401k"); return '<button type="button" class="it-sv' + (on ? " on" : "") + '" data-act="it-er-form-sv" aria-pressed="' + on + '" aria-label="Employer match counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button><input type="hidden" name="erSaves" value="' + (on ? "1" : "0") + '">'; })() +
+        '<span>Employer 401k match (added on top of your pay; blank if you don’t know)</span></div><div class="it-amt-row">' +
+        '<span class="it-amt-unit" aria-hidden="true">' + (erPct ? "%" : "$") + '</span>' +
+        '<input name="erMatchAmt" type="text" inputmode="decimal" autocomplete="off" data-it-clear="1" aria-label="Employer 401k match" value="' + esc(c.employerMatchKnown ? itAmtShow(c.employer401kMatch, erPct) : "") + '">' +
+        '<input type="hidden" name="erMatchAmtUnit" value="' + (erPct ? "pct" : "usd") + '">' + itUnitHtml("Employer match", erPct) + "</div></div>" +
+      '<button type="button" class="it-upload-link" data-act="vault-add-paystub">Have a pay stub? Upload it instead</button>',
+      "save-true-manual");
+    var form = document.querySelector("#modal form");
+    if (form && itDraftForm) {
+      /* Closed by a backdrop tap, drag or Escape with unsaved edits: bring that exact form back. */
+      form.parentNode.replaceChild(itDraftForm, form);
+      form = itDraftForm; itDraftForm = null;
+      if (!form.querySelector(".it-draft-note")) {
+        var top = form.querySelector(".sheet-top");
+        if (top) top.insertAdjacentHTML("afterend", '<p class="caption it-draft-note">Your unsaved edits are back. <button type="button" class="link-btn" data-act="it-draft-discard">Start over</button></p>');
+      }
+      form.classList.remove("it-out"); form.style.transform = "";
+      itFit();
+      return;
+    }
+    if (form) {
+      form.classList.add("it-sheet");
+      form.__itInitial = sheetFormSnapshot(form);
+      form.addEventListener("focusin", function (e) {
+        var el = e.target;
+        if (!el.getAttribute || el.getAttribute("data-it-clear") !== "1") return;
+        el.__prev = el.value; el.__cleared = false; el.value = ""; /* truly empty while typing */
+      });
+      form.addEventListener("focusout", function (e) {
+        var el = e.target;
+        if (!el.getAttribute || el.getAttribute("data-it-clear") !== "1") return;
+        if (String(el.value).trim() === "" && el.__prev != null && !el.__cleared) el.value = el.__prev;
+        el.__prev = null; el.__cleared = false;
+      });
+      form.addEventListener("input", function (e) {
+        if (e.target.getAttribute && e.target.getAttribute("data-it-clear") === "1" && e.target.value === "") e.target.__cleared = true;
+        if (e.target.closest) itLineSumSync(e.target.closest(".it-line"));
+      });
+      form.addEventListener("focusout", function (e) { if (e.target.closest) setTimeout(function () { itLineSumSync(e.target.closest(".it-line")); }, 0); });
+    }
+  }
+  function itLineAdd(t) {
+    t = t === "post" ? "post" : "pre";
+    var box = document.querySelector('#modal .it-lines[data-it-group="' + t + '"]');
+    if (!box) return;
+    box.insertAdjacentHTML("beforeend", itLineHtml({ name: "", value: "", pct: false, tax: t, saves: null }));
+    itLineOpen(box.lastElementChild, true);
+    var nm = box.lastElementChild.querySelector(".it-line-name");
+    if (nm) {
+      /* Focus without the browser's jump-scroll; then nudge only as far as needed to show the new row. */
+      nm.focus({ preventScroll: true });
+      if (nm.scrollIntoView) nm.scrollIntoView({ block: "nearest" });
+    }
+  }
+  function itUnitToggle(btn) {
+    var box = btn.closest("[data-it-amt]");
+    if (!box) return;
+    var u = btn.getAttribute("data-u");
+    box.querySelector('input[type=hidden][name$="Unit"]').value = u;
+    box.querySelector(".it-amt-unit").textContent = u === "pct" ? "%" : "$";
+    if (box.classList.contains("it-line")) itLineSumSync(box);
+    [].forEach.call(box.querySelectorAll("[data-act=it-unit]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
+  }
+  /* Smooth pay sheets: unsaved typed-in pay is kept as a draft when the sheet is dismissed without saving. */
+  var itDraftForm = null, itTmSaved = false;
+  function itStashDraft() {
+    var f = document.querySelector('#modal form[data-act="save-true-manual"]');
+    if (!f || itTmSaved) { itTmSaved = false; return; }
+    var a = document.activeElement;
+    if (a && f.contains(a) && a.__prev != null && !a.__cleared && String(a.value).trim() === "") { a.value = a.__prev; a.__prev = null; }
+    if (sheetFormSnapshot(f) !== f.__itInitial) { itDraftForm = f; f.parentNode.removeChild(f); }
+  }
+  function itReducedMotion() { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); }
+  function itSheetDismiss() {
+    var sh = document.querySelector("#modal .it-sheet");
+    var done = function () {
+      if (!document.querySelector("#modal .it-sheet")) return;
+      pendingScreenUi = captureScreenUi();
+      closeModal();
+      render();
+    };
+    if (!sh || itReducedMotion()) { done(); return; }
+    sh.style.transform = "";
+    sh.classList.add("it-out");
+    var m = document.getElementById("modal"); if (m) m.classList.add("it-fading");
+    setTimeout(done, 170);
+  }
+  function itFit() {
+    var sh = document.querySelector("#modal .it-sheet");
+    if (!sh) return;
+    var vv = window.visualViewport;
+    if (!vv) { sh.style.maxHeight = ""; return; }
+    var m = document.getElementById("modal"), mb = m ? m.getBoundingClientRect() : { top: 0 };
+    var room = vv.height + vv.offsetTop - Math.max(0, mb.top) - 8;
+    sh.style.maxHeight = Math.max(240, Math.min(room, 640)) + "px";
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener("resize", itFit); window.visualViewport.addEventListener("scroll", itFit); }
+  /* Drag the sheet's top bar down to dismiss. */
+  document.addEventListener("pointerdown", function (e) {
+    var top = e.target.closest && e.target.closest("#modal .it-sheet .sheet-top");
+    if (!top || e.target.closest("button, input, select, a")) return;
+    var sh = top.closest(".it-sheet"), y0 = e.clientY, t0 = Date.now(), dy = 0;
+    sh.style.transition = "none";
+    var mv = function (ev) { dy = Math.max(0, ev.clientY - y0); sh.style.transform = dy ? "translateY(" + dy + "px)" : ""; };
+    var up = function () {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      sh.style.transition = "";
+      var v = dy / Math.max(1, Date.now() - t0);
+      if (dy > 90 || (dy > 30 && v > 0.5)) itSheetDismiss(); else sh.style.transform = "";
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  });
+  /* Tapping $/% keeps the caret in the box being typed in. */
+  document.addEventListener("mousedown", function (e) {
+    if (e.target.closest && e.target.closest('#modal .it-sheet [data-act="it-unit"]')) e.preventDefault();
+  });
+  (function () {
+    var m = document.getElementById("modal");
+    if (!m || !window.MutationObserver) return;
+    new MutationObserver(function () {
+      var on = !!m.querySelector(".it-sheet") && !m.hidden;
+      document.body.classList.toggle("it-sheet-open", on);
+      if (on) itFit();
+    }).observe(m, { childList: true, attributes: true, attributeFilter: ["hidden"] });
+  })();
+  function saveTrueManual(data) {
+    var num = itAmtNum;
+    var c = state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+    var sal = num(data.salary);
+    if (!(sal > 0)) return "Type your yearly pay.";
+    var isPct = function (n) { return data[n + "Unit"] === "pct"; };
+    var val = function (n) { var v = num(data[n]); return v == null ? null : (isPct(n) ? Math.round(v * 100) / 100 : roundCents(v)); };
+    var lines = [];
+    Object.keys(data).forEach(function (k) {
+      var m = k.match(/^lnAmt(\d+)$/);
+      if (!m) return;
+      var i = m[1], v = val(k), nm = String(data["lnName" + i] || "").replace(/^\s+|\s+$/g, "");
+      if (!(v > 0)) return; /* a blank amount means the line doesn't apply */
+      lines.push({ n: Number(i), name: nm || "Deduction", value: v, pct: isPct(k), tax: data["lnTax" + i] === "post" ? "post" : "pre", saves: data["lnSave" + i] === "1" ? true : data["lnSave" + i] === "0" ? false : IT_NEW_SAVES.test(nm) });
+    });
+    lines.sort(function (a, b) { return a.n - b.n; });
+    for (var i = 0; i < lines.length; i++) if (lines[i].pct && lines[i].value > 100) return "A percent of pay can’t be over 100% (" + lines[i].name + ").";
+    var er = val("erMatchAmt");
+    if (isPct("erMatchAmt") && er > 100) return "A percent of pay can’t be over 100%.";
+    c.baseSalary = roundCents(sal);
+    applyPayFrequency(frequencyFromChecks(Number(data.checks) || 26));
+    c = state.compensation;
+    c.zipCode = String(data.zip || "").replace(/\D/g, "").slice(0, 5);
+    c.k401Type = "traditional"; c.k401Since = ""; /* Roth 401k is its own After-tax line now */
+    /* Built-in Pay rows stay (zeroed unless a pre-tax line claims them) so the Pay sheet keeps working. */
+    c.preTax.forEach(function (r) { var sp = PRETAX_SPECS.filter(function (x) { return x.id === r.id; })[0]; if (sp) r.name = sp.name; r.value = 0; r.on = false; delete r.perCheck; delete r.checkAmt; });
+    c.preTax = c.preTax.filter(function (r) { return PRETAX_SPECS.some(function (sp) { return sp.id === r.id; }); });
+    c.postTax = [];
+    var claimed = {}, order = [];
+    lines.forEach(function (l) {
+      var row = null;
+      if (l.tax === "pre") {
+        var want = IT_PRE_RET.test(l.name) ? "401k" : /\bhsa\b/i.test(l.name) ? "hsa" : "";
+        if (!want) { var sp = PRETAX_SPECS.filter(function (x) { return x.name.toLowerCase() === l.name.toLowerCase(); })[0]; want = sp ? sp.id : ""; }
+        if (want && !claimed[want]) { row = c.preTax.filter(function (r) { return r.id === want; })[0]; claimed[want] = true; }
+        if (!row) { row = { id: "tl" + nextId() }; c.preTax.push(row); }
+      } else { row = { id: "tl" + nextId() }; c.postTax.push(row); }
+      row.name = l.name; row.method = l.pct ? "percentGross" : "fixed"; row.value = l.value; row.on = true;
+      order.push({ id: row.id, tax: l.tax, saves: l.saves });
+    });
+    c.trueLines = order;
+    c.employerMatchKnown = er != null;
+    c.employer401kMatch = er || 0; c.employer401kMatchIsPercent = isPct("erMatchAmt");
+    if (data.erSaves === "0" || data.erSaves === "1") { c.erSaves = c.erSaves || {}; c.erSaves.er401k = data.erSaves === "1"; }
+    c.trueManual = true;
+    var td = new Date(); c.trueUpdatedAt = td.getFullYear() + "-" + ("0" + (td.getMonth() + 1)).slice(-2) + "-" + ("0" + td.getDate()).slice(-2);
+    return "";
+  }
+  function openItStubs() {
+    var stubs = confirmedPayStubs().slice().sort(function (a, b) { return String(a.payDate || "") < String(b.payDate || "") ? -1 : 1; });
+    var modal = document.getElementById("modal");
+    captureModalReturnScreenTop();
+    modal.hidden = false;
+    var body = stubs.length ? '<ul class="it-stub-list">' + stubs.slice().reverse().map(function (s) {
+      return '<li><div><strong>' + esc(usDate(s.payDate)) + "</strong>" + (s.employer ? '<span class="caption" style="display:block">' + esc(s.employer) + "</span>" : "") +
+        '</div><div class="it-stub-n"><span>Gross ' + money(s.gross) + "</span><span>Net " + (Number(s.net) > 0 ? money(s.net) : "—") + "</span></div></li>";
+    }).join("") + "</ul>" : '<p class="caption">No pay stubs saved yet.</p>';
+    modal.innerHTML = '<div class="sheet it-stubs it-sheet"><div class="sheet-top"><h3>Pay stubs</h3>' +
+      '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' + body +
+      '<div class="sheet-actions"><button type="button" data-act="close-modal">Close</button><button class="primary" type="button" data-act="vault-add-paystub">Add a pay stub</button></div></div>';
+    armSheetA11y(modal);
+  }
   function renderAnnualStatement() {
     var book = ensureAnnualStatement();
     var nowYear = currentYearMonth().year;
@@ -11950,12 +12615,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return findLineByNames(month, names[0].cat, names[0].line);
   }
 
+  /* Envelope suggestion on Add transaction (no AI): the envelope this merchant went to most recently.
+   * Single on/off switch for a Premium gate; false = everyone gets it. */
+  var ENVELOPE_SUGGEST_PREMIUM_ONLY = false;
+  function envelopeSuggestOn() { return !ENVELOPE_SUGGEST_PREMIUM_ONLY || isPremium(); }
+  /* Most recent purchase from this merchant (trimmed, any case). A split suggests its biggest part.
+   * If that envelope no longer exists this month, no suggestion (older purchases are not used instead).
+   * With no purchase on this device, the older one-envelope-only history check still applies. */
+  function merchantLastEnvelope(month, payee) {
+    var k = String(payee || "").replace(/^\s+|\s+$/g, "").toLowerCase();
+    if (!k) return null;
+    var best = null;
+    Object.keys(state.months || {}).forEach(function (key) {
+      var m = state.months[key];
+      (m && m.transactions || []).forEach(function (tx, i) {
+        if (isIncomeTx(tx) || tx.refundKind === "standalone") return;
+        if (String(tx.payee || "").replace(/^\s+|\s+$/g, "").toLowerCase() !== k) return;
+        var rank = String(tx.date || key) + "|" + key + "|" + ("00000" + i).slice(-6);
+        if (!best || rank > best.rank) best = { rank: rank, tx: tx, m: m };
+      });
+    });
+    if (!best) {
+      var old = merchantOnlyEnvelope(month, payee);
+      return old ? { categoryId: old.categoryId, lineId: old.lineId, payee: String(payee).trim(), split: false } : null;
+    }
+    var legs = txLegs(best.tx).filter(function (l) { return l.lineId && (Number(l.amount) || 0) > 0; });
+    if (!legs.length) return null;
+    var big = legs.reduce(function (a, l) { return (Number(l.amount) || 0) > (Number(a.amount) || 0) ? l : a; }, legs[0]);
+    var found = findLine(best.m, big.lineId);
+    if (!found || !found.line) return null;
+    var here = findLineByNames(month, found.cat.name, found.line.name);
+    if (!here) return null;
+    return { categoryId: here.categoryId, lineId: here.lineId, lineName: here.lineName, payee: String(best.tx.payee).trim(), split: legs.length > 1 };
+  }
+
   function applyMerchantEnvelope(month, payee) {
     if (!spendDraft || spendDraft.id || spendDraft.categoryTouched || spendDraft.type === "income") return false;
+    if (!envelopeSuggestOn()) return false;
     if (!spendDraft.legs || spendDraft.legs.length !== 1) return false;
     var only = spendDraft.legs[0];
     if (only.lineId && !spendDraft.mappedFromHistory) return false;
-    var found = merchantOnlyEnvelope(month, payee);
+    var found = merchantLastEnvelope(month, payee);
     if (!found) {
       if (spendDraft.mappedFromHistory) { only.categoryId = ""; only.lineId = ""; spendDraft.mappedFromHistory = false; }
       return false;
@@ -11964,6 +12664,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     only.lineId = found.lineId;
     spendDraft.mappedFromHistory = true;
     spendDraft.mappedKey = String(payee || "").toLowerCase();
+    spendDraft.mappedPayee = found.payee || String(payee || "").trim();
+    spendDraft.mappedSplit = !!found.split;
     return true;
   }
 
@@ -12102,26 +12804,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>') +
       '<div class="ed-card">' +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
-      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>';
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>' +
+      (inc || d.id ? "" : edMerchHtml());
     if (inc) {
       h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
         (month.incomes || []).map(function (i) { return '<option value="' + esc(i.id) + '"' + (String(d.incomeId) === String(i.id) ? " selected" : "") + ">" + esc(i.name || "Income") + "</option>"; }).join("") + "</select></label>";
     } else {
-      var picked = (d.legs || []).filter(function (l) { return l.lineId; });
-      h += '<p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker">' +
-        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>' +
-        (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
-      if (picked.length > 1) {
-        /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
-         * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
-        h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
-          var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
-          var rem = roundCents(remainingForLine(month, l.lineId));
-          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
-            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '" placeholder="$0.00">' +
-            '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
-        }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
-      }
+      h += edItemsHtml(month);
     }
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
     h += '<button type="submit" class="primary ed-save">Save</button>';
@@ -12160,6 +12849,61 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     armSheetA11y(modal);
     edFit();
     if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+  }
+  function edItemsHtml(month) {
+    var d = spendDraft;
+      var picked = (d.legs || []).filter(function (l) { return l.lineId; });
+      var h = '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker">' +
+        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>' +
+        (d.mappedFromHistory && picked.length === 1 ? '<p class="caption env-suggest" data-role="env-suggest"><span class="env-suggest-tag">Suggested</span> from your last ' + esc(d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another</p>" : "") +
+        (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
+      if (picked.length > 1) {
+        /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
+         * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
+        h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
+          var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
+          var rem = roundCents(remainingForLine(month, l.lineId));
+          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
+            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '" placeholder="$0.00">' +
+            '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
+        }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
+      }
+    return h + "</div>";
+  }
+  /* Recent merchants under the Merchant box (new expenses only), narrowed as you type. */
+  function edMerchHtml() {
+    var d = spendDraft, typed = String(d.payee || "").trim().toLowerCase();
+    var list = filteredPayeeChips(false, d.payee).filter(function (it) { return String(it.payee).trim().toLowerCase() !== typed; });
+    return '<div class="ed-merch" data-role="ed-merch"' + (list.length ? "" : " hidden") + '><p class="spend-accessory-label">Recent</p><div class="merchant-chips" role="list">' +
+      list.map(function (it) { return '<button type="button" class="merchant-chip" role="listitem" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>"; }).join("") + "</div></div>";
+  }
+  /* Suggest the envelope this merchant went to last time, unless the user already picked one themselves. */
+  function edSuggest(month) {
+    var d = spendDraft;
+    if (!d || d.id || d.type === "income" || !edUi || edUi.manual || !envelopeSuggestOn()) return false;
+    var found = merchantLastEnvelope(month, d.payee);
+    var cur = (d.legs || []).filter(function (l) { return l.lineId; });
+    if (found) {
+      if (d.mappedFromHistory && cur.length === 1 && cur[0].lineId === found.lineId && d.mappedPayee === found.payee) return false;
+      d.legs = [{ id: nextId(), categoryId: found.categoryId, lineId: found.lineId, amount: d.amount, refund: 0, note: "" }];
+      d.mappedFromHistory = true; d.mappedPayee = found.payee; d.mappedSplit = !!found.split;
+      return true;
+    }
+    if (d.mappedFromHistory) {
+      d.legs = [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+      d.mappedFromHistory = false;
+      return true;
+    }
+    return false;
+  }
+  /* Repaint just the merchant chips and the budget item while typing, so the field keeps focus (no keyboard jump). */
+  function edRepaintLive(month) {
+    var f = document.querySelector("#modal .sheet.ed-add");
+    if (!f || !spendDraft || spendDraft.type === "income") return;
+    var m = f.querySelector('[data-role="ed-merch"]');
+    if (m) m.outerHTML = edMerchHtml();
+    var sec = f.querySelector(".ed-itemsec");
+    if (sec) sec.outerHTML = edItemsHtml(month);
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
@@ -12226,7 +12970,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     e.preventDefault(); e.stopPropagation();
     var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
     edUi.err = ""; edUi.focusSearch = false;
-    if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
+    if (a === "item" || a === "tick") { edUi.manual = true; spendDraft.mappedFromHistory = false; }
+    if (a === "merch") { spendDraft.payee = b.getAttribute("data-payee") || ""; edSuggest(month); }
+    else if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
     else if (a === "pad") { edUi.pad = true; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
     else if (a === "done") edUi.pad = false;
     else if (a === "key") {
@@ -12284,7 +13030,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var el = e.target;
     if (!edUi || !spendDraft || !el.closest || !el.closest(".ed-add")) return;
     var k = el.getAttribute("data-ed-in"), li = el.getAttribute("data-ed-leg");
-    if (k === "payee") spendDraft.payee = el.value;
+    if (k === "payee") {
+      spendDraft.payee = el.value;
+      if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); }
+    }
     else if (k === "date") { if (el.value) spendDraft.date = el.value; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
@@ -12512,6 +13261,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       } else {
         // EveryDollar-style split — Total first, then a checklist of envelope lines.
         html += field(kind === "standalone" ? "Refund total" : "Total", "amount", String(spendDraft.amount), "number");
+        if (spendDraft.mappedFromHistory && !spendDraft.id) {
+          var sugF = spendDraft.legs && spendDraft.legs[0] && findLine(month, spendDraft.legs[0].lineId);
+          if (sugF && sugF.line) html += '<p class="caption env-suggest" data-role="env-suggest"><span class="env-suggest-tag">Suggested</span> from your last ' + esc(spendDraft.mappedPayee || spendDraft.payee || "") + ": <strong>" + esc(sugF.line.name) + "</strong>" + (spendDraft.mappedSplit ? " (the biggest part of a split)" : "") + " · tap another envelope to change it</p>";
+        }
         html += splitChecklistHtml(month, kind);
         html += field("Date", "date", spendDraft.date, "date") +
           field("Note", "note", spendDraft.note || "") +
@@ -12521,9 +13274,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (kind === "full") html += '<p class="caption refund-note">Full refund: every envelope on this purchase nets to $0. Never counts as income.</p>';
       if (kind === "partial") html += '<p class="caption refund-note">Partial refund: the refund piece comes back to that envelope only. Never counts as income.</p>';
       if (kind === "standalone") html += '<p class="caption refund-note">Money back from a store (e.g. a return of last month’s purchase). Lowers that envelope’s spent. Never counts as income.</p>';
-      if (spendDraft.mappedFromHistory) {
-        html += '<p class="caption merchant-hint">Filled from your history — this merchant has always gone to this envelope. Change anytime.</p>';
-      }
     }
     if (spendDraft.error && !envErrorShown) html += '<p class="caption rust sheet-error">' + esc(spendDraft.error) + "</p>";
     if (spendDraft.id) {
@@ -12698,7 +13448,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var cb = e.target.closest && e.target.closest("[data-split-check]");
       if (!cb) return;
       var row = cb.closest(".split-row");
+      /* One tap changes a suggested envelope: checking another swaps it instead of starting a split. */
+      if (spendDraft && spendDraft.mappedFromHistory && !spendDraft.categoryTouched && cb.checked) {
+        [].forEach.call(box.querySelectorAll(".split-row.on"), function (r) {
+          if (r === row) return;
+          r.classList.remove("on");
+          var c0 = r.querySelector("[data-split-check]"); if (c0) c0.checked = false;
+          [].forEach.call(r.querySelectorAll(".split-amt, .split-ref"), function (inp) { splitSetAmt(inp, 0); inp.hidden = true; });
+        });
+      }
       row.classList.toggle("on", cb.checked);
+      if (spendDraft && spendDraft.mappedFromHistory) {
+        spendDraft.mappedFromHistory = false;
+        state.merchantHint = null;
+        var sugP = document.querySelector('[data-role="env-suggest"]');
+        if (sugP) sugP.remove();
+      }
       if (spendDraft) spendDraft.categoryTouched = true;
       /* going from one to two: the first line no longer owns the whole Total; both start empty. */
       var toTwo = cb.checked && box.querySelectorAll(".split-row.on").length === 2;
@@ -14401,6 +15166,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
         }).join("") + "</div>" +
         '<p class="caption">Auto follows your phone’s light or dark setting.</p>' +
+        '<p class="sheet-label">Seasonal mode</p><div class="plan-toggle season-pick" role="group" aria-label="Seasonal mode">' +
+        [["off", "Off"], ["on", "On"]].map(function (o) {
+          var on = (state.seasonal && isPremium() ? "on" : "off") === o[0];
+          return '<button type="button" data-act="set-seasonal" data-val="' + o[0] + '"' + (isPremium() ? "" : " disabled") + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
+        }).join("") + "</div>" +
+        '<p class="caption">' + (isPremium() ? "Dresses up your budget for the season, like turkeys in November. Looks only; your numbers don’t change." : "Premium: dresses up your budget for the season.") + "</p>" +
         '<p class="sheet-label">Text size</p><div class="plan-toggle text-size-pick" role="group" aria-label="Text size">' +
         TEXT_SIZES.map(function (o) {
           var on = textSizeOf() === o[0];
@@ -14869,6 +15640,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * replaces cloud books that have transactions with an empty book. Only the public anon key lives in code. */
   var CLOUD_SESSION_KEY = "PaperTrail.cloud.session", CLOUD_SYNC_KEY = "PaperTrail.cloud.sync";
   var cloudTimer = null, cloudBusy = false, cloudStatus = "", cloudInflight = Promise.resolve();
+  /* Save-status + retry: cloudPhase is "" | "offline" | "error"; cloudAgain reruns a sync that was asked for while one ran. */
+  var cloudPhase = "", cloudAgain = false, cloudFlushing = false, cloudRetryTimer = null, cloudRetryN = 0;
   function cloudCfg() {
     var c = window.PT_CLOUD;
     return c && typeof c.url === "string" && /^https?:\/\//.test(c.url) && typeof c.anonKey === "string" && c.anonKey.length > 20 ? c : null;
@@ -14926,7 +15699,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (token) headers.Authorization = "Bearer " + token;
       else if (/^eyJ/.test(cfg.anonKey)) headers.Authorization = "Bearer " + cfg.anonKey;
       else delete headers.Authorization;
-      return fetch(cfg.url.replace(/\/$/, "") + path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+      var fbody = opts.body ? JSON.stringify(opts.body) : undefined;
+      /* Closing / backgrounding: keepalive lets a small request finish after the page goes away (browsers cap it near 64 KB). */
+      var fo = { method: opts.method || "GET", headers: headers, body: fbody };
+      if (cloudFlushing && (!fbody || fbody.length < 60000)) fo.keepalive = true;
+      return fetch(cfg.url.replace(/\/$/, "") + path, fo)
         .catch(function () { var oe = new Error("You look offline. Check your connection and try again."); oe.offline = true; throw oe; })
         .then(function (res) {
           return res.text().then(function (t) {
@@ -15018,14 +15795,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* The one sync step: compare with the newest cloud version, then upload, adopt, or ask. */
   function cloudSyncNow(reason) {
-    if (!cloudSignedIn() || cloudBusy) return Promise.resolve();
+    if (!cloudSignedIn()) return Promise.resolve();
+    if (cloudBusy) { cloudAgain = true; return cloudInflight; }
     var sync = cloudSync();
     if (sync.paused) return Promise.resolve();
-    cloudBusy = true;
+    if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
+    cloudBusy = true; cloudAgain = false; paintSaveStatus();
     var pl = cloudPayload();
     return cloudInflight = cloudLatest().then(function (latest) {
       if (!latest) { if (pl) return cloudUpload(pl); return null; }
-      if (pl && latest.hash === pl.hash) { cloudSync({ lastId: latest.id, lastHash: pl.hash }); cloudStatus = "Up to date"; return null; }
+      if (pl && latest.hash === pl.hash) { cloudSync({ lastId: latest.id, lastHash: pl.hash, lastAt: Date.now() }); cloudStatus = "Up to date"; return null; }
       if (latest.id === sync.lastId || (latest.device_id === sync.deviceId && sync.lastId != null && latest.id <= sync.lastId)) {
         /* The cloud hasn't moved since our last sync, so this device's edits are the newest. */
         if (!pl) return null;
@@ -15034,8 +15813,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       /* The account has a version this device hasn't seen: the cloud copy wins, silently. */
       return cloudAdopt(latest.id, true);
-    }).catch(function (e) { if (isDeadSessionErr(e)) { cloudBusy = false; cloudSessionDied(); return; } cloudStatus = "Backup paused: " + e.message; })
-      .then(function () { cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = acctStatusText(); });
+    }).then(function () { cloudPhase = /^Not backed up/.test(cloudStatus) ? "error" : ""; if (!cloudPhase) { cloudRetryN = 0; clearTimeout(cloudRetryTimer); cloudRetryTimer = null; } })
+      .catch(function (e) {
+        if (isDeadSessionErr(e)) { cloudBusy = false; cloudSessionDied(); return; }
+        cloudPhase = e.offline ? "offline" : "error";
+        cloudStatus = e.offline ? "Not backed up: you’re offline" : "Backup paused: " + e.message;
+        cloudScheduleRetry();
+      })
+      .then(function () {
+        cloudBusy = false; var el = document.getElementById("acct-status"); if (el) el.textContent = acctStatusText();
+        paintSaveStatus();
+        if (cloudAgain) { cloudAgain = false; if (cloudDirty()) return cloudSyncNow("again"); }
+      });
   }
   /* Safeguard: an empty book (no transactions, much smaller) never replaces cloud books that have transactions. */
   function cloudLooksEmptyOver(pl, latest) {
@@ -15044,13 +15833,82 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function cloudNoteChange() {
     if (!cloudSignedIn()) return;
     clearTimeout(cloudTimer);
-    cloudTimer = setTimeout(function () { cloudSyncNow("change"); }, 4000);
+    cloudTimer = setTimeout(function () { cloudTimer = null; cloudSyncNow("change"); }, 4000);
+    paintSaveStatus();
+  }
+  /* True when this device has books the account hasn't got yet (and they're allowed to go up). */
+  function cloudDirty() {
+    var pl = cloudPayload();
+    return !!pl && pl.hash !== cloudSync().lastHash;
+  }
+  /* Gentle backoff after an error or offline: 15s, 30s, 1m, 2m, then every 5 min. Online / foreground retry at once. */
+  function cloudScheduleRetry() {
+    clearTimeout(cloudRetryTimer);
+    var ms = Math.min(300000, 15000 * Math.pow(2, cloudRetryN++));
+    cloudRetryTimer = setTimeout(function () { cloudRetryTimer = null; cloudSyncNow("retry"); }, ms);
+  }
+  /* App closing or going to the background: send pending edits now, through the normal sync (same guards and
+   * conflict rules). Only when something changed since the last backup, so it fires once per batch of edits. */
+  function cloudFlush(reason) {
+    if (!cloudSignedIn() || cloudSync().paused) return;
+    if (!cloudTimer && !cloudDirty()) return;
+    if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; }
+    if (!cloudDirty()) { paintSaveStatus(); return; }
+    cloudFlushing = true;
+    try { cloudSyncNow(reason || "hidden"); } finally { cloudFlushing = false; }
+  }
+  try {
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") cloudFlush("hidden");
+      else if (cloudSignedIn()) { cloudRetryN = 0; cloudSyncNow("foreground"); }
+    });
+    window.addEventListener("pagehide", function () { cloudFlush("pagehide"); });
+    window.addEventListener("beforeunload", function () { cloudFlush("unload"); });
+    window.addEventListener("online", function () { cloudRetryN = 0; cloudPhase = ""; paintSaveStatus(); cloudSyncNow("online"); });
+    window.addEventListener("offline", function () { paintSaveStatus(); });
+  } catch (e) {}
+  /* Small save status under the month bar on the main tabs (signed in only). Its height is fixed, so changing text never moves the page. */
+  function saveStatusInfo() {
+    if (!cloudCfg() || !cloudSignedIn()) return null;
+    var sync = cloudSync();
+    if (sync.paused) return { k: "paused", t: "Backup paused" };
+    if (cloudPhase === "offline" || (typeof navigator !== "undefined" && navigator.onLine === false)) return { k: "offline", t: "Not backed up: you’re offline" };
+    if (cloudBusy || cloudTimer) return { k: "saving", t: "Saving…" };
+    if (cloudPhase === "error") return { k: "paused", t: "Backup paused" };
+    if (sync.lastAt) return { k: "saved", t: "Saved to your account · " + new Date(sync.lastAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) };
+    return cloudPayload() ? { k: "saving", t: "Saving…" } : null;
+  }
+  /* The visible save status line is off for now; the background backup (flush, retries, guards, notice) still runs. */
+  var SHOW_SAVE_STATUS = false;
+  function paintSaveStatus() {
+    if (!SHOW_SAVE_STATUS) { var old = document.getElementById("save-status"); if (old) old.remove(); return; }
+    var phone = document.getElementById("phone"), bar = document.getElementById("month-bar");
+    if (!phone || !bar) return;
+    var el = document.getElementById("save-status"), info = null;
+    try { info = saveStatusInfo(); } catch (e) {}
+    if (!info) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement("button"); el.type = "button"; el.id = "save-status"; el.className = "save-status";
+      el.setAttribute("data-act", "acct-save-status"); el.setAttribute("aria-live", "polite");
+      el.innerHTML = '<i aria-hidden="true"></i><span></span>';
+      bar.parentNode.insertBefore(el, bar.nextSibling);
+    }
+    if (el.getAttribute("data-k") !== info.k) el.setAttribute("data-k", info.k);
+    var sp = el.lastChild; if (sp.textContent !== info.t) sp.textContent = info.t;
+    el.setAttribute("aria-label", info.t + ". Backup details");
+  }
+  function openSaveStatusSheet() {
+    var info = saveStatusInfo() || { t: "" };
+    openCloudSheet("Cloud backup", '<p><strong>' + esc(info.t) + '</strong></p>' + profileSyncHtml());
   }
   function cloudAdopt(id, quiet) {
     return cloudGet(id).then(function (row) {
       if (!row || !row.payload) throw new Error("That cloud version couldn't be read.");
       var cur = null; try { cur = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+      /* This device had edits the account never got: say so once after the reload. */
+      var lostLocal = false; try { var lp = cloudPayload(); lostLocal = !!(quiet && lp && lp.hash !== cloudSync().lastHash && cloudSync().lastHash); } catch (e) {}
       return new Promise(function (resolve) { snapTake(cur, "before cloud restore", resolve); }).then(function () {
+        if (lostLocal) { try { localStorage.setItem("PaperTrail.cloud.replacedNotice", "1"); } catch (e) {} }
         try { lsSetBooks(row.payload); } catch (e) { throw new Error("Not enough room on this device to restore."); }
         cloudSync({ lastId: row.id, lastHash: cloudHash(row.payload) });
         if (!quiet) showToast("Using the cloud copy…", 2000);
@@ -15649,6 +16507,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (act === "acct-resume") { cloudSync({ paused: false }); return firstSync(); }
     if (act === "acct-sync-now") { return cloudSyncNow("manual").then(render); }
     if (act === "acct-versions") return openCloudVersions();
+    if (act === "acct-save-status") return openSaveStatusSheet();
     if (act === "acct-restore-version") {
       if (!window.confirm("Replace the books on this device with this cloud version?\n\nThis device’s current books are saved as an automatic backup first.")) return;
       return cloudRestoreVersion(el.getAttribute("data-id")).catch(function (e) { acctErr(e.message); });
@@ -15798,6 +16657,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (cloudSignedIn() && !loadFailure) {
+      try {
+        if (localStorage.getItem("PaperTrail.cloud.replacedNotice")) {
+          localStorage.removeItem("PaperTrail.cloud.replacedNotice");
+          setTimeout(function () { showToast("Your account had newer books from another device, so this device switched to them. This device’s earlier copy is in Profile › Backups.", 8000); }, 1200);
+        }
+      } catch (e) {}
       cloudSyncNow("open");
       /* Pick up an email changed on another device, so Profile and the delete code use the current address. */
       var bootEmail = acctEmail();
@@ -16565,7 +17430,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.75";
+  var APP_VERSION = "37.5.81";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -17395,7 +18260,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // The floating + covered the Insights lock and Net worth values
     // (annual income, Mortgage). It now lives only where you add transactions — Budget and
     // Transactions — and those screens reserve bottom room so the last row scrolls clear of it.
-    var show = state.tab === "budget" || state.tab === "spend";
+    /* Budget's green + in the top bar adds a transaction now, so the floating + shows on Transactions only. */
+    var show = state.tab === "spend";
     el.hidden = !show;
     var scr = document.getElementById("screen");
     if (scr) scr.classList.toggle("has-fab", show);
@@ -17634,7 +18500,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
      localStorage keys (never in app state or backups). Next-only; never blocks the page. */
   var TOUR_STEPS = {
     stats: [
-      { sel: ".stats-doors", title: "Two statements", text: "Income statement shows what came in and went out. Net worth shows what you own and owe." },
+      { sel: ".stats-doors", title: ANNUAL_REVIEW_NAME, text: ANNUAL_REVIEW_NAME + " holds net worth, your income statement, pay stubs and Wrapped." },
       { sel: ".stats-vault", title: "Vault", text: "Vault keeps papers like loans, insurance and pay stubs in one place." },
       { sel: "#month-bar .icon-btn", title: "Year and Profile", text: "The calendar button picks the year. The gear opens Profile and settings." }
     ],
@@ -17716,6 +18582,99 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     tourShow();
   }, true);
 
+  /* --- Seasonal mode (Premium, looks only; never touches budget data) -----------------------------
+   * Follows the month being viewed: in November, turkeys walk a short strip above the
+   * tab bar, the month title wears a pilgrim hat, and the top bar gets a warm tint. Preview overrides:
+   * ?season=november or the PaperTrail.seasonPreview localStorage key ("november") force it any day. */
+  function seasonPreview() {
+    try {
+      var q = /[?&]season=([a-z]+)/.exec(location.search || "");
+      return (q && q[1]) || localStorage.getItem("PaperTrail.seasonPreview") || "";
+    } catch (e) { return ""; }
+  }
+  function seasonNow() {
+    if (!state || !state.seasonal || !isPremium()) return "";
+    if (seasonPreview() === "november") return "nov";
+    return Number(state.month) === 11 ? "nov" : "";
+  }
+  function seasonFeathers() {
+    var cols = ["#7E3F1F", "#A8462A", "#C9702B", "#D9A441", "#C9702B", "#A8462A", "#7E3F1F"], h = "";
+    for (var i = 0; i < 7; i++) {
+      var a = -66 + i * 22;
+      h += '<g transform="rotate(' + a + ' 19 27)"><path d="M19 27C15.6 20 15.8 9.5 19 4.6 22.2 9.5 22.4 20 19 27z" fill="' + cols[i] + '"/>' +
+        '<path d="M17.1 8.6C17.9 6.8 18.4 5.7 19 4.6 19.6 5.7 20.1 6.8 20.9 8.6 19.6 8 18.4 8 17.1 8.6z" fill="#F3DCA4"/>' +
+        '<path d="M19 26V8" stroke="rgba(60,30,12,.35)" stroke-width=".6"/></g>';
+    }
+    return h;
+  }
+  var TURKEY_SVG = '<svg viewBox="0 0 48 40" aria-hidden="true"><g class="tk-tail">' + seasonFeathers() + "</g>" +
+    '<ellipse cx="26" cy="27" rx="10.5" ry="8.6" fill="#5A3820"/>' +
+    '<ellipse cx="30" cy="27.5" rx="6" ry="6.6" fill="#7B4E2C"/>' +
+    '<path d="M18.5 24.5c3.6-2.6 9-2.4 11 .8-1.2 3.8-6.6 6-11.4 4.4z" fill="#45291A"/>' +
+    '<path d="M21 26.6l6 .3M20.6 28.6l5.4.1" stroke="#6E4428" stroke-width=".7" stroke-linecap="round"/>' +
+    '<path d="M31.4 21.8c.6-3 1.4-5.6 2.4-7.6l3.2 1.2c-.8 2.4-1.2 5-1.2 7.8z" fill="#7B4E2C"/>' +
+    '<circle cx="35.6" cy="13.6" r="4" fill="#8C5B37"/>' +
+    '<circle cx="36.6" cy="12.8" r="1.25" fill="#fff"/><circle cx="36.9" cy="12.9" r=".7" fill="#1C1E21"/>' +
+    '<path d="M39.2 13.3l3.4 1.1-3.2 1.1z" fill="#E7B02F"/>' +
+    '<path d="M38.4 15.4c1.5.3 1.9 2.6 1 4-1.3-.4-1.9-2.4-1-4z" fill="#C8352B"/>' +
+    '<g class="tk-legs" stroke="#D08A22" stroke-width="1.7" stroke-linecap="round" fill="none"><path class="tk-l1" d="M24 34.5v4.3l-1.6.9M24 38.8l1.4.9"/><path class="tk-l2" d="M29 34.5v4.3l-1.6.9M29 38.8l1.4.9"/></g></svg>';
+  var HAT_SVG = '<svg class="season-hat" viewBox="0 0 32 22" aria-hidden="true">' +
+    '<path class="hat-brim" d="M1.5 18.6c4-.9 25-.9 29 0 .6 1.5-.2 2.6-1.4 2.9H2.9c-1.2-.3-2-1.4-1.4-2.9z"/>' +
+    '<path class="hat-crown" d="M8.4 18.8L10.4 2.6c3.6-.8 7.6-.8 11.2 0l2 16.2z"/>' +
+    '<path class="hat-band" d="M9.5 12.6h13l.8 3.6H8.7z"/>' +
+    '<rect x="13" y="12" width="6" height="4.8" rx=".7" fill="none" stroke="#E6BE4F" stroke-width="1.5"/></svg>';
+  var LEAF_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5l1.7 4 2.6-1.4-.6 4.6 3.6-2.2-.8 3.6 3.5.6-2.8 2.6 1.4 1.5-4.6.6.5 2.3-3.6-1.5-.3 3.3h-1.2l-.3-3.3-3.6 1.5.5-2.3-4.6-.6 1.4-1.5-2.8-2.6 3.5-.6-.8-3.6 3.6 2.2-.6-4.6 2.6 1.4z" fill="#C85A26"/>' +
+    '<path d="M12 22.6V7M12 14l-4.2-3.6M12 14l4.2-3.6M12 17.6l-5-1.4M12 17.6l5-1.4" stroke="#8A3414" stroke-width=".8" stroke-linecap="round" fill="none"/></svg>';
+  var LEAF2_SVG = LEAF_SVG.replace('#C85A26', '#D9A441').replace('#8A3414', '#8C6418');
+  var PUMPKIN_SVG = '<svg viewBox="0 0 26 22" aria-hidden="true"><ellipse cx="7.6" cy="13.4" rx="6" ry="7" fill="#C9661F"/><ellipse cx="18.4" cy="13.4" rx="6" ry="7" fill="#C9661F"/>' +
+    '<ellipse cx="13" cy="13.4" rx="5.6" ry="7.6" fill="#E3832F"/><path d="M13 6.2v14.6M9 7.2c-1.6 3.6-1.6 9 0 12.4M17 7.2c1.6 3.6 1.6 9 0 12.4" stroke="#B5561A" stroke-width=".8" fill="none"/>' +
+    '<path d="M12.2 6.6c-.2-2 .2-3.6 1.6-5l1.3.9c-1 1.2-1.3 2.4-1.2 4.1z" fill="#5C4A24"/><path d="M14.4 3.2c2.2-1.6 4.8-1.2 6 .4-2.2 1.2-4.2 1.1-6-.4z" fill="#5E7F34"/></svg>';
+  function seasonStripHtml() {
+    return '<div class="season-lane">' +
+      '<span class="season-acc s-leaf a1">' + LEAF_SVG + "</span>" +
+      '<span class="season-acc s-pumpkin a2">' + PUMPKIN_SVG + "</span>" +
+      '<span class="season-acc s-leaf a3">' + LEAF2_SVG + "</span>" +
+      '<span class="season-turkey t1">' + TURKEY_SVG + "</span>" +
+      '<span class="season-turkey t2">' + TURKEY_SVG + "</span></div>";
+  }
+  function applySeason() {
+    var phone = document.getElementById("phone");
+    if (!phone) return;
+    var s = state.tab === "budget" ? seasonNow() : "";
+    phone.classList.toggle("season-nov", s === "nov");
+    var strip = document.getElementById("season-strip");
+    if (s === "nov") {
+      if (!strip) {
+        strip = document.createElement("div");
+        strip.id = "season-strip"; strip.className = "season-strip"; strip.setAttribute("aria-hidden", "true");
+        strip.innerHTML = seasonStripHtml();
+        phone.insertBefore(strip, document.getElementById("tab-bar"));
+      }
+      /* Keep clear of a floating + if one is showing on this screen. */
+      var fab = document.getElementById("fab-add");
+      strip.classList.toggle("fab-clear", !!(fab && !fab.hidden));
+      var lane = strip.firstChild;
+      if (lane) lane.style.setProperty("--lane", Math.max(120, lane.clientWidth - 34) + "px");
+      var h1 = document.querySelector("#month-bar .month-jump");
+      if (h1 && !h1.querySelector(".season-hat")) h1.insertAdjacentHTML("afterbegin", HAT_SVG);
+    } else {
+      if (strip) strip.parentNode.removeChild(strip);
+      var hat = document.querySelector("#month-bar .season-hat");
+      if (hat) hat.parentNode.removeChild(hat);
+    }
+  }
+  /* Themed close: one turkey runs across, then the existing stamp lands. Skipped for reduced motion. */
+  function seasonCloseRun() {
+    if (seasonNow() !== "nov" || stampReduceMotion()) return;
+    var phone = document.getElementById("phone");
+    if (!phone) return;
+    var run = document.createElement("div");
+    run.className = "season-run"; run.setAttribute("aria-hidden", "true");
+    run.innerHTML = '<span class="season-turkey">' + TURKEY_SVG + "</span>";
+    phone.appendChild(run);
+    setTimeout(function () { if (run.parentNode) run.parentNode.removeChild(run); }, 1400);
+  }
+
   function render() {
     if (weekSig === null) { try { weekSig = booksSignature(); } catch (e) {} }
     addedAutoCache = {};
@@ -17727,6 +18686,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     renderMonthBar();
     renderTabs();
     renderFab();
+    applySeason();
+    try { paintSaveStatus(); } catch (e) {}
     var screen = document.getElementById("screen");
     var key = paintKey();
     var keepTop = (key === lastPaintKey && screen) ? screen.scrollTop : 0;
@@ -17750,6 +18711,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       bindMoneyInputs(screen);
     } else if (state.tab === "stats" && state.statsDoor === "vault") {
       screen.innerHTML = renderVault();
+      bindMoneyInputs(screen);
+    } else if (state.tab === "stats" && state.statsDoor === "review") {
+      screen.innerHTML = renderAnnualReview();
+    } else if (state.tab === "stats" && state.statsDoor === "paystubs") {
+      screen.innerHTML = renderPayStubsDoor();
       bindMoneyInputs(screen);
     } else if (state.tab === "stats" && state.statsDoor === "statement") {
       screen.innerHTML = renderAnnualStatement();
@@ -17858,6 +18824,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function closeModal() {
+    itStashDraft();
+    document.body.classList.remove("it-sheet-open");
+    var itM = document.getElementById("modal"); if (itM) itM.classList.remove("it-fading");
     document.body.classList.remove("ed-typing");
     moneyWholeModal = false;
     ritual = { step: 0, destKey: ritual.destKey };
@@ -18792,6 +19761,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
     }
     if (!actEl) {
+      if (event.target.id === "modal" && document.querySelector("#modal .it-sheet")) { itSheetDismiss(); return; }
       if (event.target.id === "modal") {
         pendingScreenUi = captureScreenUi();
         closeModal();
@@ -18888,7 +19858,60 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.vaultDocId = card.id;
       saveState();
       render();
-    } else if (act === "vault-add-paystub") {
+    } else if (act === "it-math") {
+      itMathOpen = !itMathOpen;
+      render();
+    } else if (act === "it-er-form-sv") {
+      var efOn = actEl.getAttribute("aria-pressed") !== "true", efIn = actEl.parentNode.querySelector("input[name=erSaves]");
+      actEl.setAttribute("aria-pressed", String(efOn)); actEl.classList.toggle("on", efOn); if (efIn) efIn.value = efOn ? "1" : "0";
+    } else if (act === "it-er-saves") {
+      var erc = state.compensation, ek = actEl.getAttribute("data-k") || "er401k";
+      erc.erSaves = erc.erSaves || {};
+      erc.erSaves[ek] = actEl.getAttribute("aria-pressed") !== "true";
+      payStubBasisCache = {};
+      saveState();
+      render();
+    } else if (act === "it-saves") {
+      var svc = state.compensation, rid = actEl.getAttribute("data-row");
+      itTrueSavesMap(svc);
+      (svc.trueLines || []).forEach(function (x) { if (x.id === rid) x.saves = !x.saves; });
+      saveState();
+      render();
+    } else if (act === "it-draft-discard") {
+      itTmSaved = true; itDraftForm = null; closeModal(); openItTrueManual();
+    } else if (act === "it-line-open") {
+      var itOl = actEl.closest(".it-line");
+      if (itOl) {
+        var wasOpen = itOl.classList.contains("open");
+        itLineOpen(itOl, !wasOpen);
+        if (!wasOpen && itOl.scrollIntoView) itOl.scrollIntoView({ block: "nearest" });
+      }
+    } else if (act === "it-line-add") {
+      itLineAdd(actEl.getAttribute("data-t"));
+    } else if (act === "it-line-x") {
+      var itl = actEl.closest("[data-it-line]"); if (itl) itl.remove();
+    } else if (act === "it-unit") {
+      itUnitToggle(actEl);
+    } else if (act === "it-true-choices") {
+      /* Upload-or-type choice sheet, kept for when stub upload returns; nothing links here for now. */
+      openItTrueSetup();
+    } else if (act === "it-true-setup") {
+      /* Upload is not offered up front for now: go straight to the typed-in form (the upload sheet code stays). */
+      openItTrueManual();
+    } else if (act === "it-true-manual") {
+      closeModal();
+      openItTrueManual();
+    } else if (act === "it-toggle") {
+      var g = actEl.getAttribute("data-g");
+      itOpenGrp[g] = !itOpenGrp[g];
+      render();
+    } else if (act === "it-ny-dismiss") {
+      if (state.compensation) { state.compensation.itNewYearDismissed = currentYearMonth().year; saveState(); }
+      render();
+    } else if (act === "it-stubs") {
+      openItStubs();
+      } else if (act === "vault-add-paystub") {
+      if (actEl.closest("#modal")) closeModal();
       state.profile = migrateProfile(state.profile, state.foo, state.compensation);
       var payStubCard = emptyVaultDoc("other");
       payStubCard.slot = "payStubs";
@@ -19366,6 +20389,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       applyNight(); saveState();
       var tsum = document.querySelector('.prof-sec[data-sec="display"] .prof-sec-sum'); if (tsum) tsum.textContent = profDisplaySummary();
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+    }
+    else if (act === "set-seasonal") {
+      if (isPremium()) { state.seasonal = actEl.getAttribute("data-val") === "on"; saveState(); applySeason(); }
+      [].forEach.call(document.querySelectorAll("[data-act=set-seasonal]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "debt-open") { openDebtCalc(); }
     else if (act === "extra-income-add" || act === "extra-income-dismiss") extraIncomeAnswer(act === "extra-income-add");
@@ -19913,6 +20940,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         saveState();
       }
       closeModal();
+      render();
+      return;
+    }
+    if (act === "save-true-manual") {
+      var tmErr = saveTrueManual(data);
+      if (tmErr) { alert(tmErr); return; }
+      itTmSaved = true; itDraftForm = null;
+      payStubBasisCache = {};
+      saveState();
+      closeModal();
+      state.tab = "stats"; state.statsDoor = "paystubs";
       render();
       return;
     }
