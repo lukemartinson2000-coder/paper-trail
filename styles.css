@@ -5565,3 +5565,7 @@ body.night .ed-pad .ed-done { color: rgb(18, 19, 21); }
 .reserves-card[open] summary{margin-bottom:8px}
 @media (prefers-reduced-motion: reduce){.reserves-card .chev{transition:none}}
 .dash-snap + .dash-streak{margin:-4px 4px 12px;justify-content:center}
+/* Leaves calm down after the opening fall: extras fade out, the few that stay go a little softer. */
+.season-fx-p { transition: opacity 2.5s ease; }
+.season-fx.fx-calm .season-fx-p { opacity: 0.5; }
+.season-fx.fx-calm .season-fx-p.fx-extra { opacity: 0; }

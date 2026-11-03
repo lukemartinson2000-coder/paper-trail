@@ -17632,7 +17632,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.88";
+  var APP_VERSION = "37.5.89";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -18870,6 +18870,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<span class="season-fx-p" style="left:' + x + "%;width:" + size + "px;height:" + size + "px;--fx-dur:" + dur + "s;--fx-delay:" + delay.toFixed(1) + "s;--fx-sway:" + sway + "px;--fx-spin:" + spin + 'deg;--fx-top:' + ((i * 11) % 80) + '%">' + SEASON_FX_GLYPHS[kind](i) + "</span>";
     }
     fx.innerHTML = h;
+    seasonFxCalmStart(fx);
+  }
+  /* Leaves fall at full strength for a short while after Seasonal starts, then fade down to a calm few.
+   * Only visible time counts (a hidden tab pauses the clock). Restarts only when the layer is rebuilt
+   * (Seasonal re-entered), not on re-renders or tab switches. */
+  var FX_FULL_MS = 20000, FX_CALM_KEEP = 4, fxCalmTimer = null;
+  function seasonFxCalmStart(fx) {
+    if (fxCalmTimer) clearInterval(fxCalmTimer);
+    var full = FX_FULL_MS;
+    try { var o = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (o > 0) full = o; } catch (e) {}
+    /* Keep the slowest few for the calm set. */
+    var ps = [].slice.call(fx.querySelectorAll(".season-fx-p"));
+    ps.map(function (el) { return { el: el, d: parseFloat(el.style.getPropertyValue("--fx-dur")) || 0 }; })
+      .sort(function (a, b) { return b.d - a.d; })
+      .forEach(function (x, i) { if (i >= FX_CALM_KEEP) x.el.classList.add("fx-extra"); });
+    var seen = 0, step = Math.min(500, full);
+    fxCalmTimer = setInterval(function () {
+      if (!document.body.contains(fx)) { clearInterval(fxCalmTimer); fxCalmTimer = null; return; }
+      if (!document.hidden) seen += step;
+      if (seen >= full) { fx.classList.add("fx-calm"); clearInterval(fxCalmTimer); fxCalmTimer = null; }
+    }, step);
   }
   document.addEventListener("visibilitychange", function () {
     if (document.body) document.body.classList.toggle("fx-paused", document.hidden);
