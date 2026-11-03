@@ -2691,7 +2691,7 @@
     return { year: withNW, amount: worthTotals(withNW).equity };
   }
 
-  /* One income number — IS gross Total income for the year, else take-home × 12. */
+  /* One income number — IS gross Total income for the year, else this year’s take-home month by month. */
   function statementGrossForYear(year) {
     if (year == null || !state) return null;
     var book = state.annualStatement;
@@ -2709,9 +2709,10 @@
         stubs: parts.source === "stubs", grossPay: parts.taxedIncome, basisShort: parts.basis ? parts.basis.short : "" };
     }
     if (!state || !state.compensation) return { year: year, amount: 0, source: "empty", label: "" };
-    var takeHome = estimateCompensation(state.compensation).takeHome;
+    /* est.takeHome is already yearly; prefer the month-by-month year total from the Budget. */
+    var fyI = yearTakeHomeFull(year), takeHome = fyI.total > 0 ? fyI.total : estimateCompensation(state.compensation).takeHome;
     if (takeHome > 0) {
-      return { year: year, amount: roundCents(takeHome * 12), source: "take-home", label: "take-home" };
+      return { year: year, amount: roundCents(takeHome), source: "take-home", label: "take-home" };
     }
     return { year: year, amount: 0, source: "empty", label: "" };
   }
@@ -2760,7 +2761,7 @@
     }
     if (fig.amount > 0) {
       return { kind: "take-home", comparable: false, amount: fig.amount,
-        youLabel: "You · take-home", source: "Take-home · est. take-home × 12" };
+        youLabel: "You · take-home", source: "Take-home · this year, month by month" };
     }
     return { kind: "empty", comparable: false, amount: 0, youLabel: "You · gross",
       source: "No gross pay yet — add it on your Income statement" };
@@ -4751,7 +4752,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var inc = (mr.transactions || []).filter(isIncomeTx).reduce(function (s, tx) { return s + (Number(tx.amount) || 0); }, 0);
       if (inc > 0) { got += inc; n++; }
     }
-    if (got > 0 && n) return { year: cym.year, gross: null, takeHome: roundCents(got / n * 12), source: "This year’s Budget paychecks × 12", avgTax: null };
+    if (got > 0 && n) { var fyB = yearTakeHomeFull(cym.year); return { year: cym.year, gross: null, takeHome: fyB.total > 0 ? fyB.total : roundCents(got), source: "This year’s Budget paychecks, month by month", avgTax: null }; }
     return null;
   }
 
@@ -4846,9 +4847,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var thBasis = dms.takeHomeYear > 0 ? "this year’s Income statement take-home" : "this year’s estimated take-home pay";
     if (!th) {
       try {
-        var mo = ensureMonth(state.year, state.month);
-        var mt = Number(gm().monthTakeHome(sums(mo).income, mo.transactions || [], mo.incomes || [], takeHomeOpts(mo)).amount);
-        if (mt > 0) { th = mt * 12; thBasis = "this month’s take-home × 12"; }
+        var fyR = yearTakeHomeFull(currentYearMonth().year);
+        if (fyR.total > 0) { th = fyR.total; thBasis = "this year’s take-home, month by month"; }
       } catch (e) {}
     }
     return { I: I, inv: inv, ready: true, years: years, needToday: needToday, needNominal: needNominal, projNominal: B, projToday: projToday,
@@ -5224,6 +5224,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + '</b><span class="dash-snap-sub">' +
         (function () { var t = currentYearMonth(); return Number(state.year) === t.year && Number(state.month) === t.month ? "this month" : esc(MONTH_NAMES[state.month - 1].slice(0, 3) + " " + state.year); })() + "</span></div>" +
       '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel(dm.withX.months)) : "—") + "</b></div></div>";
+    /* Weekly log streak sits right under Grade and Savings rate as a top-level stat. */
+    html += weeklyStreakHtml();
     if (grade) {
       html += (isPremium() ? premiumGradeHeroHtml(grade) : gradeGlimpseHtml(grade)).replace("</section>", '<p class="plain-line">One number for how your money habits are set up. 100 is perfect.</p></section>');
       if (SHELVED_FEATURES.fooNextStep) html += nextActionHtml(grade);
@@ -5241,17 +5243,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     // This year: income, savings rate and average tax in one tile.
     var inc = dashIncome(), yr = inc ? inc.year : currentYearMonth().year;
     var avg = inc ? inc.avgTax : null;
-    /* v37.5.72 (owner): take-home here is the planned figure (this month's planned take-home × 12), the same basis as the
-     * savings rate below, so the two never disagree. */
-    var dsrY = dashSavingsRate();
-    var planTH = dsrY && dsrY.takeHome > 0 ? roundCents(dsrY.takeHome * 12) : 0;
-    if (planTH > 0) inc = { year: yr, gross: inc ? inc.gross : null, takeHome: planTH, avgTax: avg,
-      source: (dsrY.basis === "pay" ? "Take-home: your Pay plan" : "Take-home: this month’s planned paychecks × 12") + (inc && inc.gross != null ? " · gross: " + inc.source : "") };
-    html += '<section class="dash-card dash-year" id="dash-year"><p class="dash-k">This year · ' + yr + "</p>";
+    /* Take-home for the year is summed month by month (received so far + planned ahead, real paycheck counts), never × 12. */
+    /* Months logged so far only (no dollars for months ahead): 12 months = the year; fewer = spread across the year, labelled an estimate. */
+    var fyTH = yearTakeHomeSoFar(yr);
+    if (fyTH.total > 0) inc = { year: yr, gross: inc ? inc.gross : null, takeHome: fyTH.estimate, avgTax: avg, full: fyTH.full, months: fyTH.months,
+      source: fyTH.full ? "Take-home: " + moneyWhole(fyTH.total) + " over 12 months" : "Estimate, based on " + fyTH.months + (fyTH.months === 1 ? " month" : " months") + ": " + moneyWhole(fyTH.total) + " so far, spread across the year" };
+    html += '<section class="dash-card dash-year" id="dash-year"><p class="dash-k">Income · this year · ' + yr + "</p>";
     if (inc) {
-      html += '<div class="dash-two"><div><span class="caption">Gross pay</span><strong class="mono">' + (inc.gross != null ? moneyWhole(inc.gross) : "—") + "</strong></div>" +
-        '<div><span class="caption">Take-home · planned</span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
-        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement); with no pay stub, the typed what-if. Take-home (planned) = this month’s planned take-home × 12, the same figure the savings rate uses (or your Pay plan when no paychecks are planned). Estimate, not a guarantee.") + "</p>";
+      /* Labels sit above each number and stay visible when the card is folded. */
+      html += '<div class="dash-two dash-year-two"><div><span class="dash-lbl">Gross pay</span><strong class="mono">' + (inc.gross != null ? moneyWhole(inc.gross) : "—") + "</strong></div>" +
+        '<div><span class="dash-lbl">Take-home <span class="dash-lbl-note">' + (inc.full === false ? "estimate" : "full year") + '</span></span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
+        '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement); with no pay stub, the typed what-if. Take-home = each month logged this year added up (received in finished months, planned for this month, with its real number of paychecks). With all 12 months it is the year. With fewer, the months so far are spread across the year (total ÷ months × 12) and labelled an estimate. Months ahead are not projected.") + "</p>";
     } else html += '<p class="caption">Add a paycheck to estimate this year.</p>';
     /* v37.5.70: one savings rate (take-home based) + average tax; the Basic / True rate displays are gone. */
     var dsr = dashSavingsRate();
@@ -5261,10 +5263,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += '<div class="dash-three dash-two-stat"><div><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">Savings rate · planned ' +
       helpQ("Savings rate (planned) = what this month’s budget plans for savings (every Savings line, Checking included, plus Roth / house-fund lines) ÷ this month’s planned take-home (your planned paychecks, or your Pay plan ÷ 12). It uses the plan, not what has arrived, so it’s steady from day one.") + "</span></div>" +
       '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".") + "</span></div></div>" +
-      '<p class="plain-line">' + esc(srLine) + "</p></section>";
+      '<p class="plain-line">' + esc(srLine) + "</p>";
+    var ysr = yearSavingsRate(yr);
+    if (ysr.rate != null) html += '<div class="dash-year-sr" id="dash-year-sr"><span class="dash-sub mono moss">' + pctWhole(ysr.rate) + '</span><span class="caption">Savings rate · this year, ' + esc(yearRateLabel(ysr)) + " " + helpQ(yearRateMathText(ysr)) + "</span></div>";
+    html += "</section>";
     html += debtCardHtml();
     html += dashReservesHtml(dMonth);
-    html += weeklyStreakHtml() + wrapEntryHtml();
+    html += wrapEntryHtml();
     // 5
     var R = dashRetirement(), I = R.I;
     html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
@@ -5362,14 +5367,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var needYear = R.needMonth * 12, tr = null;
     if (want === "true") { try { tr = ytdTrueRate(cym.year, cym.month); } catch (e) {} if (tr && tr.rate != null && tr.grossYear > 0) mode = "true"; else fell = true; }
     var out = { mode: mode, fell: fell, needYear: needYear, tr: tr };
-    if (mode === "true") { out.base = tr.grossYear; out.need = needYear / tr.grossYear; out.now = tr.rate; out.of = "gross"; }
+    if (mode === "true") { out.base = tr.grossYear; out.need = needYear / out.base; out.now = tr.rate; out.of = "gross"; }
     else { out.base = R.takeHome; out.need = R.takeHome ? needYear / R.takeHome : null; out.now = R.curRate != null ? R.curRate / 100 : null; out.of = "take-home"; }
     return out;
   }
   function dashOnTrackRowHtml(R, rrow) {
     var o = dashOnTrackRow(R), M = o.mode === "true" ? "True" : "Basic";
     var help = "Needed to stay on track is a target: the yearly saving that reaches My number at " + R.I.retireAge + " (monthly savings needed " + moneyWhole(R.needMonth) + " × 12 = " + moneyWhole(o.needYear) + ") ÷ " +
-      (o.mode === "true" ? "your yearly gross pay (" + moneyWhole(o.base) + ", this year’s True gross so far × 12 ÷ " + o.tr.months + " month" + (o.tr.months === 1 ? "" : "s") + " with a True rate)" : R.thBasis + " (" + (o.base ? moneyWhole(o.base) : "not available yet") + ")") + ".\n\n" +
+      (o.mode === "true" ? "your yearly gross pay (" + moneyWhole(o.base) + ", from your typed-in pay or latest pay stub × paychecks a year)" : R.thBasis + " (" + (o.base ? moneyWhole(o.base) : "not available yet") + ")") + ".\n\n" +
       "You’re saving … now is measured: this year so far (Jan–" + MONTH_NAMES[currentYearMonth().month - 1] + "), in the Savings rate tile’s mode (tap Basic or True there). " +
       (o.mode === "true"
         ? "True = retirement budget lines + 401k (you + employer) + HSA ÷ gross pay (" + moneyWhole(o.tr.savings) + " ÷ " + moneyWhole(o.tr.gross) + "), each month by the same rule as the monthly True rate."
@@ -8817,6 +8822,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* True year to date = each month's True numerator ÷ True denominator (stub gross + Budget
    * take-home a stub doesn't cover), summed Jan..month over months that have a True rate. Same rule as the monthly True. */
+  /* Yearly gross for the true rate: typed-in pay, or latest stub × paychecks a year (the real yearly check count,
+   * so 3-paycheck months don't skew it). null when neither exists; no × 12 of months so far. */
+  function itYearGrossFull(year) {
+    try { var dn = itYear(year, true); return dn && dn.gross > 0 ? dn.gross : null; } catch (e) { return null; }
+  }
   function ytdTrueRate(year, month) {
     var num = 0, den = 0, n = 0;
     for (var mm = 1; mm <= month; mm++) {
@@ -8828,7 +8838,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (!(d > 0)) continue;
       num += Number(t.numerator != null ? t.numerator : t.rate * d) || 0; den += d; n++;
     }
-    return { rate: den > 0 ? num / den : null, savings: roundCents(num), gross: roundCents(den), months: n, grossYear: n ? den * 12 / n : null };
+    return { rate: den > 0 ? num / den : null, savings: roundCents(num), gross: roundCents(den), months: n, grossYear: itYearGrossFull(year) };
   }
   /* ? beside the Basic / True picker — what differs, with this month's dollars. */
   /* ? beside the Basic / True picker — what differs, with this month's dollars. */
@@ -8958,8 +8968,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (monthly > 0) {
         var onHand = (Number(foo.emergencyAmount) || 0) > 0 ? Number(foo.emergencyAmount) : cashOnHandForYear(state.worthYear || 2025);
         var months = onHand / monthly;
-        html += insightCard("Emergency reserves", "3–6 month target " + moneyWhole(monthly * 3) + " – " + moneyWhole(monthly * 6) + ". On hand " + moneyWhole(onHand) + ".",
-          "Your cash would cover about " + (Math.round(months * 10) / 10) + " months of spending if your pay stopped.");
+        /* Folded: just the months of cover. Open: target, cash on hand and the plain line. */
+        var mo = Math.round(months * 10) / 10;
+        html += '<details class="card insight-card reserves-card" id="dash-reserves"><summary><h3>Emergency reserves</h3>' +
+          '<span class="reserves-months mono">' + mo + (mo === 1 ? " month" : " months") + '</span><span class="chev" aria-hidden="true">›</span></summary>' +
+          "<p>" + esc("3–6 month target " + moneyWhole(monthly * 3) + " – " + moneyWhole(monthly * 6) + ". On hand " + moneyWhole(onHand) + ".") + "</p>" +
+          '<p class="plain-line">' + esc("Your cash would cover about " + mo + " months of spending if your pay stopped.") + "</p></details>";
       }
       if (SHELVED_FEATURES.taxFreeRoom) html += taxFreeRoomCard(est, foo);
     } catch (e) {}
@@ -10112,6 +10126,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   var DISC_HELP = "Discretionary = everything you budgeted that year on lines that don't count as savings, added up month by month (months after today left out). " +
     "Savings lines are left out the same way Saved counts them: the Savings category or line, Roth, and house fund lines.\n\n" +
     "It comes from your Budget and is read-only here; change it by editing your budget. Tap Discretionary to see each category.";
+  /* Optional: fill the year's Take-home from the months logged so far, spread across the year. Live (it follows the
+   * Budget), clearly marked, and any real entry (typed or from a pay stub) replaces it. At 12 months it is the sum. */
+  function isEstimateCardHtml(y, d) {
+    if (!d || d.takeHome != null) return "";
+    var so = yearTakeHomeSoFar(y);
+    if (!so.months) return "";
+    if (!d.thEst) return '<section class="card is-est-card"><p class="caption">No take-home entered for ' + y + ". Fill it by hand above, or:</p>" +
+      '<button class="planner-apply" type="button" data-act="is-est-months" data-year="' + y + '">Estimate from my months so far</button>' +
+      '<p class="caption">Uses ' + so.months + (so.months === 1 ? " month" : " months") + " of your Budget (" + moneyWhole(so.total) + ")" + (so.full ? "." : ", spread across the year. Typing real numbers replaces it.") + "</p></section>";
+    return '<section class="card is-est-card"><p class="caption">' + (so.full ? "Take-home from all 12 months of your Budget: " + moneyWhole(so.total) + "." : "* Take-home is an estimate, based on " + so.months + " months: " + moneyWhole(so.total) + " so far, spread across the year. Typing real numbers replaces it.") + "</p>" +
+      '<button class="link-btn" type="button" data-act="is-est-clear" data-year="' + y + '">Clear estimate</button></section>';
+  }
   function renderIncomeGrid(book, years) {
     var cy = new Date().getFullYear();
     var sel = years.indexOf(Number(state.incomeYear)) >= 0 ? Number(state.incomeYear) : (years.indexOf(cy) >= 0 ? cy : years[years.length - 1]);
@@ -10126,7 +10152,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var saved = sgBudgetSaved(y), savedFrom = "budget";
       var m = annualMetrics(row, y);
       if (saved == null && m.ocf != null) { saved = m.ocf; savedFrom = "statement"; }
-      D[y] = { row: row, inc: inc, est: est, T: T, taxes: taxes, ded: ded, takeHome: takeHome, saved: saved, savedFrom: savedFrom, avgTax: m.avgTax, legacyRate: m.savings, ocfNew: m.ocf, stub: inc.source === "stubs" };
+      var thEst = null;
+      if (takeHome == null && raw._estFromMonths) { var so = yearTakeHomeSoFar(y); if (so.months) thEst = so; }
+      D[y] = { row: row, inc: inc, est: est, T: T, taxes: taxes, ded: ded, takeHome: takeHome, thEst: thEst, saved: saved, savedFrom: savedFrom, avgTax: m.avgTax, legacyRate: m.savings, ocfNew: m.ocf, stub: inc.source === "stubs" };
     });
     function edit(key, label, valFn, typedFn) {
       return function (y) { var d = D[y]; return sgCell("is", key, y, valFn(d), { label: label, on: y === sel, typed: typedFn ? typedFn(d) : false }); };
@@ -10158,7 +10186,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     html += sgRow("Health", years, edit("dedHealth", "Health insurance", function (d) { return d.row.dedHealth; }));
     html += sgRow("Other", years, edit("dedOther", "Other deductions", function (d) { return d.row.dedOther; }));
     html += sgRow("Total deductions", years, calc(function (d) { return d.ded; }), "sg-sub");
-    html += sgRow("Take-home", years, calc(function (d) { return d.takeHome; }), "sg-total", "Take-home " + helpQ("Take-home = (salary + bonus + side gig + other) − total taxes − total deductions. Employer 401k isn’t pay you take home, so it’s left out."));
+    html += sgRow("Take-home", years, function (y) { var d = D[y]; if (d.takeHome == null && d.thEst) return sgCell("is", "", y, d.thEst.estimate, { calc: true, on: y === sel, text: moneyWhole(d.thEst.estimate) + (d.thEst.full ? "" : "*"), cls: "is-est" }); return sgCell("is", "", y, d.takeHome, { calc: true, on: y === sel }); }, "sg-total", "Take-home " + helpQ("Take-home = (salary + bonus + side gig + other) − total taxes − total deductions. Employer 401k isn’t pay you take home, so it’s left out."));
     var invP = {};
     years.forEach(function (y) { invP[y] = incomeInvestParts(y); });
     function invCell(v, y) {
@@ -10232,22 +10260,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var savRP = retireMoneySet(sel, 1, 12);
     var cymNow = currentYearMonth(), ytdLine = "";
     if (Number(sel) === cymNow.year) {
-      var yr = ytdSavingsRate(sel, cymNow.month);
-      ytdLine = "\n\nYear to date (Jan–" + MONTH_NAMES[cymNow.month - 1] + "): planned savings " + money(yr.planSavings || 0) + " ÷ planned take-home " + (yr.planTakeHome ? money(yr.planTakeHome) : "—") +
-        " = " + (yr.rate == null ? "—" : pctWhole(yr.rate)) + ". The Dashboard and Wrapped use this same rule.";
+      ytdLine = "\n\n" + yearRateMathText(yearSavingsRate(sel)) + " * marks an estimate.";
     }
     var savHelp = sel + " counted:\n" + (savRP.parts.length ? savRP.parts.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing yet") +
       (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + ytdLine + "\n\n" + SAV_RATE_HELP;
     html += sgRow("Savings rate", years, function (y) {
       /* v37.5.73: years with a Budget use the one shared rate (planned savings ÷ planned take-home, months up to
        * this one); a year with no Budget months keeps the statement's retirement money ÷ Take-home. */
-      var shY = isYearShared(y);
-      if (shY) return sgCell("is", "", y, shY.rate, { calc: true, on: y === sel, text: pct(shY.rate) });
+      var shY = isYearShared(y) ? yearSavingsRate(y) : null;
+      if (shY && shY.rate != null) return sgCell("is", "", y, shY.rate, { calc: true, on: y === sel, text: pct(shY.rate) + (shY.partial ? "*" : "") });
       var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
       return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
     }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(savHelp));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     html += "</tbody></table></div>" + sgBar() +
+      isEstimateCardHtml(sel, D[sel]) +
       '<section class="card sg-stub"><p class="pay-card-title">Pay stub &amp; pay details</p><p class="caption">Typed cells win. Salary and deductions are set on Pay.</p>' +
       '<button class="planner-apply" type="button" data-act="open-income-statement">Pay</button></section>' +
       "</div>"; /* Filing status moved to Dashboard › Taxes. */
@@ -10670,7 +10697,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return confirmedPayStubs().slice().sort(function (a, b) { var x = String(a.payDate || ""), z = String(b.payDate || ""); return x < z ? -1 : x > z ? 1 : 0; }).pop() || null;
   }
   /* itYear(y): the current year so far (feeds the headline). itYear(y, true): "Your pay now" on a yearly basis:
-   * the latest pay stub × paychecks a year when stubs exist (stubs win), else the typed-in pay / Pay sheet for a full year. */
+   * typed-in pay when it exists (it wins over stubs), else the latest pay stub × paychecks a year, else the Pay sheet. */
   /* Employer contributions count toward savings by default when they are retirement or HSA money; the user can switch
    * each kind off. Stored per kind in compensation.erSaves. */
   function itErKey(name) { return /hsa/i.test(name) ? "erHsa" : /401\s*\(?k|403\s*\(?b|457|ira|roth|pension|match/i.test(name) ? "er401k" : "erOther"; }
@@ -10678,9 +10705,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var k = itErKey(name), m = (state.compensation && state.compensation.erSaves) || {};
     return typeof m[k] === "boolean" ? m[k] : k !== "erOther";
   }
+  /* Typed-in pay exists: it always wins over pay stubs for this year's true savings rate. */
+  function itTypedInPay() {
+    var c = state.compensation || {};
+    return !!c.trueManual && Number(c.baseSalary) > 0;
+  }
   function itYear(y, now) {
     var cy = currentYearMonth().year, pre = {}, tax = {}, post = {}, grossL = {}, d = { year: y, er: 0, erKnown: false, now: !!now }, erL = {};
-    var latest = now ? itLatestStub() : null, stubs = now ? (latest ? [latest] : []) : itStubsForYear(y);
+    var typedWins = y === cy && itTypedInPay();
+    var latest = now && !typedWins ? itLatestStub() : null, stubs = typedWins ? [] : now ? (latest ? [latest] : []) : itStubsForYear(y);
     var k = now && latest ? itChecksPerYear() : 1, m = function (v) { return v == null || v === "" ? v : roundCents((Number(v) || 0) * k); };
     if (stubs.length) {
       var net = 0, anyNet = false;
@@ -10741,8 +10774,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       var erE = est.employerMatch + est.employerBase;
       if (erE > 0 || plan.employerMatchKnown) { d.er = roundCents(erE * f); d.erKnown = true; itAdd(erL, "Employer 401k", d.er); }
-      d.source = now ? "from your pay" : (plan.trueManual ? "Typed-in pay × " : "Pay sheet × ") + soFar + " of " + checks + " checks";
-      if (now) d.sourceNote = "Yearly, " + checks + " paychecks";
+      d.source = now ? (plan.trueManual ? "Typed-in pay" : "Pay sheet") : (plan.trueManual ? "Typed-in pay × " : "Pay sheet × ") + soFar + " of " + checks + " checks";
+      if (now) d.sourceNote = "Yearly, " + checks + " paychecks" + (plan.trueManual && confirmedPayStubs().length ? " · used instead of your pay stubs" : "");
       d.estimate = true;
       d.typedIn = !!plan.trueManual;
     } else return null;
@@ -10818,10 +10851,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var cy = currentYearMonth().year, Dcy = itYear(cy), d = itYear(cy, true), nStubs = confirmedPayStubs().length;
     var html = '<div class="sg-pass it-pass">' + statsSegmentHtml("paystubs") +
       '<div class="sg-title"><h2>Pay &amp; savings</h2>' + helpQ("Your pay now, on a yearly basis: gross pay, what comes out before taxes, taxes, what comes out after taxes, and the net pay that reaches your account.\n\n" +
-        "With pay stubs saved it uses your latest stub times your paychecks a year. With none it uses the pay you typed in. Tap a circle to choose which lines count toward savings.\n\n" + ESTIMATE_DISCLAIMER) + "</div>";
+        "Pay you type in is always used when you have it. Otherwise it uses your latest pay stub times your paychecks a year. Tap a circle to choose which lines count toward savings.\n\n" + ESTIMATE_DISCLAIMER) + "</div>";
     html += itHeadlineHtml(cy, Dcy);
     if (d) {
-      html += '<section class="card it-now"><div class="it-now-h"><h3>Your pay now</h3><span class="caption it-src">' + esc(d.source) + (d.sourceNote ? " · " + esc(d.sourceNote) : "") + "</span></div>" +
+      var srcHtml = d.typedIn && isPremium()
+        ? '<span class="it-src-row"><span class="it-src-chip">' + esc(d.source) + '</span><button type="button" class="it-pencil" data-act="it-true-manual" aria-label="Edit typed-in pay" title="Edit typed-in pay">' +
+          '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M13.6 3.2a1.8 1.8 0 0 1 2.6 0l.6.6a1.8 1.8 0 0 1 0 2.6L7 16.2 3 17l.8-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button></span>' +
+          (d.sourceNote ? '<span class="caption it-src">' + esc(d.sourceNote) + "</span>" : "")
+        : '<span class="caption it-src">' + esc(d.source) + (d.sourceNote ? " · " + esc(d.sourceNote) : "") + "</span>" +
+          (isPremium() ? '<button type="button" class="it-manual-entry" data-act="it-true-manual">Enter pay manually ›</button>' : "");
+      html += '<section class="card it-now"><div class="it-now-h"><h3>Your pay now</h3>' + srcHtml + "</div>" +
         '<table class="it-now-t"><tbody>';
       html += itGroupRow("gross", "Gross pay", d, itShown(d.grossLines, d.gross), "grossLines");
       html += itGroupRow("pre", "Pre-tax deductions", d, itShown(d.pre, d.preT), "pre");
@@ -10838,6 +10877,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       html += '<section class="card it-now"><h3>Your pay now</h3><p class="caption">Add a pay stub or type in your pay to see it here.</p></section>';
     }
+    if (!d && isPremium()) html += '<button type="button" class="it-manual-entry" data-act="it-true-manual">Enter pay manually ›</button>';
     if (nStubs) html += '<button type="button" class="it-stubs-link" data-act="it-stubs">Pay stubs (' + nStubs + ") ›</button>";
     html += "</div>";
     return html;
@@ -10885,16 +10925,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var wB = Math.round(Math.max(0, R.budgetSav - R.dup)), wP = Math.round(d.retPayroll + (R.erCounted || 0)), wT = wB + wP, wD = Math.round(R.den || 0), wE = Math.round(R.erCounted || 0);
       var rateTxt = wD > 0 ? Math.round(wT / wD * 100) + "%" : "—";
       html += '<button type="button" class="it-head-btn" data-act="it-math" aria-expanded="' + !!itMathOpen + '">' +
-        '<span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + (d.estimate ? "of gross pay, from your pay" : "of gross pay, from your pay stub") + '</span></span>' +
+        '<span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + (d.typedIn ? "of gross pay, from your typed-in pay" : d.estimate ? "of gross pay, from your Pay sheet" : "of gross pay, from your pay stub") + '</span></span>' +
         '<span class="it-head-n">' + rateTxt + '<small>' + (itMathOpen ? "Hide math ▴" : "See the math ▾") + "</small></span></button>";
       if (itMathOpen) {
         html += '<div class="it-math"><div class="row"><span>Saved in budget</span><span class="mono">' + moneyWhole(wB) + "</span></div>" +
           '<div class="row"><span>Saved from your paycheck<br><small class="caption">' + (d.estimate ? "Lines marked Counts toward savings" : "401k, Roth 401k, HSA") + "</small></span><span class=\"mono\">" + moneyWhole(wP - wE) + "</span></div>" +
           '<div class="row"><span>Employer money counted<br><small class="caption">' + (!d.erKnown ? "Employer match unknown" : wE > 0 ? d.erLines.filter(function (l) { return l.ret; }).map(function (l) { return esc(l.name); }).join(", ") : "None counted (turn a circle on in the table)") + "</small></span><span class=\"mono\">" + moneyWhole(wE) + "</span></div>" +
           '<div class="row it-math-tot"><span>Total saved</span><span class="mono">' + moneyWhole(wT) + "</span></div>" +
-          '<div class="row"><span>' + (wE > 0 ? "Gross pay + employer money counted" : "Gross pay") + (R.other > 0 ? '<br><small class="caption">+ ' + moneyWhole(R.other) + " budgeted income not on your pay, at take-home</small>" : "") + '</span><span class="mono">' + moneyWhole(wD) + "</span></div>" +
+          '<div class="row"><span>' + (wE > 0 ? "Gross pay + employer money counted" : "Gross pay") + '<br><small class="caption">' + (d.typedIn ? "From your typed-in pay" : d.estimate ? "From your Pay sheet" : "From your pay stubs") + "</small>" + (R.other > 0 ? '<br><small class="caption">+ ' + moneyWhole(R.other) + " budgeted income not on your pay, at take-home</small>" : "") + '</span><span class="mono">' + moneyWhole(wD) + "</span></div>" +
           '<p class="caption">' + moneyWhole(wT) + " ÷ " + moneyWhole(wD) + " = " + rateTxt + "." + (wE > 0 ? " Employer money you count as savings is added to both sides, since it is pay on top of your gross." : "") + " Each dollar counts once: budget lines named 401k or HSA aren’t added again" + (R.dup > 0 ? " (" + moneyWhole(R.dup) + " left out)" : "") + ". Budget-only rate (of take-home, " + span + "): " + basicTxt + ".</p>" +
-          (d.estimate ? '<button type="button" class="it-edit-pay" data-act="it-true-manual">Change your typed-in pay ›</button>' : "") + "</div>";
+          "</div>";
       }
     } else {
       html += '<div class="it-head-btn static"><span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + basicCap + '</span></span>' +
@@ -11757,6 +11797,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function applyNight() {
     var on = isNightNow();
     state.nightLedger = on;
+    /* Seasonal palette is dark-based, so it keeps the dark-mode contrast rules on in either theme. */
+    if (document.body.classList.contains("season-bg")) on = true;
     document.body.classList.toggle("night", on);
     document.documentElement.classList.toggle("night", on);
     applyTextSize();
@@ -11864,6 +11906,122 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return a ? a.amount : 0;
   }
 
+  /* Paydays that fall in a month for weekly / biweekly pay, from the last known payday. null when unknown. */
+  function paydaysInMonth(year, month) {
+    var f = payFrequencyOf(state.compensation || {}), step = f === "weekly" ? 7 : f === "biweekly" ? 14 : 0;
+    var anchor = step ? lastPayAnchor() : null;
+    if (!anchor) return null;
+    var start = new Date(year, month - 1, 1), end = new Date(year, month, 0), c = new Date(anchor.date.getTime()), n = 0;
+    while (c > start) c = addDaysLocal(c, -step);
+    while (c < start) c = addDaysLocal(c, step);
+    while (c <= end) { n++; c = addDaysLocal(c, step); }
+    return n;
+  }
+  /* Planned take-home for a month with its real paycheck count: paycheck lines are typical paycheck × paydays in the
+   * month (so 3-paycheck months count 3), other income lines as planned. rec may be a nearby month used as the plan. */
+  function plannedMonthTakeHomeReal(year, month, rec) {
+    var incs = (rec && rec.incomes) || [], pay = [], other = 0;
+    incs.forEach(function (i) { if (/paycheck/i.test(String(i.name || ""))) pay.push(i); else other += Number(i.amount) || 0; });
+    var planned = 0;
+    try { planned = Number(sums(rec).income) || 0; } catch (e) {}
+    var n = pay.length ? paydaysInMonth(year, month) : null;
+    if (n == null) return roundCents(planned);
+    return roundCents(other + typicalPaycheckAmount({ incomes: pay }) * n);
+  }
+  /* Take-home for a whole calendar year, month by month (no × 12): finished months use what was received (planned
+   * if nothing was logged), the current month uses the monthTakeHome rule, and months ahead use planned take-home
+   * with their real paycheck count. Months before the books start are left out. */
+  function yearTakeHomeFull(year) {
+    var cy = currentYearMonth(), curI = cy.year * 12 + cy.month, out = { total: 0, received: 0, planned: 0, nReceived: 0, nPlanned: 0, months: 0 };
+    var keys = Object.keys(state.months || {}).filter(function (k) { var m = state.months[k]; return m && Number(m.year) * 12 + Number(m.month) <= Number(year) * 12 + 12; })
+      .sort(function (a, b) { var x = state.months[a], z = state.months[b]; return (x.year * 12 + x.month) - (z.year * 12 + z.month); });
+    if (!keys.length) return out;
+    var firstI = Number(state.months[keys[0]].year) * 12 + Number(state.months[keys[0]].month), base = null;
+    for (var m = 1; m <= 12; m++) {
+      var mi = Number(year) * 12 + m, rec = state.months[ymKey(year, m)];
+      if (mi < firstI) continue;
+      if (rec) base = rec;
+      else if (!base) base = state.months[keys.filter(function (k) { var x = state.months[k]; return x.year * 12 + x.month <= mi; }).pop()] || null;
+      var amt = 0, got = false;
+      if (rec && mi <= curI) {
+        var r = gm().monthTakeHome(sums(rec).income, rec.transactions || [], rec.incomes || [], takeHomeOpts(rec));
+        if (r.source === "received") { amt = Number(r.amount) || 0; got = true; }
+        else amt = mi < curI ? Number(r.amount) || 0 : plannedMonthTakeHomeReal(year, m, rec);
+      } else if (mi > curI) amt = plannedMonthTakeHomeReal(year, m, rec || base);
+      else continue;
+      amt = roundCents(Math.max(0, amt));
+      out.total += amt; out.months++;
+      if (got) { out.received += amt; out.nReceived++; } else { out.planned += amt; out.nPlanned++; }
+    }
+    out.total = roundCents(out.total); out.received = roundCents(out.received); out.planned = roundCents(out.planned);
+    return out;
+  }
+  /* Year savings rate and take-home from the months logged so far (Jan up to this month), never × 12 and never an
+   * average of rates: rate = total savings ÷ total base across those months, so a 3-paycheck month weighs more.
+   *   Budget only: planned savings ÷ planned take-home (the sharedSavingsRate rule, summed over the months).
+   *   Typed-in pay (wins) or a confirmed pay stub: budget savings + pay savings (401k you + employer, HSA) ÷ gross pay.
+   * Fewer than 12 months = an estimate "based on N months"; 12 months = the year, no estimating. */
+  function yearMonthsSoFar(year) {
+    var cy = currentYearMonth(), last = Number(year) < cy.year ? 12 : Number(year) === cy.year ? cy.month : 0, out = [];
+    for (var m = 1; m <= last; m++) {
+      var rec = state.months && state.months[ymKey(year, m)];
+      if (rec && planMonthSavingsParts(rec).takeHome > 0) out.push(rec);
+    }
+    return out;
+  }
+  function yearTakeHomeSoFar(year) {
+    var cy = currentYearMonth(), curI = cy.year * 12 + cy.month, recs = yearMonthsSoFar(year), total = 0;
+    recs.forEach(function (rec) {
+      var mi = Number(rec.year) * 12 + Number(rec.month), amt = 0;
+      var r = gm().monthTakeHome(sums(rec).income, rec.transactions || [], rec.incomes || [], takeHomeOpts(rec));
+      if (r.source === "received" || mi < curI) amt = Number(r.amount) || 0;
+      else amt = plannedMonthTakeHomeReal(rec.year, rec.month, rec);
+      total += Math.max(0, amt);
+    });
+    var n = recs.length;
+    total = roundCents(total);
+    return { total: total, months: n, full: n >= 12, estimate: n ? roundCents(n >= 12 ? total : total / n * 12) : 0 };
+  }
+  function typedPayMonth(year, month, est) {
+    var checks = Number(est.paychecksPerYear) || 12, pd = paydaysInMonth(year, month), share = pd != null && checks !== 12 ? pd / checks : 1 / 12;
+    var pay = (Number(est.employee401k) || 0) + (Number(est.employerBase) || 0) + (Number(est.employerMatch) || 0) + (hsaCountsForTrue() ? Number(est.hsa) || 0 : 0);
+    return { gross: roundCents((Number(est.cashPay) || 0) * share), paySavings: roundCents(pay * share) };
+  }
+  function yearSavingsRate(year) {
+    var recs = yearMonthsSoFar(year), n = recs.length, cy = currentYearMonth();
+    var out = { year: Number(year), months: n, partial: n < 12, mode: "basic", rate: null, savings: 0, base: 0, budgetSavings: 0, paySavings: 0, lastMonth: n ? Number(recs[n - 1].month) : 0 };
+    if (!n) return out;
+    if (Number(year) === cy.year && itTypedInPay()) {
+      var est = estimateCompensation(state.compensation), bs = 0, ps = 0, g = 0;
+      recs.forEach(function (rec) { var t = typedPayMonth(rec.year, rec.month, est); bs += dashPlannedSavings(rec); ps += t.paySavings; g += t.gross; });
+      if (g > 0) { out.mode = "typed"; out.budgetSavings = roundCents(bs); out.paySavings = roundCents(ps); out.savings = roundCents(bs + ps); out.base = roundCents(g); out.rate = out.savings / out.base; return out; }
+    }
+    if (isPremium() && useStubBasis()) {
+      var num = 0, den = 0, k = 0;
+      recs.forEach(function (rec) {
+        var t = null; try { t = monthSavingsRates(rec).trueRate; } catch (e) {}
+        if (!t || t.state !== "ok" || t.rate == null) return;
+        var d = Number(t.denominator != null ? t.denominator : t.gross) || 0;
+        if (!(d > 0)) return;
+        num += Number(t.numerator != null ? t.numerator : t.rate * d) || 0; den += d; k++;
+      });
+      if (k === n && den > 0) { out.mode = "stub"; out.savings = roundCents(num); out.base = roundCents(den); out.rate = num / den; return out; }
+    }
+    var sh = sharedSavingsRate(recs);
+    out.savings = sh.savings; out.budgetSavings = sh.savings; out.base = sh.takeHome; out.rate = sh.rate;
+    return out;
+  }
+  function yearRateLabel(r) { return r.partial ? "estimate, based on " + r.months + (r.months === 1 ? " month" : " months") : "12 months"; }
+  function yearRateMathText(r) {
+    if (r.rate == null) return "No months with pay logged yet this year.";
+    var of = r.mode === "basic" ? "planned take-home" : "gross pay";
+    var top = r.mode === "basic" ? moneyWhole(r.savings) + " planned savings" : r.mode === "stub" ? moneyWhole(r.savings) + " savings (budget savings + pay-stub 401k you + employer, HSA)" : moneyWhole(r.budgetSavings || 0) + " budget savings + " + moneyWhole(r.savings - (r.budgetSavings || 0)) + " pay savings (401k you + employer, HSA)";
+    return "This year’s savings rate = total savings ÷ total " + of + " across the months logged (Jan–" + MONTH_NAMES[Math.max(0, r.lastMonth - 1)].slice(0, 3) + (r.partial ? ", " + r.months + " so far" : "") + "):\n\n" +
+      top + " ÷ " + moneyWhole(r.base) + " " + of + " = " + pctWhole(r.rate) + ".\n\n" +
+      "Each month counts by its dollars, so a 3-paycheck month weighs more; no × 12 and no average of monthly rates." +
+      (r.mode === "typed" ? " Gross comes from your typed-in pay (it wins over pay stubs)." : r.mode === "stub" ? " Gross comes from your pay stubs." : " With typed-in pay or a pay stub this switches to gross pay.") +
+      (r.partial ? "\n\nAn estimate, based on " + r.months + " months. In December it covers all 12 and matches the Income statement." : "\n\nAll 12 months — the same number as the Income statement.");
+  }
   function copyPlanFromTo(src, destYM) {
     var destKey = ymKey(destYM.year, destYM.month);
     var amt = typicalPaycheckAmount(src);
@@ -12818,7 +12976,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (edUi.pad) {
       h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
         ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
-        '<button type="button" class="ed-done" data-ed="done">Done</button></div>';
+        '<button type="button" class="ed-done ed-next" data-ed="next">Next</button></div>';
     }
     if (edUi.picker && !inc) {
       var q = edUi.q.toLowerCase(), sel = {};
@@ -12848,14 +13006,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.innerHTML = h;
     armSheetA11y(modal);
     edFit();
+    edRevealMerchant();
     if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
   function edItemsHtml(month) {
     var d = spendDraft;
       var picked = (d.legs || []).filter(function (l) { return l.lineId; });
-      var h = '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker">' +
-        (picked.length ? picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") : '<span class="caption">Choose budget item</span>') + '<span class="chev">›</span></button>' +
-        (d.mappedFromHistory && picked.length === 1 ? '<p class="caption env-suggest" data-role="env-suggest"><span class="env-suggest-tag">Suggested</span> from your last ' + esc(d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another</p>" : "") +
+      /* A suggestion from this merchant's last entry shows as a small tag inside the row (no extra box, so the
+       * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
+      var sugg = d.mappedFromHistory && picked.length === 1;
+      var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
+      var h = '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker"' + (sugg ? ' aria-label="' + esc(picked.map(function (l) { var f = findLine(month, l.lineId); return f && f.line ? f.line.name : "Item"; }).join(", ") + ". " + suggWhy) + '"' : "") + ">" +
+        (picked.length ? '<span class="ed-items-name">' + picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") + "</span>" : '<span class="caption ed-items-name">Choose budget item</span>') +
+        (sugg ? '<span class="ed-sugg-tag" data-role="env-suggest" title="' + esc(suggWhy) + '">Suggested<span class="sr-only"> ' + esc(suggWhy.replace(/^Suggested /, "")) + "</span></span>" : "") +
+        '<span class="chev">›</span></button>' +
         (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
       if (picked.length > 1) {
         /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
@@ -12928,11 +13092,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var sh = document.querySelector("#modal .sheet.ed-add");
     if (!sh) return;
     var vv = window.visualViewport, h = vv ? vv.height : window.innerHeight, top = vv ? vv.offsetTop : 0;
-    sh.style.maxHeight = Math.max(220, Math.min(h * 0.94, h - 8)) + "px";
+    var maxH = Math.max(220, Math.min(h * 0.94, h - 8));
+    sh.style.maxHeight = maxH + "px";
     sh.style.marginBottom = Math.max(0, window.innerHeight - h - top) + "px";
     var ae = document.activeElement, typing = !!(ae && sh.contains(ae) && ae.matches("input, select, textarea"));
     sh.classList.toggle("ed-kb", typing || !!(vv && window.innerHeight - h > 120));
     document.body.classList.toggle("ed-typing", typing);
+    sh.style.minHeight = "";
+    if (edUi && edUi.holdTop != null) {
+      var mo = sh.parentNode.getBoundingClientRect(), mb = parseFloat(sh.style.marginBottom) || 0;
+      sh.style.minHeight = Math.min(maxH, Math.max(0, mo.bottom - mb - Math.max(top, edUi.holdTop))) + "px";
+    }
   }
   function edCollapsePad() {
     if (!edUi) return;
@@ -12942,6 +13112,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var pad = f.querySelector(".ed-pad"); if (pad) pad.parentNode.removeChild(pad);
     var hero = f.querySelector(".ed-hero"); if (hero) hero.classList.remove("active");
     edFit();
+  }
+  /* With the number pad open, a tap on Merchant (or any field) works straight away: it commits the amount,
+   * closes the pad with the sheet held in place, and focuses that field. */
+  document.addEventListener("pointerdown", function (e) {
+    if (!edUi || !edUi.pad || !spendDraft) return;
+    var t = e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add input, #modal .sheet.ed-add select, #modal .sheet.ed-add textarea");
+    if (!t || t.closest(".ed-pad")) return;
+    var key = t.getAttribute("data-ed-in");
+    if (!key) return;
+    e.preventDefault();
+    var sh0 = document.querySelector("#modal .sheet.ed-add");
+    edUi.holdTop = sh0 ? sh0.getBoundingClientRect().top : null;
+    var st0 = sh0 ? sh0.scrollTop : 0;
+    edSyncAmount(); edUi.pad = false; renderEdAdd(ensureMonth(state.year, state.month));
+    var sh1 = document.querySelector("#modal .sheet.ed-add"); if (sh1) sh1.scrollTop = st0;
+    var nx = document.querySelector('#modal .ed-add [data-ed-in="' + key + '"]');
+    if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } }
+    /* Swallow the click from this same tap so it can't land on whatever now sits under the finger. */
+    var swallow = function (ev) { if (ev.target !== nx) { ev.preventDefault(); ev.stopPropagation(); } document.removeEventListener("click", swallow, true); };
+    document.addEventListener("click", swallow, true);
+    setTimeout(function () { document.removeEventListener("click", swallow, true); }, 600);
+  }, true);
+  /* Keep the Merchant row above the open pad on short screens so it can be tapped. */
+  function edRevealMerchant() {
+    if (!edUi || !edUi.pad) return;
+    var f = document.querySelector("#modal .sheet.ed-add"), pad = f && f.querySelector(".ed-pad"), row = f && f.querySelector('[data-ed-in="payee"]');
+    if (!pad || !row) return;
+    var over = row.getBoundingClientRect().bottom + 6 - pad.getBoundingClientRect().top;
+    if (over > 0) f.scrollTop += over;
   }
   document.addEventListener("focusin", function (e) {
     var t = e.target;
@@ -12973,8 +13172,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (a === "item" || a === "tick") { edUi.manual = true; spendDraft.mappedFromHistory = false; }
     if (a === "merch") { spendDraft.payee = b.getAttribute("data-payee") || ""; edSuggest(month); }
     else if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
-    else if (a === "pad") { edUi.pad = true; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
+    else if (a === "pad") { edUi.pad = true; edUi.holdTop = null; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
     else if (a === "done") edUi.pad = false;
+    else if (a === "next") {
+      /* One tap commits the typed amount, closes the number pad and moves on to Merchant (no Done step first). */
+      var sh0 = document.querySelector("#modal .sheet.ed-add");
+      edUi.holdTop = sh0 ? sh0.getBoundingClientRect().top : null; /* keep the sheet's top so the amount doesn't drop */
+      edSyncAmount(); edUi.pad = false; renderEdAdd(month);
+      var nx = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
+      if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } }
+      return;
+    }
     else if (a === "key") {
       var k = b.getAttribute("data-k"), s = edUi.amt;
       if (k === "⌫") s = s.slice(0, -1);
@@ -17430,7 +17638,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.81";
+  var APP_VERSION = "37.5.87";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -18637,10 +18845,49 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<span class="season-turkey t1">' + TURKEY_SVG + "</span>" +
       '<span class="season-turkey t2">' + TURKEY_SVG + "</span></div>";
   }
+  /* Ambient seasonal layer behind content. kind: "leaves" (November) or "snow" (December). */
+  var SEASON_FX_GLYPHS = {
+    leaves: function (i) {
+      var c = ["#C9702B", "#A8462A", "#D9A441", "#8A4A22"][i % 4];
+      return '<svg viewBox="0 0 20 20" width="100%" height="100%"><path d="M10 1C6 5 3 8 4 12c1 3 4 5 6 7 2-2 5-4 6-7 1-4-2-7-6-11z" fill="' + c + '"/><path d="M10 4v15" stroke="rgba(40,20,8,.45)" stroke-width=".8"/></svg>';
+    },
+    snow: function () { return '<svg viewBox="0 0 20 20" width="100%" height="100%"><circle cx="10" cy="10" r="7" fill="rgba(255,255,255,.9)"/></svg>'; }
+  };
+  function seasonFx(phone, kind) {
+    var fx = document.getElementById("season-fx");
+    if (!kind) { if (fx) fx.remove(); return; }
+    if (fx && fx.getAttribute("data-kind") === kind) return;
+    if (!fx) {
+      fx = document.createElement("div");
+      fx.id = "season-fx"; fx.className = "season-fx"; fx.setAttribute("aria-hidden", "true");
+      phone.insertBefore(fx, phone.firstChild);
+    }
+    fx.setAttribute("data-kind", kind);
+    var h = "", n = 18;
+    for (var i = 0; i < n; i++) {
+      var x = Math.round((i + 0.5) * 100 / n + ((i * 7) % 5) - 2);
+      var size = 18 + (i * 7) % 13, dur = 9 + (i * 5) % 8, delay = -((i * 2.9) % dur);
+      var sway = (i % 2 ? 1 : -1) * (16 + (i * 3) % 14), spin = (i % 3 ? 1 : -1) * (240 + (i * 37) % 200);
+      h += '<span class="season-fx-p" style="left:' + x + "%;width:" + size + "px;height:" + size + "px;--fx-dur:" + dur + "s;--fx-delay:" + delay.toFixed(1) + "s;--fx-sway:" + sway + "px;--fx-spin:" + spin + 'deg;--fx-top:' + ((i * 11) % 80) + '%">' + SEASON_FX_GLYPHS[kind](i) + "</span>";
+    }
+    fx.innerHTML = h;
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.body) document.body.classList.toggle("fx-paused", document.hidden);
+  });
   function applySeason() {
     var phone = document.getElementById("phone");
     if (!phone) return;
-    var s = state.tab === "budget" ? seasonNow() : "";
+    /* Seasonal background tint follows the viewed month on every tab; the strip and hat stay on Budget. */
+    var sAll = seasonNow();
+    /* Seasonal mode is one look with its own palette, whatever the light/dark theme. */
+    if (document.body) document.body.classList.toggle("season-bg", sAll === "nov");
+    document.documentElement.classList.toggle("season-bg", sAll === "nov");
+    seasonFx(phone, sAll === "nov" ? "leaves" : "");
+    var nightOn = sAll === "nov" || isNightNow();
+    if (document.body) document.body.classList.toggle("night", nightOn);
+    document.documentElement.classList.toggle("night", nightOn);
+    var s = state.tab === "budget" ? sAll : "";
     phone.classList.toggle("season-nov", s === "nov");
     var strip = document.getElementById("season-strip");
     if (s === "nov") {
@@ -20562,6 +20809,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       saveState();
       render();
       [].forEach.call(document.querySelectorAll('.year-tiles[data-kind="worth"] [data-year="' + py + '"]'), function (t) { if (t.scrollIntoView) t.scrollIntoView({ block: "nearest", inline: "nearest" }); });
+    } else if (act === "is-est-months" || act === "is-est-clear") {
+      var ieBook = ensureAnnualStatement(), ieY = String(actEl.getAttribute("data-year"));
+      if (ieBook.years[ieY]) { if (act === "is-est-months") ieBook.years[ieY]._estFromMonths = true; else delete ieBook.years[ieY]._estFromMonths; saveState(); render(); }
     } else if (act === "add-prior-income-year") {
       sgPendingScroll = { kind: "is" };
       /* One tap adds the year before the earliest column. No picker, no confirm. */

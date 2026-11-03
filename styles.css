@@ -5114,7 +5114,7 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 /* Never taller than the space above the keyboard / tab bar: a taller sheet pushed its top (the amount) off screen. */
 .modal:has(> .ed-add){flex-direction:column;justify-content:flex-end;align-items:center}
 .sheet.ed-add{flex:0 1 auto;min-height:0}
-@media (max-height:620px){.ed-pad button{padding:4px 0}.ed-pad .ed-done{padding:7px 0;margin-top:2px}.ed-hero .ed-amt-v{font-size:36px}.ed-head .sheet-top{margin-bottom:2px}}
+@media (max-height:620px){.ed-pad button{padding:4px 0}.ed-pad .ed-done{padding:9px 0;margin-top:2px}.ed-hero .ed-amt-v{font-size:36px}.ed-head .sheet-top{margin-bottom:2px}}
 /* v37.5.70 stamp slot on the Budget hero ("Every dollar has a job"); same lock-outline look as the wrap-up preview. */
 .budget-hero .stamp-slot{flex:0 0 auto;max-width:112px;padding:10px 12px;text-align:center;font-size:calc(11px * var(--fs-scale));line-height:1.2;border-color:var(--muted);opacity:.85}
 .budget-hero .stamp-slot svg{width:22px;height:22px}
@@ -5320,7 +5320,6 @@ body.kb-fit .screen{padding-bottom:0}
 .it-unit-toggle { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line, #ccc); border-radius: 999px; overflow: hidden; }
 .it-unit-toggle button { border: 0; background: transparent; color: inherit; font: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; white-space: nowrap; }
 .it-unit-toggle button.on { background: var(--moss); color: #fff; font-weight: 600; }
-.it-edit-pay { margin-top: 8px; background: none; border: 0; padding: 0; color: var(--moss); font: inherit; font-weight: 600; cursor: pointer; }
 /* next7: flexible deduction lines */
 .it-amt-row input[type=text] { margin: 0; }
 .it-amt-unit { line-height: 1; align-self: center; display: inline-flex; align-items: center; height: 100%; }
@@ -5443,9 +5442,15 @@ body.it-sheet-open #screen { overflow: hidden; }
 .it-now-sub { font-family: var(--ui); font-size: calc(12px * var(--fs-scale)); color: var(--muted); font-weight: 500; }
 .env-suggest { margin: 6px 0 8px; padding: 8px 10px; border-radius: 10px; background: var(--highlight); color: var(--ink); line-height: 1.35; }
 .env-suggest-tag { display: inline-block; font-weight: 700; color: var(--moss); }
+/* Envelope row: name truncates, the Suggested tag and chevron never get pushed out (fits 360px). */
+.ed-items { gap: 8px; min-height: 48px; box-sizing: border-box; }
+.ed-items .ed-items-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-items .ed-sugg-tag { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--highlight); color: var(--moss); font: 700 calc(11px * var(--fs-scale)) / 16px var(--ui); letter-spacing: .02em; }
+.ed-items .chev { flex: none; }
+.ed-add .ed-itemsec .ed-items { margin-bottom: 4px; }
+.ed-add .ed-split-link { display: block; margin: 0 0 14px; }
 .ed-add .ed-merch { margin: 8px 0 2px; }
 .ed-add .ed-merch .merchant-chips { flex-wrap: nowrap; overflow-x: auto; }
-.ed-add .env-suggest { margin: 6px 0 2px; }
 
 /* Seasonal mode: November (looks only). One look for light and night: warm tints are see-through and
  * the hat has a gold rim, so both read on either background. Strip is 26px, never takes taps, keeps clear of a floating +. */
@@ -5503,3 +5508,60 @@ body.it-sheet-open #screen { overflow: hidden; }
 .save-status:focus-visible{outline:2px solid var(--moss);outline-offset:-2px}
 @keyframes ss-pulse{50%{opacity:.35}}
 @media (prefers-reduced-motion: reduce){.save-status i{animation:none!important;transition:none}}
+
+/* Dashboard · This year: plain labels over Gross pay / Take-home, kept when folded. */
+.dash-year-two .dash-lbl{display:block;font-family:var(--ui);font-size:calc(11px * var(--fs-scale));letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:2px;white-space:nowrap}
+.dash-year-two .dash-lbl-note{text-transform:none;letter-spacing:0;font-weight:500;opacity:.85}
+.dash-year-two>div{min-width:0}
+.dash-year-two strong{font-size:min(calc(22px * var(--fs-scale)), 6.4vw);white-space:nowrap}
+
+/* Seasonal mode: one palette of its own (autumn dusk), the same in light and dark themes. */
+html.season-bg, body.season-bg, body.night.season-bg {
+  --paper: rgb(36, 25, 18); --card: rgb(50, 36, 26); --highlight: rgb(62, 45, 32);
+  --ink: rgb(246, 237, 225); --muted: rgb(200, 182, 162); --rule: rgb(88, 66, 48);
+  --moss: rgb(150, 210, 140); --stamp: rgb(236, 160, 84); --gold: rgb(236, 186, 100);
+  --plum: rgb(196, 170, 240); --rose: rgb(240, 150, 136); --berry: var(--rose);
+  --danger: var(--rose); --rust: var(--danger); --split-stamp: var(--rose);
+  --shadow: rgba(0, 0, 0, 0.4);
+  color-scheme: dark; color: var(--ink);
+  background: radial-gradient(120% 70% at 50% 0%, rgb(66, 38, 22), rgb(24, 16, 12) 70%) fixed rgb(24, 16, 12);
+}
+body.season-bg .phone { background: linear-gradient(180deg, rgb(44, 29, 20), rgb(30, 21, 15)); border-color: var(--rule); box-shadow: 0 18px 36px rgba(0, 0, 0, 0.4); }
+body.season-bg .toast { color: rgb(36, 25, 18); background: var(--ink); }
+body.season-bg .screen, body.season-bg .month-bar, body.season-bg .tab-bar { position: relative; z-index: 1; }
+body.season-bg .tab-bar { background: rgba(36, 25, 18, 0.94); }
+.season-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; border-radius: inherit; contain: strict; }
+.season-fx-p { position: absolute; top: -40px; opacity: 0.78; will-change: transform; animation: season-fall var(--fx-dur) linear var(--fx-delay) infinite; }
+body.fx-paused .season-fx-p { animation-play-state: paused; }
+@keyframes season-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  25% { transform: translate3d(var(--fx-sway), 30vh, 0) rotate(calc(var(--fx-spin) * .25)); }
+  50% { transform: translate3d(0, 58vh, 0) rotate(calc(var(--fx-spin) * .5)); }
+  75% { transform: translate3d(calc(var(--fx-sway) * -1), 86vh, 0) rotate(calc(var(--fx-spin) * .75)); }
+  100% { transform: translate3d(0, 115vh, 0) rotate(var(--fx-spin)); }
+}
+@media (prefers-reduced-motion: reduce) { .season-fx-p { animation: none; will-change: auto; top: var(--fx-top); } }
+/* Keypad Done: dark text on the light accent in dark mode and seasonal (white on mint is ~2:1). */
+body.night .ed-pad .ed-done { color: rgb(18, 19, 21); }
+/* Pay screen: typed-in pay highlighted as the source in use, with a pencil to edit it. */
+.it-src-row{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.it-src-chip{font:600 calc(12px * var(--fs-scale)) var(--ui);color:var(--moss);background:var(--highlight);border:1px solid var(--moss);border-radius:999px;padding:2px 9px}
+.it-pencil{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--rule);border-radius:50%;background:var(--card);color:var(--ink);padding:0;cursor:pointer}
+.it-pencil:focus-visible{outline:2px solid var(--moss);outline-offset:2px}
+.it-manual-entry{display:block;width:100%;margin:8px 0 0;padding:10px 12px;border:1px dashed var(--moss);border-radius:10px;background:var(--card);color:var(--moss);font:600 calc(15px * var(--fs-scale)) var(--ui);text-align:left;cursor:pointer}
+
+/* Year savings rate under the monthly one; Income statement estimate card. */
+.dash-year-sr { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; }
+.is-est { font-style: italic; }
+.is-est-card { margin-top: 12px; }
+.is-est-card .planner-apply { margin: 6px 0; }
+/* Emergency reserves: folded shows months only */
+.reserves-card summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none}
+.reserves-card summary::-webkit-details-marker{display:none}
+.reserves-card summary h3{margin:0;flex:1}
+.reserves-card .reserves-months{font-weight:600}
+.reserves-card .chev{transition:transform .2s ease;opacity:.6}
+.reserves-card[open] .chev{transform:rotate(90deg)}
+.reserves-card[open] summary{margin-bottom:8px}
+@media (prefers-reduced-motion: reduce){.reserves-card .chev{transition:none}}
+.dash-snap + .dash-streak{margin:-4px 4px 12px;justify-content:center}
