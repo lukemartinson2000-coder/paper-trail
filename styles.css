@@ -5515,23 +5515,23 @@ body.it-sheet-open #screen { overflow: hidden; }
 .dash-year-two>div{min-width:0}
 .dash-year-two strong{font-size:min(calc(22px * var(--fs-scale)), 6.4vw);white-space:nowrap}
 
-/* Seasonal mode: one palette of its own (autumn dusk), the same in light and dark themes. */
+/* Seasonal mode: one light palette of its own (warm November off-white); it is a theme choice, never mixed with Night. */
 html.season-bg, body.season-bg, body.night.season-bg {
-  --paper: rgb(36, 25, 18); --card: rgb(50, 36, 26); --highlight: rgb(62, 45, 32);
-  --ink: rgb(246, 237, 225); --muted: rgb(200, 182, 162); --rule: rgb(88, 66, 48);
-  --moss: rgb(150, 210, 140); --stamp: rgb(236, 160, 84); --gold: rgb(236, 186, 100);
-  --plum: rgb(196, 170, 240); --rose: rgb(240, 150, 136); --berry: var(--rose);
+  --paper: rgb(250, 245, 236); --card: rgb(255, 252, 246); --highlight: rgb(244, 234, 218);
+  --ink: rgb(43, 30, 20); --muted: rgb(108, 82, 60); --rule: rgb(226, 211, 190);
+  --moss: rgb(52, 108, 50); --stamp: rgb(164, 72, 22); --gold: rgb(132, 90, 12);
+  --plum: rgb(112, 64, 140); --rose: rgb(166, 50, 36); --berry: var(--rose);
   --danger: var(--rose); --rust: var(--danger); --split-stamp: var(--rose);
-  --shadow: rgba(0, 0, 0, 0.4);
-  color-scheme: dark; color: var(--ink);
-  background: radial-gradient(120% 70% at 50% 0%, rgb(66, 38, 22), rgb(24, 16, 12) 70%) fixed rgb(24, 16, 12);
+  --shadow: rgba(90, 60, 30, 0.14);
+  color-scheme: light; color: var(--ink);
+  background: radial-gradient(120% 70% at 50% 0%, rgb(252, 240, 222), rgb(243, 233, 218) 70%) fixed rgb(243, 233, 218);
 }
-body.season-bg .phone { background: linear-gradient(180deg, rgb(44, 29, 20), rgb(30, 21, 15)); border-color: var(--rule); box-shadow: 0 18px 36px rgba(0, 0, 0, 0.4); }
-body.season-bg .toast { color: rgb(36, 25, 18); background: var(--ink); }
+body.season-bg .phone { background: linear-gradient(180deg, rgb(252, 247, 239), rgb(247, 239, 227)); border-color: var(--rule); box-shadow: 0 18px 36px rgba(90, 60, 30, 0.16); }
+body.season-bg .toast { color: rgb(255, 252, 246); background: var(--ink); }
 body.season-bg .screen, body.season-bg .month-bar, body.season-bg .tab-bar { position: relative; z-index: 1; }
-body.season-bg .tab-bar { background: rgba(36, 25, 18, 0.94); }
+body.season-bg .tab-bar { background: rgba(250, 245, 236, 0.95); }
 .season-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; border-radius: inherit; contain: strict; }
-.season-fx-p { position: absolute; top: -40px; opacity: 0.78; will-change: transform; animation: season-fall var(--fx-dur) linear var(--fx-delay) infinite; }
+.season-fx-p { position: absolute; top: -40px; opacity: 0.7; will-change: transform; animation: season-fall var(--fx-dur) linear var(--fx-delay) infinite; }
 body.fx-paused .season-fx-p { animation-play-state: paused; }
 @keyframes season-fall {
   0% { transform: translate3d(0, 0, 0) rotate(0deg); }

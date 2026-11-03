@@ -3337,7 +3337,8 @@
       if (parsed.incomeYear == null) parsed.incomeYear = currentYearMonth().year;
       if (parsed.nightLedger == null) parsed.nightLedger = false;
       /* Auto / Light / Dark. Someone who already turned Dark mode on keeps Dark. */
-      if (parsed.theme !== "auto" && parsed.theme !== "light" && parsed.theme !== "dark") parsed.theme = parsed.nightLedger ? "dark" : "auto";
+      if (parsed.seasonal) { parsed.theme = "seasonal"; delete parsed.seasonal; } /* Seasonal on/off became a theme choice. */
+      if (parsed.theme !== "auto" && parsed.theme !== "light" && parsed.theme !== "dark" && parsed.theme !== "seasonal") parsed.theme = parsed.nightLedger ? "dark" : "auto";
       if (parsed.envelopeMode !== "planned" && parsed.envelopeMode !== "spent") {
         parsed.envelopeMode = "remaining";
       }
@@ -11791,14 +11792,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function isNightNow() {
     var t = state.theme || (state.nightLedger ? "dark" : "auto");
     if (t === "dark") return true;
-    if (t === "light") return false;
+    if (t === "light" || t === "seasonal") return false; /* Seasonal is a light look; months without one fall back to Light. */
     return !!(themeMq && themeMq.matches);
   }
   function applyNight() {
     var on = isNightNow();
     state.nightLedger = on;
-    /* Seasonal palette is dark-based, so it keeps the dark-mode contrast rules on in either theme. */
-    if (document.body.classList.contains("season-bg")) on = true;
     document.body.classList.toggle("night", on);
     document.documentElement.classList.toggle("night", on);
     applyTextSize();
@@ -15182,7 +15181,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function profDisplaySummary() {
     var t = state.theme || "auto";
-    var tl = t === "dark" ? "Night" : t === "light" ? "Light" : "Auto";
+    var tl = t === "dark" ? "Night" : t === "light" ? "Light" : t === "seasonal" ? "Seasonal" : "Auto";
     var sz = TEXT_SIZES.filter(function (o) { return o[0] === textSizeOf(); })[0];
     return tl + " theme · " + (sz ? sz[1] : "Standard") + " text";
   }
@@ -15369,17 +15368,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         hsaCoverageFieldHtml(new Date().getFullYear())) +
       profSecHtml("display", "Display", profDisplaySummary(),
         '<p class="sheet-label">Theme</p><div class="plan-toggle theme-pick" role="group" aria-label="Theme">' +
-        [["auto", "Auto"], ["light", "Light"], ["dark", "Night"]].map(function (o) {
-          var on = (state.theme || "auto") === o[0];
-          return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
+        (function () { migrateSeasonTheme(); return ""; })() +
+        [["auto", "Auto"], ["light", "Light"], ["dark", "Night"], ["seasonal", "Seasonal"]].map(function (o) {
+          var on = (state.theme || "auto") === o[0], lock = o[0] === "seasonal" && !isPremium();
+          return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (lock ? " disabled" : "") + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + (lock ? " 🔒" : "") + "</button>";
         }).join("") + "</div>" +
-        '<p class="caption">Auto follows your phone’s light or dark setting.</p>' +
-        '<p class="sheet-label">Seasonal mode</p><div class="plan-toggle season-pick" role="group" aria-label="Seasonal mode">' +
-        [["off", "Off"], ["on", "On"]].map(function (o) {
-          var on = (state.seasonal && isPremium() ? "on" : "off") === o[0];
-          return '<button type="button" data-act="set-seasonal" data-val="' + o[0] + '"' + (isPremium() ? "" : " disabled") + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + "</button>";
-        }).join("") + "</div>" +
-        '<p class="caption">' + (isPremium() ? "Dresses up your budget for the season, like turkeys in November. Looks only; your numbers don’t change." : "Premium: dresses up your budget for the season.") + "</p>" +
+        '<p class="caption">Auto follows your phone’s light or dark setting. ' + (isPremium() ? "Seasonal is a light look dressed for the month you’re viewing, like falling leaves in November; other months look like Light." : "Seasonal is a Premium look for the season.") + "</p>" +
         '<p class="sheet-label">Text size</p><div class="plan-toggle text-size-pick" role="group" aria-label="Text size">' +
         TEXT_SIZES.map(function (o) {
           var on = textSizeOf() === o[0];
@@ -17638,7 +17632,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.87";
+  var APP_VERSION = "37.5.88";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -18800,8 +18794,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return (q && q[1]) || localStorage.getItem("PaperTrail.seasonPreview") || "";
     } catch (e) { return ""; }
   }
+  /* Seasonal used to be its own on/off switch; it is now one of the theme choices. */
+  function migrateSeasonTheme() {
+    if (state && state.seasonal) { state.theme = "seasonal"; delete state.seasonal; }
+  }
   function seasonNow() {
-    if (!state || !state.seasonal || !isPremium()) return "";
+    migrateSeasonTheme();
+    if (!state || state.theme !== "seasonal" || !isPremium()) return "";
     if (seasonPreview() === "november") return "nov";
     return Number(state.month) === 11 ? "nov" : "";
   }
@@ -18848,7 +18847,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* Ambient seasonal layer behind content. kind: "leaves" (November) or "snow" (December). */
   var SEASON_FX_GLYPHS = {
     leaves: function (i) {
-      var c = ["#C9702B", "#A8462A", "#D9A441", "#8A4A22"][i % 4];
+      var c = ["#A4521C", "#8E3320", "#B07A1E", "#6E3A18"][i % 4];
       return '<svg viewBox="0 0 20 20" width="100%" height="100%"><path d="M10 1C6 5 3 8 4 12c1 3 4 5 6 7 2-2 5-4 6-7 1-4-2-7-6-11z" fill="' + c + '"/><path d="M10 4v15" stroke="rgba(40,20,8,.45)" stroke-width=".8"/></svg>';
     },
     snow: function () { return '<svg viewBox="0 0 20 20" width="100%" height="100%"><circle cx="10" cy="10" r="7" fill="rgba(255,255,255,.9)"/></svg>'; }
@@ -18884,7 +18883,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (document.body) document.body.classList.toggle("season-bg", sAll === "nov");
     document.documentElement.classList.toggle("season-bg", sAll === "nov");
     seasonFx(phone, sAll === "nov" ? "leaves" : "");
-    var nightOn = sAll === "nov" || isNightNow();
+    var nightOn = isNightNow();
     if (document.body) document.body.classList.toggle("night", nightOn);
     document.documentElement.classList.toggle("night", nightOn);
     var s = state.tab === "budget" ? sAll : "";
@@ -20632,14 +20631,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var dsum = document.querySelector('.prof-sec[data-sec="display"] .prof-sec-sum'); if (dsum) dsum.textContent = profDisplaySummary();
     }
     else if (act === "set-theme") {
+      if (actEl.getAttribute("data-theme") === "seasonal" && !isPremium()) return;
       state.theme = actEl.getAttribute("data-theme");
-      applyNight(); saveState();
+      applyNight(); applySeason(); saveState();
       var tsum = document.querySelector('.prof-sec[data-sec="display"] .prof-sec-sum'); if (tsum) tsum.textContent = profDisplaySummary();
       [].forEach.call(document.querySelectorAll("[data-act=set-theme]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
-    }
-    else if (act === "set-seasonal") {
-      if (isPremium()) { state.seasonal = actEl.getAttribute("data-val") === "on"; saveState(); applySeason(); }
-      [].forEach.call(document.querySelectorAll("[data-act=set-seasonal]"), function (b) { var on = b === actEl; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     }
     else if (act === "debt-open") { openDebtCalc(); }
     else if (act === "extra-income-add" || act === "extra-income-dismiss") extraIncomeAnswer(act === "extra-income-add");
