@@ -316,7 +316,7 @@ function near(a, b, eps) {
       await new Promise((r) => setTimeout(r, 250));
       document.querySelector('[data-act="sav-pay-link"]').click();
       await new Promise((r) => setTimeout(r, 250));
-      document.querySelector('[data-act="it-true-manual"]').click();
+      document.querySelector('[data-act="it-true-flat"]').click();
       await new Promise((r) => setTimeout(r, 300));
       const dots = [...document.querySelectorAll(".it-line-sum")].map((row) => ({
         text: row.textContent.replace(/\\s+/g, " ").trim(),

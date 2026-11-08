@@ -11113,6 +11113,463 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     return html + itNewYearHtml() + "</section>";
   }
+  /* Guided manual pay. One year is the period for every amount. Dollars and percents use the existing
+   * pay rows (salary, compRows, preTax/postTax, employer match and base). Nothing is saved until the review. */
+  var GP_STEPS = ["Income", "Retirement", "Employer", "Other deductions", "Review"];
+  var GP_TYPES = [
+    { id: "401k-trad", name: "Traditional 401k", tax: "pre" },
+    { id: "401k-roth", name: "Roth 401k", tax: "post" },
+    { id: "403b-trad", name: "Traditional 403b", tax: "pre" },
+    { id: "403b-roth", name: "Roth 403b", tax: "post" },
+    { id: "457-trad", name: "Traditional 457", tax: "pre" },
+    { id: "457-roth", name: "Roth 457", tax: "post" },
+    { id: "hsa", name: "HSA", tax: "pre" },
+    { id: "ira-trad", name: "Traditional IRA", tax: "pre" },
+    { id: "ira-roth", name: "Roth IRA", tax: "post" },
+    { id: "pension", name: "Pension", tax: "" },
+    { id: "custom", name: "", tax: "" }
+  ];
+  var GP_KINDS = [
+    { id: "health", name: "Healthcare" },
+    { id: "dental", name: "Dental" },
+    { id: "life", name: "Life insurance" },
+    { id: "custom", name: "" }
+  ];
+  var gpDraft = null;
+  function gpTypeById(id) { var t = null; GP_TYPES.forEach(function (x) { if (x.id === id) t = x; }); return t; }
+  function gpKindById(id) { var t = null; GP_KINDS.forEach(function (x) { if (x.id === id) t = x; }); return t; }
+  function gpAmt(v) { var n = itAmtNum(v); return n == null ? 0 : n; }
+  function gpFmt(v, pct) { var n = gpAmt(v); if (!(n > 0)) return ""; return pct ? String(Math.round(n * 100) / 100) : commaMoneyText(String(Math.round(n * 100) / 100)); }
+  function gpNewRet() { return { id: "gp" + nextId(), type: "401k-trad", name: "Traditional 401k", amount: "", pct: false, tax: "pre", saves: true }; }
+  function gpNewDed() { return { id: "gp" + nextId(), kind: "custom", name: "", amount: "", pct: false, tax: "", saves: false }; }
+  function gpTypeFor(row) {
+    var name = String(row.name || "").replace(/^\s+|\s+$/g, ""), hit = "";
+    GP_TYPES.forEach(function (t) { if (t.name && t.name.toLowerCase() === name.toLowerCase()) hit = t.id; });
+    if (hit) return hit;
+    if (row.id === "hsa" && (!name || /^hsa$/i.test(name))) return "hsa";
+    if (row.id === "401k" && (!name || /^401\s*k$/i.test(name))) return "401k-trad";
+    return "custom";
+  }
+  function gpKindFor(name) {
+    var n = String(name || "").replace(/^\s+|\s+$/g, ""), hit = "custom";
+    GP_KINDS.forEach(function (k) { if (k.name && k.name.toLowerCase() === n.toLowerCase()) hit = k.id; });
+    return hit;
+  }
+  function gpFromPlan(plan) {
+    var c = migrateCompensation(plan || defaultCompensation());
+    if (c.trueManual) { try { itTrueSavesMap(c); } catch (e) {} }
+    var meta = {};
+    (c.trueLines || []).forEach(function (x) { if (x && x.id) meta[x.id] = x; });
+    var d = {
+      step: 0, err: "",
+      checks: Number(c.paychecksPerYear) || 26,
+      salary: Number(c.baseSalary) > 0 ? gpFmt(c.baseSalary, false) : "",
+      bonus: "", bonusPct: false, other: "", otherPct: false,
+      retire: [], lines: [], otherMode: "lines",
+      totPre: "", totPrePct: false, totPreSave: false, totPost: "", totPostPct: false, totPostSave: false,
+      erMatch: "", erMatchPct: false, erBase: "", erBasePct: false,
+      erCount: itErCounts("Employer 401k")
+    };
+    var bonusRows = (c.compRows || []).filter(function (r) { return r.kind === "bonus" && r.on !== false && gpAmt(r.value) > 0; });
+    var otherRows = (c.compRows || []).filter(function (r) { return r.kind !== "bonus" && r.on !== false && gpAmt(r.value) > 0; });
+    function packGross(rows, pctKey, amtKey) {
+      if (rows.length === 1 && rows[0].when !== "monthly" && rows[0].method === "percent") { d[pctKey] = true; d[amtKey] = gpFmt(rows[0].value, true); return; }
+      var sum = 0; rows.forEach(function (r) { sum += compRowYearly(r, Number(c.baseSalary) || 0); });
+      if (sum > 0) d[amtKey] = gpFmt(sum, false);
+    }
+    packGross(bonusRows, "bonusPct", "bonus");
+    packGross(otherRows, "otherPct", "other");
+    if (c.employerMatchKnown && gpAmt(c.employer401kMatch) > 0) {
+      d.erMatchPct = c.employer401kMatchIsPercent !== false;
+      d.erMatch = gpFmt(c.employer401kMatch, d.erMatchPct);
+    }
+    if (gpAmt(c.employer401kBase) > 0) {
+      d.erBasePct = c.employer401kBaseIsPercent !== false;
+      d.erBase = gpFmt(c.employer401kBase, d.erBasePct);
+    }
+    function pushRow(row, tax) {
+      var m = meta[row.id] || {}, saves = typeof m.saves === "boolean" ? m.saves : false, item;
+      if (m.gp === "tot") {
+        if (tax === "post") { d.totPost = gpFmt(row.value, row.method !== "fixed"); d.totPostPct = row.method !== "fixed"; d.totPostSave = saves; }
+        else { d.totPre = gpFmt(row.value, row.method !== "fixed"); d.totPrePct = row.method !== "fixed"; d.totPreSave = saves; }
+        d.otherMode = "totals";
+        return;
+      }
+      var isRet = m.gp === "ret" || (m.gp !== "ded" && gpTypeFor(row) !== "custom");
+      if (isRet) {
+        var type = m.gpType && gpTypeById(m.gpType) ? m.gpType : gpTypeFor(row);
+        item = { id: row.id, type: type, name: row.name || "", amount: gpFmt(row.value, row.method !== "fixed"), pct: row.method !== "fixed", tax: tax, saves: saves };
+        if (type !== "custom") { var tn = gpTypeById(type); if (tn && tn.name) item.name = tn.name; }
+        d.retire.push(item);
+      } else {
+        var kind = gpKindFor(row.name);
+        d.lines.push({ id: row.id, kind: kind, name: row.name || "", amount: gpFmt(row.value, row.method !== "fixed"), pct: row.method !== "fixed", tax: tax, saves: saves });
+      }
+    }
+    (c.preTax || []).forEach(function (r) { if (r && r.on !== false && gpAmt(r.value) > 0) pushRow(r, "pre"); });
+    (c.postTax || []).forEach(function (r) { if (r && r.on !== false && gpAmt(r.value) > 0) pushRow(r, "post"); });
+    if (!d.retire.length) d.retire.push(gpNewRet());
+    if (!d.lines.length) d.lines.push(gpNewDed());
+    return d;
+  }
+  function gpForm() { return document.querySelector("#modal form.gp-sheet"); }
+  function gpVal(f, n) { var el = f && f.elements[n]; return el ? String(el.value || "") : ""; }
+  function gpOn(f, n) { var el = f && f.elements[n]; return !!(el && el.checked); }
+  function gpRead() {
+    var f = gpForm(), d = gpDraft;
+    if (!f || !d) return;
+    if (d.step === 0) {
+      d.checks = Number(gpVal(f, "checks")) || d.checks;
+      d.salary = gpVal(f, "salary");
+      d.bonus = gpVal(f, "bonus"); d.bonusPct = gpVal(f, "bonusUnit") === "pct";
+      d.other = gpVal(f, "other"); d.otherPct = gpVal(f, "otherUnit") === "pct";
+    } else if (d.step === 1) {
+      d.retire.forEach(function (row, i) {
+        row.type = gpVal(f, "retType" + i) || row.type;
+        row.name = gpVal(f, "retName" + i);
+        row.amount = gpVal(f, "retAmt" + i);
+        row.pct = gpVal(f, "retUnit" + i) === "pct";
+        row.tax = gpVal(f, "retTax" + i) === "post" ? "post" : (gpVal(f, "retTax" + i) === "pre" ? "pre" : "");
+        row.saves = gpOn(f, "retSave" + i);
+        if (row.type !== "custom") { var t = gpTypeById(row.type); if (t && t.name) row.name = t.name; }
+      });
+    } else if (d.step === 2) {
+      d.erMatch = gpVal(f, "erMatch"); d.erMatchPct = gpVal(f, "erMatchUnit") === "pct";
+      d.erBase = gpVal(f, "erBase"); d.erBasePct = gpVal(f, "erBaseUnit") === "pct";
+      d.erCount = gpOn(f, "erCount");
+    } else if (d.step === 3) {
+      if (d.otherMode === "totals") {
+        d.totPre = gpVal(f, "totPre"); d.totPrePct = gpVal(f, "totPreUnit") === "pct"; d.totPreSave = gpOn(f, "totPreSave");
+        d.totPost = gpVal(f, "totPost"); d.totPostPct = gpVal(f, "totPostUnit") === "pct"; d.totPostSave = gpOn(f, "totPostSave");
+      } else {
+        d.lines.forEach(function (row, i) {
+          row.kind = gpVal(f, "dedKind" + i) || row.kind;
+          row.name = gpVal(f, "dedName" + i);
+          row.amount = gpVal(f, "dedAmt" + i);
+          row.pct = gpVal(f, "dedUnit" + i) === "pct";
+          row.tax = gpVal(f, "dedTax" + i) === "post" ? "post" : (gpVal(f, "dedTax" + i) === "pre" ? "pre" : "");
+          row.saves = gpOn(f, "dedSave" + i);
+          if (row.kind !== "custom") { var k = gpKindById(row.kind); if (k && k.name) row.name = k.name; }
+        });
+      }
+    }
+  }
+  function gpStepError() {
+    var d = gpDraft, i, row, name;
+    if (!d) return "";
+    if (d.step === 0) {
+      if (!(gpAmt(d.salary) > 0)) return "Enter salary for the year.";
+      if ((d.bonusPct && gpAmt(d.bonus) > 100) || (d.otherPct && gpAmt(d.other) > 100)) return "A percent can’t be over 100.";
+    } else if (d.step === 1) {
+      for (i = 0; i < d.retire.length; i++) {
+        row = d.retire[i]; if (!(gpAmt(row.amount) > 0)) continue;
+        name = row.type === "custom" ? (row.name || "this contribution") : (gpTypeById(row.type) || {}).name || "this contribution";
+        if (row.tax !== "pre" && row.tax !== "post") return "Choose pre-tax or after-tax for " + name + ".";
+        if (row.pct && gpAmt(row.amount) > 100) return "A percent can’t be over 100.";
+      }
+    } else if (d.step === 2) {
+      if ((d.erMatchPct && gpAmt(d.erMatch) > 100) || (d.erBasePct && gpAmt(d.erBase) > 100)) return "A percent can’t be over 100.";
+    } else if (d.step === 3) {
+      if (d.otherMode === "totals") {
+        if ((d.totPrePct && gpAmt(d.totPre) > 100) || (d.totPostPct && gpAmt(d.totPost) > 100)) return "A percent can’t be over 100.";
+      } else {
+        for (i = 0; i < d.lines.length; i++) {
+          row = d.lines[i]; if (!(gpAmt(row.amount) > 0)) continue;
+          name = row.kind === "custom" ? (row.name || "this deduction") : (gpKindById(row.kind) || {}).name || "this deduction";
+          if (row.tax !== "pre" && row.tax !== "post") return "Choose pre-tax or after-tax for " + name + ".";
+          if (row.pct && gpAmt(row.amount) > 100) return "A percent can’t be over 100.";
+        }
+      }
+    }
+    return "";
+  }
+  function gpCompRows(d) {
+    var rows = [];
+    if (gpAmt(d.bonus) > 0) rows.push({ id: "gp-bonus", kind: "bonus", name: "Bonus", method: d.bonusPct ? "percent" : "fixed", value: gpAmt(d.bonus), when: "yearly", on: true });
+    if (gpAmt(d.other) > 0) rows.push({ id: "gp-other", kind: "other", name: "Other gross", method: d.otherPct ? "percent" : "fixed", value: gpAmt(d.other), when: "yearly", on: true });
+    return rows;
+  }
+  function gpCash(d) {
+    var plan = { baseSalary: gpAmt(d.salary), paychecksPerYear: Number(d.checks) || 26, filingStatus: "single", zipCode: "", compRows: gpCompRows(d), preTax: [], postTax: [], perCheck: [], employer401kMatch: 0, employer401kMatchIsPercent: false, employer401kBase: 0, employer401kBaseIsPercent: false };
+    try { return Number(estimateCompensation(plan).cashPay) || 0; } catch (e) { return gpAmt(d.salary); }
+  }
+  function gpUnitHtml(name, pct, dollarsLabel, pctLabel, aria) {
+    return '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria) + '">' +
+      '<button type="button" data-act="gp-unit" data-u="usd" aria-pressed="' + (!pct) + '"' + (pct ? "" : ' class="on"') + ">" + dollarsLabel + "</button>" +
+      '<button type="button" data-act="gp-unit" data-u="pct" aria-pressed="' + (!!pct) + '"' + (pct ? ' class="on"' : "") + ">" + pctLabel + "</button></span>" +
+      '<input type="hidden" name="' + name + '" value="' + (pct ? "pct" : "usd") + '">';
+  }
+  function gpTaxHtml(name, tax, aria) {
+    return '<input type="hidden" name="' + name + '" value="' + (tax === "post" ? "post" : tax === "pre" ? "pre" : "") + '">' +
+      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria) + '">' +
+      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (tax === "pre") + '"' + (tax === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
+      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (tax === "post") + '"' + (tax === "post" ? ' class="on"' : "") + ">After-tax</button></span>";
+  }
+  function gpAmtRow(name, value, pct, unitName, pctLabel, aria) {
+    return '<div class="it-amt-row" data-gp-amt="1"><span class="it-amt-unit" aria-hidden="true">' + (pct ? "%" : "$") + "</span>" +
+      '<input name="' + name + '" type="text" inputmode="decimal" autocomplete="off" aria-label="' + esc(aria) + '" value="' + esc(gpFmt(value, pct)) + '">' +
+      gpUnitHtml(unitName, pct, "$ a year", pctLabel, aria) + "</div>";
+  }
+  function gpCheck(name, on, label) {
+    return '<label class="gp-check"><input type="checkbox" name="' + name + '"' + (on ? " checked" : "") + "> <span>" + label + "</span></label>";
+  }
+  function gpIncomeHtml(d) {
+    var opts = [[52, "Weekly (52)"], [26, "Every 2 weeks (26)"], [24, "Twice a month (24)"], [12, "Monthly (12)"]];
+    return '<p class="gp-period">One year</p><p class="caption">Salary, bonus, and other gross income for the same year. Gross pay, before anything comes out.</p>' +
+      '<label class="field"><span>Paychecks a year</span><select name="checks" aria-label="Paychecks a year">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (Number(d.checks) === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" +
+      '<p class="caption">Paychecks a year decide how much of this year falls in a month. A month with 3 paychecks counts 3.</p>' +
+      '<label class="field"><span>Salary</span><input name="salary" type="text" inputmode="decimal" autocomplete="off" aria-label="Salary, dollars a year" value="' + esc(gpFmt(d.salary, false)) + '"></label>' +
+      '<p class="section-label">Bonus</p>' + gpAmtRow("bonus", d.bonus, d.bonusPct, "bonusUnit", "% of salary", "Bonus, dollars a year or percent of salary") +
+      '<p class="section-label">Other gross income</p>' + gpAmtRow("other", d.other, d.otherPct, "otherUnit", "% of salary", "Other gross income, dollars a year or percent of salary") +
+      '<button type="button" class="it-upload-link" data-act="it-true-flat">All on one page</button>';
+  }
+  function gpRetHtml(d) {
+    return '<p class="caption">Workplace retirement and similar accounts. New contributions count toward the savings rate until you uncheck them. Traditional workplace accounts start pre-tax. Roth accounts start after-tax. Pension and custom ask you to choose.</p>' +
+      d.retire.map(function (row, i) {
+        var custom = row.type === "custom";
+        return '<div class="gp-line">' +
+          '<label class="field"><span>Account</span><select name="retType' + i + '" data-act="gp-type" data-i="' + i + '" aria-label="Retirement account type">' +
+          GP_TYPES.map(function (t) { return '<option value="' + t.id + '"' + (row.type === t.id ? " selected" : "") + ">" + (t.name || "Custom") + "</option>"; }).join("") + "</select></label>" +
+          (custom ? '<label class="field"><span>Name</span><input name="retName' + i + '" type="text" autocomplete="off" aria-label="Custom retirement name" value="' + esc(row.name || "") + '"></label>' : '<input type="hidden" name="retName' + i + '" value="' + esc(row.name || "") + '">') +
+          gpAmtRow("retAmt" + i, row.amount, row.pct, "retUnit" + i, "% of yearly gross", "Retirement amount") +
+          gpTaxHtml("retTax" + i, row.tax, "Tax treatment") +
+          gpCheck("retSave" + i, row.saves, "Count toward savings rate") +
+          '<button type="button" class="it-upload-link" data-act="gp-remove" data-which="ret" data-i="' + i + '">Remove</button></div>';
+      }).join("") +
+      '<button type="button" class="it-add-line" data-act="gp-add" data-which="ret">+ Add a retirement contribution</button>';
+  }
+  function gpErHtml(d) {
+    return '<p class="caption">Money your employer adds on top of your pay. It is counted in savings and in the pay those savings are divided by. Your own contributions stay on the retirement step.</p>' +
+      '<p class="section-label">Employer match</p>' + gpAmtRow("erMatch", d.erMatch, d.erMatchPct, "erMatchUnit", "% of yearly gross", "Employer match") +
+      '<p class="section-label">Employer base contribution</p>' + gpAmtRow("erBase", d.erBase, d.erBasePct, "erBaseUnit", "% of yearly gross", "Employer base contribution") +
+      gpCheck("erCount", d.erCount, "Count toward savings rate");
+  }
+  function gpDedHtml(d) {
+    var modes = '<div class="gp-modes" role="group" aria-label="How to enter other deductions">' +
+      '<button type="button" data-act="gp-mode" data-mode="lines" aria-pressed="' + (d.otherMode !== "totals") + '"' + (d.otherMode !== "totals" ? ' class="on"' : "") + ">Add deductions individually</button>" +
+      '<button type="button" data-act="gp-mode" data-mode="totals" aria-pressed="' + (d.otherMode === "totals") + '"' + (d.otherMode === "totals" ? ' class="on"' : "") + ">Enter totals</button></div>" +
+      '<p class="caption">The plan saves the list or the two totals, whichever is selected. The other stays on this page until you leave without saving. It is not added on top.</p>';
+    if (d.otherMode === "totals") {
+      return modes + '<p class="caption">Two totals. New totals are not counted toward the savings rate until you check them.</p>' +
+        '<p class="section-label">Pre-tax total</p>' + gpAmtRow("totPre", d.totPre, d.totPrePct, "totPreUnit", "% of yearly gross", "Pre-tax total") +
+        gpCheck("totPreSave", d.totPreSave, "Count toward savings rate") +
+        '<p class="section-label">After-tax total</p>' + gpAmtRow("totPost", d.totPost, d.totPostPct, "totPostUnit", "% of yearly gross", "After-tax total") +
+        gpCheck("totPostSave", d.totPostSave, "Count toward savings rate");
+    }
+    return modes + '<p class="caption">Healthcare, dental, life insurance, or anything else. Choose pre-tax or after-tax. New deductions are not counted toward the savings rate until you check them.</p>' +
+      d.lines.map(function (row, i) {
+        var custom = row.kind === "custom";
+        return '<div class="gp-line">' +
+          '<label class="field"><span>Deduction</span><select name="dedKind' + i + '" data-act="gp-kind" data-i="' + i + '" aria-label="Deduction type">' +
+          GP_KINDS.map(function (k) { return '<option value="' + k.id + '"' + (row.kind === k.id ? " selected" : "") + ">" + (k.name || "Custom") + "</option>"; }).join("") + "</select></label>" +
+          (custom ? '<label class="field"><span>Name</span><input name="dedName' + i + '" type="text" autocomplete="off" aria-label="Custom deduction name" value="' + esc(row.name || "") + '"></label>' : '<input type="hidden" name="dedName' + i + '" value="' + esc(row.name || "") + '">') +
+          gpAmtRow("dedAmt" + i, row.amount, row.pct, "dedUnit" + i, "% of yearly gross", "Deduction amount") +
+          gpTaxHtml("dedTax" + i, row.tax, "Tax treatment") +
+          gpCheck("dedSave" + i, row.saves, "Count toward savings rate") +
+          '<button type="button" class="it-upload-link" data-act="gp-remove" data-which="ded" data-i="' + i + '">Remove</button></div>';
+      }).join("") +
+      '<button type="button" class="it-add-line" data-act="gp-add" data-which="ded">+ Add a deduction</button>';
+  }
+  function gpReviewRow(label, value) { return '<div class="row"><span>' + esc(label) + '</span><span class="mono">' + esc(value) + "</span></div>"; }
+  function gpPiece(amount, pct, base, ofLabel) {
+    var n = gpAmt(amount); if (!(n > 0)) return "";
+    if (!pct) return formatMoney(n, 0) + " a year";
+    return (Math.round(n * 100) / 100) + "% of " + ofLabel + " · " + formatMoney(roundCents(base * n / 100), 0) + " a year";
+  }
+  function gpReviewHtml(d) {
+    var cash = gpCash(d), sal = gpAmt(d.salary), html = '<p class="gp-period">One year · ' + (Number(d.checks) || 26) + " paychecks</p>" +
+      gpReviewRow("Salary", formatMoney(sal, 0)) +
+      (gpAmt(d.bonus) > 0 ? gpReviewRow("Bonus", gpPiece(d.bonus, d.bonusPct, sal, "salary")) : "") +
+      (gpAmt(d.other) > 0 ? gpReviewRow("Other gross", gpPiece(d.other, d.otherPct, sal, "salary")) : "") +
+      gpReviewRow("Gross pay for the year", formatMoney(cash, 0));
+    html += '<p class="sheet-label">Retirement</p>';
+    var anyR = false;
+    d.retire.forEach(function (row) {
+      if (!(gpAmt(row.amount) > 0)) return; anyR = true;
+      var nm = row.type === "custom" ? (row.name || "Custom") : ((gpTypeById(row.type) || {}).name || "Retirement");
+      html += gpReviewRow(nm, gpPiece(row.amount, row.pct, cash, "yearly gross") + " · " + (row.tax === "post" ? "After-tax" : "Pre-tax") + " · " + (row.saves ? "Counts" : "Not counted"));
+    });
+    if (!anyR) html += '<p class="caption">None.</p>';
+    html += '<p class="sheet-label">Employer</p>';
+    if (gpAmt(d.erMatch) > 0) html += gpReviewRow("Match", gpPiece(d.erMatch, d.erMatchPct, cash, "yearly gross"));
+    if (gpAmt(d.erBase) > 0) html += gpReviewRow("Base contribution", gpPiece(d.erBase, d.erBasePct, cash, "yearly gross"));
+    html += gpReviewRow("Employer additions", (gpAmt(d.erMatch) > 0 || gpAmt(d.erBase) > 0) ? (d.erCount ? "Count toward the savings rate" : "Not counted") : "None");
+    html += '<p class="sheet-label">Other deductions</p>';
+    if (d.otherMode === "totals") {
+      if (gpAmt(d.totPre) > 0) html += gpReviewRow("Pre-tax total", gpPiece(d.totPre, d.totPrePct, cash, "yearly gross") + " · " + (d.totPreSave ? "Counts" : "Not counted"));
+      if (gpAmt(d.totPost) > 0) html += gpReviewRow("After-tax total", gpPiece(d.totPost, d.totPostPct, cash, "yearly gross") + " · " + (d.totPostSave ? "Counts" : "Not counted"));
+      if (!(gpAmt(d.totPre) > 0) && !(gpAmt(d.totPost) > 0)) html += '<p class="caption">None.</p>';
+      html += '<p class="caption">Saving the two totals. The individual list is not part of this save.</p>';
+    } else {
+      var anyD = false;
+      d.lines.forEach(function (row) {
+        if (!(gpAmt(row.amount) > 0)) return; anyD = true;
+        var nm = row.kind === "custom" ? (row.name || "Deduction") : ((gpKindById(row.kind) || {}).name || "Deduction");
+        html += gpReviewRow(nm, gpPiece(row.amount, row.pct, cash, "yearly gross") + " · " + (row.tax === "post" ? "After-tax" : "Pre-tax") + " · " + (row.saves ? "Counts" : "Not counted"));
+      });
+      if (!anyD) html += '<p class="caption">None.</p>';
+      html += '<p class="caption">Saving the individual deductions. The two totals are not part of this save.</p>';
+    }
+    return html;
+  }
+  function gpRender() {
+    var d = gpDraft; if (!d) return;
+    var body = d.step === 0 ? gpIncomeHtml(d) : d.step === 1 ? gpRetHtml(d) : d.step === 2 ? gpErHtml(d) : d.step === 3 ? gpDedHtml(d) : gpReviewHtml(d);
+    var modal = document.getElementById("modal");
+    captureModalReturnScreenTop();
+    modal.hidden = false;
+    modal.innerHTML = '<form class="sheet it-sheet gp-sheet" data-act="gp-step"><div class="sheet-top"><h3>Enter pay manually</h3>' +
+      '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<p class="gp-step">Step ' + (d.step + 1) + " of " + GP_STEPS.length + " · " + GP_STEPS[d.step] + "</p>" +
+      (d.err ? '<p class="gp-err" role="alert">' + esc(d.err) + "</p>" : "") + body +
+      '<div class="sheet-actions">' +
+      (d.step === 0 ? '<button type="button" data-act="close-modal">Cancel</button>' : '<button type="button" data-act="gp-back">Back</button>') +
+      (d.step === GP_STEPS.length - 1 ? '<button class="primary" type="button" data-act="gp-save">Save</button>' : '<button class="primary" type="button" data-act="gp-next">Next</button>') +
+      "</div></form>";
+    var form = gpForm();
+    if (form) {
+      form.addEventListener("focusin", function (e) {
+        if (e.target.matches && e.target.matches("input, select, textarea")) itWatchField(e.target, true);
+      });
+      form.addEventListener("change", function (e) {
+        var act = e.target.getAttribute && e.target.getAttribute("data-act");
+        if (act !== "gp-type" && act !== "gp-kind") return;
+        gpRead();
+        var i = Number(e.target.getAttribute("data-i"));
+        if (act === "gp-type" && d.retire[i]) {
+          var t = gpTypeById(d.retire[i].type) || GP_TYPES[0];
+          d.retire[i].tax = t.tax;
+          if (t.name) d.retire[i].name = t.name;
+        }
+        gpRender();
+      });
+    }
+    armSheetA11y(modal, { skipFocus: true });
+    itFit();
+  }
+  function gpMove(delta) {
+    if (!gpDraft) return;
+    gpRead();
+    if (delta > 0) {
+      var err = gpStepError();
+      if (err) { gpDraft.err = err; gpRender(); return; }
+    }
+    gpDraft.err = "";
+    gpDraft.step = Math.max(0, Math.min(GP_STEPS.length - 1, gpDraft.step + delta));
+    gpRender();
+  }
+  function gpAdd(which) {
+    gpRead();
+    if (which === "ret") gpDraft.retire.push(gpNewRet()); else gpDraft.lines.push(gpNewDed());
+    gpRender();
+  }
+  function gpRemove(which, i) {
+    gpRead();
+    var list = which === "ret" ? gpDraft.retire : gpDraft.lines;
+    if (list[i]) list.splice(i, 1);
+    if (!list.length) list.push(which === "ret" ? gpNewRet() : gpNewDed());
+    gpRender();
+  }
+  function gpMode(mode) {
+    gpRead();
+    gpDraft.otherMode = mode === "totals" ? "totals" : "lines";
+    gpDraft.err = "";
+    gpRender();
+  }
+  function gpToggle(btn) {
+    var line = btn.closest(".gp-line, .field, .gp-sheet");
+    var act = btn.getAttribute("data-act");
+    if (act === "gp-unit") {
+      var box = btn.closest("[data-gp-amt]");
+      if (!box) return;
+      var hid = box.querySelector('input[type="hidden"]');
+      var u = btn.getAttribute("data-u") === "pct" ? "pct" : "usd";
+      if (hid) hid.value = u;
+      var mark = box.querySelector(".it-amt-unit"); if (mark) mark.textContent = u === "pct" ? "%" : "$";
+      [].forEach.call(box.querySelectorAll("[data-act=gp-unit]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+      return;
+    }
+    var tax = btn.getAttribute("data-tax") === "post" ? "post" : "pre";
+    var hold = line && line.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
+    if (!hold && line) hold = line.querySelector('input[type="hidden"][name*="Tax"]');
+    if (hold) hold.value = tax;
+    var group = btn.parentNode;
+    [].forEach.call(group.querySelectorAll("[data-act=gp-tax]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+  }
+  function gpCommit() {
+    var d = gpDraft;
+    var c = state.compensation = migrateCompensation(state.compensation || defaultCompensation());
+    c.baseSalary = roundCents(gpAmt(d.salary));
+    applyPayFrequency(frequencyFromChecks(Number(d.checks) || 26));
+    c = state.compensation;
+    c.compRows = gpCompRows(d);
+    c.preTax.forEach(function (r) { var sp = PRETAX_SPECS.filter(function (x) { return x.id === r.id; })[0]; if (sp) r.name = sp.name; r.value = 0; r.on = false; delete r.perCheck; delete r.checkAmt; });
+    c.preTax = c.preTax.filter(function (r) { return PRETAX_SPECS.some(function (sp) { return sp.id === r.id; }); });
+    c.postTax = [];
+    var claimed = {}, order = [];
+    function put(row, tax, gp, gpType, slot) {
+      if (!(gpAmt(row.amount) > 0)) return;
+      var id = "", rec = null;
+      if (tax === "pre" && slot && !claimed[slot]) { claimed[slot] = true; id = slot; rec = c.preTax.filter(function (r) { return r.id === slot; })[0]; }
+      if (!rec) {
+        id = row.id && row.id !== "401k" && row.id !== "hsa" && !claimed[row.id] ? row.id : ("tl" + nextId());
+        claimed[id] = true;
+        rec = { id: id };
+        if (tax === "pre") c.preTax.push(rec); else c.postTax.push(rec);
+      }
+      rec.name = row.name || (gp === "tot" ? (tax === "post" ? "After-tax deductions" : "Pre-tax deductions") : "Deduction");
+      rec.method = row.pct ? "percentGross" : "fixed";
+      rec.value = gpAmt(row.amount);
+      rec.on = true;
+      order.push({ id: rec.id, tax: tax, saves: !!row.saves, gp: gp, gpType: gpType || "" });
+    }
+    d.retire.forEach(function (row) {
+      var type = gpTypeById(row.type) || GP_TYPES[GP_TYPES.length - 1];
+      var name = row.type === "custom" ? (row.name || "Custom") : (type.name || row.name);
+      var slot = row.tax === "pre" && row.type === "401k-trad" ? "401k" : (row.tax === "pre" && row.type === "hsa" ? "hsa" : "");
+      put({ id: row.id, name: name, amount: row.amount, pct: row.pct, saves: row.saves }, row.tax === "post" ? "post" : "pre", "ret", row.type, slot);
+    });
+    if (d.otherMode === "totals") {
+      put({ id: "gp-tot-pre", name: "Pre-tax deductions", amount: d.totPre, pct: d.totPrePct, saves: d.totPreSave }, "pre", "tot", "", "");
+      put({ id: "gp-tot-post", name: "After-tax deductions", amount: d.totPost, pct: d.totPostPct, saves: d.totPostSave }, "post", "tot", "", "");
+    } else {
+      d.lines.forEach(function (row) {
+        var kind = gpKindById(row.kind);
+        var name = row.kind === "custom" ? (row.name || "Deduction") : ((kind && kind.name) || row.name || "Deduction");
+        put({ id: row.id, name: name, amount: row.amount, pct: row.pct, saves: row.saves }, row.tax === "post" ? "post" : "pre", "ded", row.kind, "");
+      });
+    }
+    c.trueLines = order;
+    c.k401Type = "traditional"; c.k401Since = "";
+    var erM = gpAmt(d.erMatch), erB = gpAmt(d.erBase);
+    c.employerMatchKnown = erM > 0;
+    c.employer401kMatch = erM; c.employer401kMatchIsPercent = !!d.erMatchPct;
+    c.employer401kBase = erB; c.employer401kBaseIsPercent = !!d.erBasePct;
+    c.erSaves = c.erSaves || {}; c.erSaves.er401k = !!d.erCount;
+    c.trueManual = true;
+    var td = new Date(); c.trueUpdatedAt = td.getFullYear() + "-" + ("0" + (td.getMonth() + 1)).slice(-2) + "-" + ("0" + td.getDate()).slice(-2);
+    state.compensation = migrateCompensation(c);
+    return "";
+  }
+  function gpSave() {
+    if (!gpDraft) return;
+    gpRead();
+    var keep = gpDraft.step, s, err = "";
+    for (s = 0; s <= 3; s++) { gpDraft.step = s; err = gpStepError(); if (err) break; }
+    if (err) { gpDraft.err = err; gpRender(); return; }
+    gpDraft.step = keep;
+    gpCommit();
+    gpDraft = null;
+    payStubBasisCache = {};
+    saveState();
+    closeModal();
+    state.tab = "stats"; state.statsDoor = "paystubs";
+    render();
+  }
+  function openGuidedPay() {
+    gpDraft = gpFromPlan(state.compensation);
+    gpRender();
+  }
   function openItTrueSetup() {
     var modal = document.getElementById("modal");
     captureModalReturnScreenTop();
@@ -11121,7 +11578,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
       '<p class="caption it-setup-lead">Count retirement contributions and employer contributions from your pay. Pick one:</p>' +
       '<button type="button" class="it-choice" data-act="vault-add-paystub"><strong>Upload a pay stub</strong><span class="caption">Read on this device. You review the numbers before anything is saved.</span></button>' +
-      '<button type="button" class="it-choice" data-act="it-true-manual"><strong>Type it in</strong><span class="caption">Your pay, ZIP, 401k, HSA, other deductions and employer match.</span></button>' +
+      '<button type="button" class="it-choice" data-act="it-true-manual"><strong>Enter pay manually</strong><span class="caption">Salary, retirement, employer additions, and other deductions, one step at a time.</span></button>' +
+      '<button type="button" class="it-choice" data-act="it-true-flat"><strong>All on one page</strong><span class="caption">The same plan, every line on one page.</span></button>' +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Not now</button></div></div>';
     armSheetA11y(modal);
   }
@@ -17893,7 +18351,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.91";
+  var APP_VERSION = "37.5.92";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20436,12 +20894,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       render();
     } else if (act === "sav-pay-link") {
       openItTrueSetup();
-    } else if (act === "it-true-setup") {
-      /* Upload is not offered up front for now: go straight to the typed-in form (the upload sheet code stays). */
+    } else if (act === "it-true-setup" || act === "it-true-manual") {
+      openGuidedPay();
+    } else if (act === "it-true-flat") {
       openItTrueManual();
-    } else if (act === "it-true-manual") {
-      closeModal();
-      openItTrueManual();
+    } else if (act === "gp-next") {
+      gpMove(1);
+    } else if (act === "gp-back") {
+      gpMove(-1);
+    } else if (act === "gp-save") {
+      gpSave();
+    } else if (act === "gp-add") {
+      gpAdd(actEl.getAttribute("data-which"));
+    } else if (act === "gp-remove") {
+      gpRemove(actEl.getAttribute("data-which"), Number(actEl.getAttribute("data-i")));
+    } else if (act === "gp-mode") {
+      gpMode(actEl.getAttribute("data-mode"));
+    } else if (act === "gp-unit" || act === "gp-tax") {
+      gpToggle(actEl);
     } else if (act === "it-toggle") {
       var g = actEl.getAttribute("data-g");
       itOpenGrp[g] = !itOpenGrp[g];
@@ -21386,6 +21856,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!form) return;
     event.preventDefault();
     var act = form.getAttribute("data-act");
+    if (act === "gp-step") { gpMove(1); return; }
     var data = {};
     Array.prototype.forEach.call(form.elements, function (el) {
       if (el.name) data[el.name] = el.value;

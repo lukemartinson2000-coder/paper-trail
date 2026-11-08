@@ -5397,6 +5397,23 @@ body.night .add-category-btn { border-color: rgb(82,199,158); color: rgb(82,199,
 .sav-pay-link { display: block; width: calc(100% - 8px); margin: 8px 4px 4px; min-height: 44px; padding: 8px 10px; border: 1px dashed var(--moss); border-radius: 12px; background: transparent; color: var(--moss); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .dash-sr-hit { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
 .sav-details .hero-amount { margin: 4px 0 12px; }
+.gp-step { margin: 0 0 8px; font-weight: 700; }
+.gp-period { margin: 0 0 4px; font-family: var(--serif); font-size: calc(22px * var(--fs-scale)); }
+.gp-err { margin: 0 0 8px; color: var(--danger); font-weight: 600; }
+.gp-line { margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.gp-check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0; font-weight: 600; }
+.gp-check input { width: 22px; height: 22px; margin: 0; accent-color: var(--moss); flex: 0 0 auto; }
+.gp-modes { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+.gp-modes button { min-height: 44px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gp-modes button.on { border-color: var(--moss); font-weight: 700; }
+.gp-sheet .it-amt-row { display: flex; align-items: center; gap: 6px; }
+.gp-sheet .it-amt-row input[type="text"] { flex: 1; min-width: 0; }
+.gp-sheet .it-unit-toggle { display: flex; flex-wrap: wrap; gap: 4px; }
+.gp-sheet .it-unit-toggle button { min-height: 36px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+.gp-sheet .it-unit-toggle button.on { border-color: var(--moss); font-weight: 700; }
+.gp-sheet .row { padding: 8px 0; gap: 8px; align-items: flex-start; }
+.gp-sheet .row > span:first-child { flex: 0 1 42%; }
+.gp-sheet .row .mono { flex: 1; text-align: right; white-space: normal; }
 
 /* Smooth pay sheets: contained scroll, drag handle, short motion, no page scroll behind. */
 .modal { overscroll-behavior: contain; }
