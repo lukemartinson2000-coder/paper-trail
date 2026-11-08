@@ -5219,9 +5219,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         "</ol></section>";
       return html + "</div>";
     }
-    /* Insights merged in. Order: snapshot strip, grade, net worth, this year,
-     * debt, reserves, wrapped, retirement, purchases, taxes, projections, one footer. Every card
-     * carries one plain-English line (.plain-line). */
+    /* Below Grade: Net worth, Income, Debt, Savings rate, Emergency reserves, Retirement,
+     * Upcoming purchases, Wrapped when it is in season, Projections, Graphs, Taxes.
+     * The snapshot strip and week streak stay above Grade. */
     var dMonth = ensureMonth(state.year, state.month), grade = null;
     if (!booksEmpty()) { try { grade = window.GradeMath.evaluate(buildGradeInput(dMonth)); } catch (e) {} }
     var dm = null; try { dm = debtCalcModel(); } catch (e) {}
@@ -5246,7 +5246,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<button type="button" class="dash-go" data-act="stats-door" data-door="worth">Net worth ›</button>';
     } else html += '<p class="caption">Add your accounts to see net worth.</p><button type="button" class="dash-go" data-act="stats-door" data-door="worth">Start your net worth ›</button>';
     html += "</section>";
-    // This year: income, savings rate and average tax in one tile.
+    // Income only. Savings rate and average tax are their own cards, further down.
     var inc = dashIncome(), yr = inc ? inc.year : currentYearMonth().year;
     var avg = inc ? inc.avgTax : null;
     /* Take-home for the year is summed month by month (received so far + planned ahead, real paycheck counts), never × 12. */
@@ -5261,19 +5261,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<div><span class="dash-lbl">Take-home <span class="dash-lbl-note">' + (inc.full === false ? "estimate" : "full year") + '</span></span><strong class="mono moss">' + moneyWhole(inc.takeHome) + "</strong></div></div>" +
         '<p class="caption">' + esc(inc.source) + " " + helpQ("Gross = pay-stub year-to-date + the paychecks still ahead (same as Income statement); with no pay stub, the typed what-if. Take-home = each month logged this year added up (received in finished months, planned for this month, with its real number of paychecks). With all 12 months it is the year. With fewer, the months so far are spread across the year (total ÷ months × 12) and labelled an estimate. Months ahead are not projected.") + "</p>";
     } else html += '<p class="caption">Add a paycheck to estimate this year.</p>';
-    /* v37.5.70: one savings rate (take-home based) + average tax; the Basic / True rate displays are gone. */
+    html += "</section>";
+    html += debtCardHtml();
+    /* Savings rate, then the same months as a chart with the weighted average. One headline rate, not a second copy. */
     var dsr = dashSavingsRate();
     var dsrC = dsr.canonical || {};
     var srLine = dsrC.rate == null ? (dsrC.formula || "Add planned pay to see a savings rate.") : (dsrC.period || "");
-    html += '<div class="dash-three dash-two-stat"><div><button type="button" class="dash-sr-hit" data-act="sav-details" data-sav="month" data-year="' + state.year + '" data-month="' + state.month + '"><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">' + esc(dsrC.label || "Savings rate") + "</span></button></div>" +
-      '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".") + "</span></div></div>" +
-      '<p class="plain-line">' + esc(srLine) + "</p>";
     var ysr = yearSavingsRate(yr);
+    html += '<section class="dash-card dash-sav" id="dash-sav"><p class="dash-k">Savings rate</p>' +
+      '<div class="dash-three dash-two-stat"><div><button type="button" class="dash-sr-hit" data-act="sav-details" data-sav="month" data-year="' + state.year + '" data-month="' + state.month + '"><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">' + esc(dsrC.label || "Savings rate") + "</span></button></div></div>" +
+      '<p class="plain-line">' + esc(srLine) + "</p>";
     if (ysr.rate != null) html += '<button type="button" class="dash-year-sr dash-sr-hit" id="dash-year-sr" data-act="sav-details" data-sav="year" data-year="' + yr + '"><span class="dash-sub mono moss">' + pctWhole(ysr.rate) + '</span><span class="caption">' + esc((ysr.canonical && ysr.canonical.label) || "Savings rate") + " · " + esc(yearRateLabel(ysr)) + "</span></button>";
-    html += "</section>";
-    html += debtCardHtml();
+    html += dashSavingsTrendHtml(true) + "</section>";
     html += dashReservesHtml(dMonth);
-    html += wrapEntryHtml();
     // 5
     var R = dashRetirement(), I = R.I;
     html += '<section class="dash-card dash-ret" id="dash-ret"><p class="dash-k">Retirement ' + helpQ(
@@ -5346,9 +5346,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else html += '<p class="plain-line">Big things you’re saving for, and how far along each one is.</p>';
     html += '<div class="dash-buy-actions"><button type="button" class="text-btn" data-dash="p-add">+ Add purchase</button>' +
       (rows.length > 3 ? '<button type="button" class="text-btn" data-dash="p-all">All ' + rows.length + " ›</button>" : "") + "</div></section>";
-    html += dashTaxesHtml();
-    // 8 Projections — trend, 3-year estimates, investable mix (moved off Net worth / Income statement).
-    html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>' + dashTrendHtml() + dashExtraGraphsHtml();
+    html += wrapEntryHtml();
+    html += '<p class="section-label dash-proj-label" id="dash-proj">Projections</p>';
     var pw = null, pi = null; try { pw = netWorthProjection(); pi = incomeProjection(); } catch (e) {}
     if (pw || pi) {
       var last = pw ? pw.rows[pw.rows.length - 1] : pi.rows[pi.rows.length - 1];
@@ -5359,8 +5358,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (pw ? '<p class="caption dash-est-why">' + esc(nwProjAssumeLine(pw)) + "</p>" : "") +
         "</section>";
     }
+    html += '<p class="section-label dash-proj-label" id="dash-graphs">Graphs</p>' + dashTrendHtml() + dashSpendByCategoryHtml();
+    html += dashTaxesHtml();
     if (isPremium() && worthHasData()) { try { html += taxTriangleHtml({ paycheckStrip: false, context: "worth" }).replace('<p class="section-label">Tax triangle</p>', ""); } catch (e) {} }
-    // 9
     html += '<p class="caption est-footer">Estimate, not advice.</p>';
     return html + "</div>";
   }
@@ -5395,17 +5395,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function dashTaxesHtml() {
     var ty = dashTaxYear(), TL = dashTaxList(ty), done = TL.rows.filter(function (r) { return r.done; }).length;
     var season = dashToday().getMonth() + 1 <= 4;
+    var incT = null; try { incT = dashIncome(); } catch (e) {}
+    var avgT = incT ? incT.avgTax : null, avgYr = incT ? incT.year : ty;
     return '<section class="dash-card dash-taxes" id="dash-taxes"><p class="dash-k">Taxes · ' + ty + ' <span class="dash-count">' + done + " of " + TL.rows.length + " docs</span></p>" +
+      '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avgT) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + avgYr + ".") + "</span></div>" +
       (season ? dashTaxRowsHtml(ty) : "") +
       '<p class="plain-line">' + (season ? "Tax season: tick off each form as it arrives." : "Your tax-document checklist for filing next spring.") + "</p>" +
       '<div class="dash-buy-actions">' + (season ? '<button type="button" class="text-btn" data-dash="tax-add" data-year="' + ty + '">+ Add item</button>' : "") +
       '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
   }
 
-  /* v37.5.70 free-tier graphs under the net worth / income trend. */
-  function dashExtraGraphsHtml() {
-    return dashSpendByCategoryHtml() + dashSavingsTrendHtml();
-  }
   function dashBarsHtml(rows, fmt) {
     var max = rows.reduce(function (m, r) { return Math.max(m, Math.abs(r.v) || 0); }, 0) || 1;
     return '<div class="dash-bars">' + rows.map(function (r) {
@@ -5434,7 +5433,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return html + '<p class="dash-big mono">' + moneyWhole(total) + "</p>" + dashBarsHtml(top, function (v) { return moneyWhole(v); }) +
       '<p class="plain-line">What you spent in each category in ' + esc(label) + ', net of refunds. Most at ' + esc(rows[0].label) + ".</p></section>";
   }
-  function dashSavingsTrendHtml() {
+  function dashSavingsTrendHtml(embed) {
     var cym = currentYearMonth(), pts = [];
     for (var m = 1; m <= cym.month; m++) {
       var rec = state.months && state.months[ymKey(cym.year, m)];
@@ -5442,8 +5441,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var r = null; try { r = dashSavingsRate(rec); } catch (e) {} /* same plan-based rate as the headline */
       if (r && r.rate != null && isFinite(r.rate)) pts.push({ m: m, v: r.rate, s: Number(r.savings) || 0, t: Number(r.takeHome) || 0 });
     }
-    var html = '<section class="dash-card dash-srtrend" id="dash-srtrend"><p class="dash-k">Savings rate trend (planned) · ' + cym.year + "</p>";
-    if (!pts.length) return html + '<p class="dash-big mono">—</p><p class="caption">Shows once a month has planned pay.</p></section>';
+    var html = embed ? "" : '<section class="dash-card dash-srtrend" id="dash-srtrend"><p class="dash-k">Savings rate trend (planned) · ' + cym.year + "</p>";
+    if (!pts.length) return embed ? '<p class="caption">Shows once a month has planned pay.</p>' : html + '<p class="dash-big mono">—</p><p class="caption">Shows once a month has planned pay.</p></section>';
     var last = pts[pts.length - 1], max = Math.max.apply(null, pts.map(function (p) { return p.v; }).concat([0.0001]));
     /* v37.5.71: weighted average = total planned savings ÷ total planned take-home across the months shown
      * (not the mean of the monthly rates), the same plan basis as the headline. Dashed line across every month. */
@@ -5454,8 +5453,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var bars = '<div class="dash-cols" role="img" aria-label="Savings rate by month' + (avg == null ? "" : ", weighted average " + pctWhole(avg)) + '">' + avgLine + pts.map(function (p) {
       return '<span class="dash-col" title="' + esc(MONTH_NAMES[p.m - 1] + " " + pctWhole(p.v)) + '"><span class="dash-col-fill" style="height:' + Math.max(3, Math.round(Math.max(0, p.v) / max * 100)) + '%"></span><span class="dash-col-lbl">' + MONTH_NAMES[p.m - 1].slice(0, 1) + "</span></span>";
     }).join("") + "</div>";
-    return html + '<p class="dash-big mono">' + pctWhole(last.v) + ' <span class="caption">' + MONTH_NAMES[last.m - 1] + "</span></p>" + bars +
-      '<p class="plain-line">How much of your planned take-home went to savings each month this year.' + (avg == null ? "" : " Dashed line = weighted average " + pctWhole(avg) + " (total planned savings ÷ total planned take-home).") + "</p></section>";
+    var note = '<p class="plain-line">How much of your planned take-home went to savings each month this year.' + (avg == null ? "" : " Dashed line = weighted average " + pctWhole(avg) + " (total planned savings ÷ total planned take-home).") + "</p>";
+    if (embed) return bars + note;
+    return html + '<p class="dash-big mono">' + pctWhole(last.v) + ' <span class="caption">' + MONTH_NAMES[last.m - 1] + "</span></p>" + bars + note + "</section>";
   }
   /* v37.5.70 Dashboard folds: every card starts collapsed to its title + one headline; the small
    * explanations (plain lines, captions, ? help) show only when a card is opened. In-memory per session.
@@ -18351,7 +18351,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.92";
+  var APP_VERSION = "37.5.93";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

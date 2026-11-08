@@ -4837,6 +4837,7 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
 .dash-snap b{font-family:var(--ui);font-size:calc(17px * var(--fs-scale))}
 .dash .card.insight-card,.dash .card.grade-hero{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:12px 14px;margin:0 0 12px;box-shadow:none}
 .dash-three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;align-items:start}
+.dash-sav .dash-three{grid-template-columns:1fr}
 .dash-three .dash-avgtax{padding:6px}
 .dash-three .dash-avgtax .caption{display:block}
 .wrap-tile-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
