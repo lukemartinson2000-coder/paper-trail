@@ -4767,7 +4767,9 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
   margin: -2px 16px 12px; text-align: center; font-family: var(--serif); font-size: calc(16px * var(--fs-scale)); color: var(--ink);
 }
 .left-to-budget .mono { font-weight: 650; }
-.left-to-budget.zero { color: var(--moss); }
+/* Sits directly under the sticky Planned / Spent / Remaining bar. position: relative keeps this line in normal
+ * flow with the balance (a static box after a sticky bar can stay stuck with that bar on iPhone). */
+.left-to-budget.zero { position: relative; top: auto; z-index: 1; color: var(--moss); }
 .envelope-main { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; border-radius: 8px; transition: background-color 0.45s ease, transform 0.45s ease; }
 .envelope-main.hold-pressing { background: var(--highlight); transform: scale(0.98); }
 
@@ -5246,8 +5248,11 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .wrap-tile-btns { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 .dash-streak { display: flex; align-items: center; gap: 8px; margin: 4px 4px 10px; color: var(--muted); }
 .dash-streak-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); flex: none; }
-/* v37.5.74: Add Transaction with the keyboard up — pad collapsed, Amount pinned, Save reachable. */
-.sheet.ed-add{overflow-y:auto;-webkit-overflow-scrolling:touch}
+/* v37.5.74: Add Transaction with the keyboard up — pad collapsed, Amount pinned, Save reachable.
+ * Rebuilding the sheet must not anchor-scroll the page. The page behind stays put while the sheet is open. */
+.sheet.ed-add{overflow-y:auto;-webkit-overflow-scrolling:touch;overflow-anchor:none}
+body.ed-add-open #screen{overflow:hidden}
+.ed-picker button{touch-action:manipulation}
 .sheet.ed-add.ed-kb .ed-head{padding-bottom:6px}
 .sheet.ed-add.ed-kb .ed-hero .ed-amt-v{font-size:calc(30px * var(--fs-scale-lg));height:calc(36px * var(--fs-scale-lg));line-height:calc(36px * var(--fs-scale-lg))}
 body.ed-typing .tab-bar{display:none!important}
@@ -5269,7 +5274,7 @@ body.ed-typing .modal:not(.wrap-open){bottom:0}
 .env-sub-mv:disabled{opacity:.3}
 .env-sub-mv:not(:disabled):active{background:var(--rule)}
 /* v37.5.74: "$X left to budget" pinned under the sticky Planned / Spent / Remaining bar while planning. */
-.left-to-budget.ltb-pin{position:sticky;top:var(--mt-h,40px);z-index:5;margin:-10px 0 8px;padding:8px 16px 8px;background:var(--paper);box-shadow:0 4px 6px -4px var(--shadow)}
+.left-to-budget.ltb-pin:not(.zero){position:sticky;top:var(--mt-h,40px);z-index:5;margin:-10px 0 8px;padding:8px 16px 8px;background:var(--paper);box-shadow:0 4px 6px -4px var(--shadow)}
 .screen.has-fab .left-to-budget.ltb-pin{padding-right:64px;padding-left:64px}
 
 /* v37.5.74 Net worth keypad: app fits the visible area while typing in #screen (no page pan, one sticky header). */
@@ -5387,8 +5392,13 @@ body.night .add-category-btn { border-color: rgb(82,199,158); color: rgb(82,199,
 
 /* Smooth pay sheets: contained scroll, drag handle, short motion, no page scroll behind. */
 .modal { overscroll-behavior: contain; }
-.it-sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; transition: transform .17s ease, opacity .17s ease; animation: it-sheet-in .18s ease-out; will-change: transform; }
+.it-sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; transition: transform .17s ease, opacity .17s ease; animation: it-sheet-in .18s ease-out; will-change: transform; overflow-anchor: none; scroll-padding-top: 72px; scroll-padding-bottom: 24px; }
 .it-sheet button, .it-sheet select, .it-sheet input { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.it-sheet input, .it-sheet select, .it-sheet textarea { scroll-margin-top: 72px; scroll-margin-bottom: 20px; }
+/* Keyboard up on the typed-in pay sheet: fit the phone to the visible area and undo the iOS page pan. */
+body.it-kb { overflow: hidden; }
+body.it-kb .phone { position: fixed; top: 0; left: 0; right: 0; width: min(390px, 100%); margin: 0 auto; height: var(--vvh, 100dvh) !important; }
+body.it-kb .tab-bar { display: none !important; }
 .it-sheet .sheet-top { touch-action: none; cursor: grab; }
 .it-sheet .sheet-top::before { content: ""; position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--rule); }
 .it-sheet.it-out { transform: translateY(100%) !important; opacity: 0; }

@@ -4480,11 +4480,13 @@
     var hMode = envelopeMode(), hKicker = "Planned", hAmt = totals.assigned, hTone = "ink";
     if (hMode === "remaining") { hKicker = "Remaining"; hAmt = totals.assigned - totals.spent; hTone = hAmt < 0 ? "rust" : tone(hAmt); }
     else if (hMode === "spent") { hKicker = "Spent"; hAmt = totals.spent; hTone = "ink"; }
+    /* "Every dollar has a job" scrolls with the hero balance. Only a leftover / over line pins under the mode bar. */
+    var everyJob = ltb === 0 && (totals.income > 0 || totals.assigned > 0);
     html += modeToggleHtml() +
-      '<p class="left-to-budget' + (ltb < 0 ? " over" : ltb === 0 ? " zero" : "") + (ltb !== 0 && !month.closedAt ? " ltb-pin" : "") + '" id="left-to-budget">' +
+      '<p class="left-to-budget' + (ltb < 0 ? " over" : everyJob ? " zero" : "") + (!everyJob && ltb !== 0 && !month.closedAt ? " ltb-pin" : "") + '" id="left-to-budget">' +
       (ltb > 0 ? '<span class="mono moss">' + money(ltb) + "</span> left to budget"
         : ltb < 0 ? '<span class="mono rust">' + money(-ltb) + "</span> over budget"
-        : totals.income > 0 || totals.assigned > 0 ? "Every dollar has a job" : "") + "</p>"; /* No line on an empty month */
+        : everyJob ? "Every dollar has a job" : "") + "</p>"; /* No line on an empty month */
     html +=
       '<section class="hero budget-hero" data-mode="' + hMode + '">' +
       "<div><p class='kicker'>" + hKicker + "</p>" +
@@ -5455,7 +5457,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<p class="plain-line">How much of your planned take-home went to savings each month this year.' + (avg == null ? "" : " Dashed line = weighted average " + pctWhole(avg) + " (total planned savings ÷ total planned take-home).") + "</p></section>";
   }
   /* v37.5.70 Dashboard folds: every card starts collapsed to its title + one headline; the small
-   * explanations (plain lines, captions, ? help) show only when a card is opened. In-memory per session. */
+   * explanations (plain lines, captions, ? help) show only when a card is opened. In-memory per session.
+   * v37.5.90: one top-level section open at a time (the open one can close). Nested controls inside a
+   * card (Retirement details, inputs, help) are left as they are. */
   var dashFoldOpen = {};
   function dashApplyFolds(root) {
     if (!root) return;
@@ -5481,6 +5485,41 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       sec.classList.toggle("dash-folded", !open);
       if (fb) { fb.setAttribute("aria-expanded", String(open)); fb.setAttribute("aria-label", (open ? "Collapse " : "Expand ") + (head.textContent || "section").replace(/[?▾▴]/g, "").trim()); fb.textContent = open ? "▴" : "▾"; }
     });
+  }
+  /* Drop the 3-year estimate body without rebuilding the page, so other cards keep their inputs. */
+  function dashCollapseEstDom() {
+    dashEstOpen = false;
+    var est = document.getElementById("dash-est");
+    if (!est) return;
+    var body = est.querySelector(".dash-est-body");
+    if (body) body.remove();
+    est.classList.remove("open");
+    var btn = est.querySelector('[data-dash="est-toggle"]');
+    if (btn) {
+      btn.setAttribute("aria-expanded", "false");
+      var chev = btn.querySelector(".chev");
+      if (chev) chev.textContent = "▾";
+    }
+  }
+  function dashCloseReserves() {
+    var det = document.getElementById("dash-reserves");
+    if (det && det.open) det.open = false;
+  }
+  /* Keep the tapped header where it was when a section above it collapses. */
+  function dashHoldHeader(anchor, before) {
+    if (!anchor || before == null) return;
+    var drift = anchor.getBoundingClientRect().top - before;
+    var screen = document.getElementById("screen");
+    if (screen && Math.abs(drift) > 0.5) screen.scrollTop += drift;
+  }
+  function dashToggleFold(id, anchor) {
+    var before = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect().top : null;
+    var willOpen = !dashFoldOpen[id];
+    Object.keys(dashFoldOpen).forEach(function (k) { dashFoldOpen[k] = false; });
+    if (willOpen) dashFoldOpen[id] = true;
+    if (willOpen) { dashCollapseEstDom(); dashCloseReserves(); }
+    dashApplyFolds(document.getElementById("dash"));
+    dashHoldHeader(anchor, before);
   }
   function renderDashboard() {
     return statsSegmentHtml("dash") + dashboardHtml();
@@ -5513,12 +5552,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
   document.addEventListener("click", function (e) {
     var t = e.target && e.target.closest ? e.target.closest("[data-dash]") : null;
+    /* The title row looks tappable. A card that is itself a control (Debt payoff) keeps that tap. */
+    if (!t && e.target && e.target.closest) {
+      var head = e.target.closest(".dash-foldable > .dash-head");
+      var sec = head && head.parentElement;
+      if (head && sec && sec.classList.contains("dash-foldable") && !sec.hasAttribute("data-act") && !e.target.closest("button, a, input, select, textarea, label")) {
+        t = head.querySelector(".dash-fold");
+      }
+    }
     if (!t || t.tagName === "INPUT") return;
     var k = t.getAttribute("data-dash"), d = dashState();
     e.preventDefault(); e.stopPropagation();
-    if (k === "est-toggle") { dashEstOpen = !dashEstOpen; render(); }
+    if (k === "est-toggle") {
+      var estWill = !dashEstOpen, estBefore = t.getBoundingClientRect().top;
+      if (estWill) {
+        Object.keys(dashFoldOpen).forEach(function (id) { dashFoldOpen[id] = false; });
+        dashCloseReserves();
+      }
+      dashEstOpen = estWill;
+      render();
+      dashHoldHeader(document.querySelector('#dash-est [data-dash="est-toggle"]'), estBefore);
+    }
     else if (k === "ret-toggle") { dashRetOpen = !dashRetOpen; render(); }
-    else if (k === "fold") { var fid = t.getAttribute("data-id"); dashFoldOpen[fid] = !dashFoldOpen[fid]; dashApplyFolds(document.getElementById("dash")); }
+    else if (k === "fold") { dashToggleFold(t.getAttribute("data-id"), t.closest(".dash-foldable") || t); }
     else if (k === "p-add") { closeModal(); openDashPurchase("", "pName"); }
     else if (k === "p-all") openDashPurchaseList();
     else if (k === "p-edit") { closeModal(); openDashPurchase(t.getAttribute("data-id"), t.getAttribute("data-focus") || "pName"); }
@@ -5537,6 +5593,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       L.rec.custom = L.rec.custom.filter(function (x) { return x !== c; });
       closeModal(); dashRerender();
     }
+  }, true);
+  /* Emergency reserves is a native disclosure, still one top-level section. Closing it does nothing else. */
+  document.addEventListener("toggle", function (e) {
+    var d = e.target;
+    if (!d || d.id !== "dash-reserves" || !d.open) return;
+    var sum = d.querySelector("summary"), before = sum ? sum.getBoundingClientRect().top : null;
+    Object.keys(dashFoldOpen).forEach(function (k) { dashFoldOpen[k] = false; });
+    dashApplyFolds(document.getElementById("dash"));
+    dashCollapseEstDom();
+    dashHoldHeader(sum, before);
   }, true);
   document.addEventListener("change", function (e) {
     var t = e.target;
@@ -11086,6 +11152,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       form.__itInitial = sheetFormSnapshot(form);
       form.addEventListener("focusin", function (e) {
         var el = e.target;
+        if (el.matches && el.matches("input, textarea, select")) itWatchField(el, true);
         if (!el.getAttribute || el.getAttribute("data-it-clear") !== "1") return;
         el.__prev = el.value; el.__cleared = false; el.value = ""; /* truly empty while typing */
       });
@@ -11110,9 +11177,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     itLineOpen(box.lastElementChild, true);
     var nm = box.lastElementChild.querySelector(".it-line-name");
     if (nm) {
-      /* Focus without the browser's jump-scroll; then nudge only as far as needed to show the new row. */
-      nm.focus({ preventScroll: true });
-      if (nm.scrollIntoView) nm.scrollIntoView({ block: "nearest" });
+      /* Focus without the browser's jump-scroll. The keyboard is not up yet; itWatchField follows it. */
+      try { nm.focus({ preventScroll: true }); } catch (e) { nm.focus(); }
+      itWatchField(nm, true);
     }
   }
   function itUnitToggle(btn) {
@@ -11148,16 +11215,74 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var m = document.getElementById("modal"); if (m) m.classList.add("it-fading");
     setTimeout(done, 170);
   }
+  function itKeyboardUp() {
+    var vv = window.visualViewport;
+    return !!(vv && window.innerHeight - vv.height > 80);
+  }
+  /* Scroll only the pay sheet, so the focused box stays above the keyboard and under the sticky title.
+   * iPhone pans the layout viewport (visualViewport.offsetTop) instead of this scroller; undo that pan
+   * and size the sheet to the visible height, or the new deduction name sits under the keyboard. */
+  function itRevealField(el, smooth) {
+    var sh = el && el.closest ? el.closest(".it-sheet") : null;
+    if (!sh || !el || !document.body.contains(el)) return;
+    var vv = window.visualViewport;
+    var topBar = sh.querySelector(".sheet-top");
+    var sr = sh.getBoundingClientRect(), er = el.getBoundingClientRect();
+    var visTop = sr.top + 8;
+    if (topBar) visTop = Math.max(visTop, topBar.getBoundingClientRect().bottom + 8);
+    var visBottom = sr.bottom - 14;
+    if (vv) visBottom = Math.min(visBottom, vv.offsetTop + vv.height - 14);
+    var delta = 0;
+    if (er.bottom > visBottom) delta = er.bottom - visBottom;
+    else if (er.top < visTop) delta = er.top - visTop;
+    if (Math.abs(delta) < 2) return;
+    var top = Math.max(0, sh.scrollTop + delta);
+    if (smooth && !itReducedMotion() && sh.scrollTo) {
+      try { sh.scrollTo({ top: top, behavior: "smooth" }); return; } catch (e) {}
+    }
+    sh.scrollTop = top;
+  }
+  var itRevealEl = null, itRevealTimer = null;
+  function itWatchField(el, smooth) {
+    if (!el) return;
+    itRevealEl = el;
+    itFit();
+    itRevealField(el, !!smooth);
+    clearTimeout(itRevealTimer);
+    var n = 0;
+    var tick = function () {
+      if (!el || !document.body.contains(el) || document.activeElement !== el) return;
+      itFit();
+      itRevealField(el, false);
+      if (++n < 12) itRevealTimer = setTimeout(tick, 40);
+    };
+    itRevealTimer = setTimeout(tick, 30);
+  }
   function itFit() {
     var sh = document.querySelector("#modal .it-sheet");
-    if (!sh) return;
+    if (!sh) { document.body.classList.remove("it-kb"); return; }
     var vv = window.visualViewport;
+    var ae = document.activeElement;
+    var typing = !!(ae && sh.contains(ae) && ae.matches && ae.matches("input, textarea, select") && ae.type !== "checkbox" && ae.type !== "radio");
+    var kb = typing && itKeyboardUp();
+    document.body.classList.toggle("it-kb", kb);
     if (!vv) { sh.style.maxHeight = ""; return; }
-    var m = document.getElementById("modal"), mb = m ? m.getBoundingClientRect() : { top: 0 };
-    var room = vv.height + vv.offsetTop - Math.max(0, mb.top) - 8;
-    sh.style.maxHeight = Math.max(240, Math.min(room, 640)) + "px";
+    /* A focused box makes iOS scroll the page. Keep the scroll inside the sheet. */
+    if (typing && (window.scrollY || vv.offsetTop)) { try { window.scrollTo(0, 0); } catch (e) {} }
+    if (kb) document.documentElement.style.setProperty("--vvh", Math.round(vv.height) + "px");
+    var phone = document.querySelector(".phone");
+    var pt = phone ? Math.max(0, phone.getBoundingClientRect().top) : 0;
+    var phoneH = phone ? phone.clientHeight : vv.height;
+    /* While typing, do not add the pan offset back — that made the sheet taller than the visible area.
+     * Also stay inside the phone: on a short window the phone is shorter than the visual viewport. */
+    var visible = kb ? vv.height : vv.height + (vv.offsetTop || 0);
+    var room = Math.min(visible - pt - 8, phoneH - 8);
+    sh.style.maxHeight = Math.max(220, Math.min(room, vv.height - 8, 640)) + "px";
   }
-  if (window.visualViewport) { window.visualViewport.addEventListener("resize", itFit); window.visualViewport.addEventListener("scroll", itFit); }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", function () { itFit(); if (itRevealEl && document.activeElement === itRevealEl) itRevealField(itRevealEl, false); });
+    window.visualViewport.addEventListener("scroll", function () { itFit(); if (itRevealEl && document.activeElement === itRevealEl) itRevealField(itRevealEl, false); });
+  }
   /* Drag the sheet's top bar down to dismiss. */
   document.addEventListener("pointerdown", function (e) {
     var top = e.target.closest && e.target.closest("#modal .it-sheet .sheet-top");
@@ -13001,13 +13126,77 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     h += "</form>";
     var modal = document.getElementById("modal");
+    /* Only category / picker rebuilds restore position. Keypad rebuilds still let the merchant row reveal. */
+    var keep = (edScrollSnap || edHoldScroll) ? (edScrollSnap || (modal.querySelector(".sheet.ed-add") ? edCaptureScroll() : null)) : null;
+    edScrollSnap = null;
+    edHoldScroll = false;
     modal.hidden = false;
     modal.innerHTML = h;
-    armSheetA11y(modal);
+    document.body.classList.add("ed-add-open");
+    /* Rebuilding the sheet used to focus ✕ at the top. That focus scrolls on the next frame and jumps the sheet up. */
+    armSheetA11y(modal, { preventScroll: true, skipFocus: !!keep });
     edFit();
     edRevealMerchant();
-    if (edUi.picker) { var s = modal.querySelector(".ed-search"); if (s && edUi.focusSearch) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+    if (edUi.picker) {
+      var s = modal.querySelector(".ed-search");
+      if (s && edUi.focusSearch) {
+        try { s.focus({ preventScroll: true }); } catch (x) { s.focus(); }
+        s.setSelectionRange(s.value.length, s.value.length);
+      }
+    }
+    if (keep) {
+      edRestoreScroll(keep);
+      requestAnimationFrame(function () { edRestoreScroll(keep); });
+      /* The sheet's height settles a frame after the keypad is removed. */
+      setTimeout(function () { if (document.body.contains(document.querySelector("#modal .sheet.ed-add"))) edRestoreScroll(keep); }, 50);
+    }
   }
+  function edCaptureScroll() {
+    var screen = document.getElementById("screen");
+    var sh = document.querySelector("#modal .sheet.ed-add");
+    var picker = document.querySelector("#modal .ed-picker");
+    return {
+      win: window.scrollY || 0,
+      screen: screen ? screen.scrollTop : 0,
+      sheet: sh ? sh.scrollTop : 0,
+      top: sh ? sh.getBoundingClientRect().top : null,
+      height: sh ? sh.getBoundingClientRect().height : 0,
+      picker: picker ? picker.scrollTop : 0
+    };
+  }
+  function edRestoreScroll(ui) {
+    if (!ui) return;
+    if ((window.scrollY || 0) !== ui.win) { try { window.scrollTo(0, ui.win || 0); } catch (e) {} }
+    var screen = document.getElementById("screen");
+    if (screen && screen.scrollTop !== ui.screen) screen.scrollTop = ui.screen || 0;
+    var sh = document.querySelector("#modal .sheet.ed-add");
+    if (!sh) return;
+    var max = Math.max(0, sh.scrollHeight - sh.clientHeight);
+    var want = Math.min(ui.sheet || 0, max);
+    if (sh.scrollTop !== want) sh.scrollTop = want;
+    var picker = sh.querySelector(".ed-picker");
+    if (picker && ui.picker) picker.scrollTop = ui.picker;
+    /* After a category is chosen the pad is gone, so the old offset may not fit. Keep the
+     * budget-item row on screen instead of jumping back to the amount. */
+    var row = !picker && sh.querySelector(".ed-items");
+    if (row) {
+      var sr = sh.getBoundingClientRect(), er = row.getBoundingClientRect();
+      var head = sh.querySelector(".ed-head");
+      var visTop = (head ? head.getBoundingClientRect().bottom : sr.top) + 8;
+      var delta = 0;
+      if (er.bottom > sr.bottom - 8) delta = er.bottom - (sr.bottom - 8);
+      else if (er.top < visTop) delta = er.top - visTop;
+      if (Math.abs(delta) > 1) sh.scrollTop += delta;
+    }
+  }
+  var edScrollSnap = null, edScrollTimer = null, edHoldScroll = false;
+  document.addEventListener("pointerdown", function (e) {
+    var b = e.target && e.target.closest && e.target.closest("#modal .ed-picker [data-ed], #modal .ed-add [data-ed='picker']");
+    if (!b) return;
+    edScrollSnap = edCaptureScroll();
+    clearTimeout(edScrollTimer);
+    edScrollTimer = setTimeout(function () { edScrollSnap = null; }, 700);
+  }, true);
   function edItemsHtml(month) {
     var d = spendDraft;
       var picked = (d.legs || []).filter(function (l) { return l.lineId; });
@@ -13168,6 +13357,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     e.preventDefault(); e.stopPropagation();
     var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
     edUi.err = ""; edUi.focusSearch = false;
+    if (a === "picker" || a === "split" || a === "item" || a === "tick" || a === "picker-done" || a === "split-mode") edHoldScroll = true;
     if (a === "item" || a === "tick") { edUi.manual = true; spendDraft.mappedFromHistory = false; }
     if (a === "merch") { spendDraft.payee = b.getAttribute("data-payee") || ""; edSuggest(month); }
     else if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
@@ -17632,7 +17822,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.89";
+  var APP_VERSION = "37.5.90";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -19093,8 +19283,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function closeModal() {
     itStashDraft();
     document.body.classList.remove("it-sheet-open");
+    document.body.classList.remove("it-kb");
     var itM = document.getElementById("modal"); if (itM) itM.classList.remove("it-fading");
     document.body.classList.remove("ed-typing");
+    document.body.classList.remove("ed-add-open");
     moneyWholeModal = false;
     ritual = { step: 0, destKey: ritual.destKey };
     var modal = document.getElementById("modal");
@@ -19128,7 +19320,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   var sheetNoAutoFocus = false;
-  function armSheetA11y(modal) {
+  function armSheetA11y(modal, opts) {
     if (!modal) return;
     sheetTriggerEl = document.activeElement && document.activeElement !== document.body ? document.activeElement : sheetTriggerEl;
     modal.setAttribute("role", "dialog");
@@ -19136,6 +19328,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var nodes = sheetFocusables(modal);
     var first = nodes[0];
     /* Edit transaction opens with no field focused (no keyboard); focus rests on ✕. */
+    if (opts && opts.skipFocus) return;
     if (sheetNoAutoFocus) {
       sheetNoAutoFocus = false;
       var x = modal.querySelector(".sheet-x");
@@ -19143,7 +19336,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (first) {
-      try { first.focus(); } catch (err) {}
+      try { first.focus(opts && opts.preventScroll ? { preventScroll: true } : undefined); } catch (err) {}
     }
   }
 
@@ -20151,7 +20344,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (itOl) {
         var wasOpen = itOl.classList.contains("open");
         itLineOpen(itOl, !wasOpen);
-        if (!wasOpen && itOl.scrollIntoView) itOl.scrollIntoView({ block: "nearest" });
+        if (!wasOpen) itRevealField(itOl.querySelector(".it-line-name") || itOl, true);
       }
     } else if (act === "it-line-add") {
       itLineAdd(actEl.getAttribute("data-t"));
