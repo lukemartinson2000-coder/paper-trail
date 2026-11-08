@@ -4525,7 +4525,8 @@
         '<div class="name">' + esc(cat.name) + "</div>" +
         "</button>" +
         (isFlat(cat)
-          ? '<button class="line-assigned-btn env-flat-amt mono ' + amountClass + '" type="button" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(cat.lines[0].id) +
+          ? (savShowMarker(cat, cat.lines[0]) ? savMarkHtml(cat, cat.lines[0]) : "") +
+            '<button class="line-assigned-btn env-flat-amt mono ' + amountClass + '" type="button" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(cat.lines[0].id) +
             '" aria-label="' + esc(envelopeMode() + " " + money(shown) + " for " + cat.name) + '">' + money(shown) + "</button></div>"
           : '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>");
       (isFlat(cat) ? [] : sortedLines(cat)).forEach(function (line, lineIndex) {
@@ -4533,6 +4534,7 @@
         var lineShown = envelopeAmount(Number(line.assigned) || 0, lineSpent);
         html += '<div class="envelope-line">';
         html += '<div class="envelope-line-head">';
+        if (savShowMarker(cat, line)) html += savMarkHtml(cat, line);
         html += lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + esc(line.id) + '"');
         var cueKind = /^debt$/i.test(cat.name) ? "loan"
           : /^insurance$/i.test(cat.name) ? "insurance"
@@ -4547,6 +4549,7 @@
       });
       html += '<button class="add-line" type="button" data-act="add-line" data-id="' + esc(cat.id) +
         '" aria-label="Add ' + (isFlat(cat) ? "a subcategory" : "subsection") + " to " + esc(cat.name) + '">+</button>';
+      if (cat.system === "savings") html += savPayLinkHtml();
       html += "</div>";
     });
     if (!(totals.assigned > 0) && !(totals.spent > 0) && previousPlanMonth()) {
@@ -5224,7 +5227,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var dm = null; try { dm = debtCalcModel(); } catch (e) {}
     html += '<div class="dash-snap" id="dash-snap">' +
       '<div><span class="lbl">Grade</span><b>' + (grade ? grade.score : "—") + "</b></div>" +
-      '<div><span class="lbl">Savings rate</span><b>' + dashSavingsRateText(dashSavingsRate()) + '</b><span class="dash-snap-sub">' +
+      '<div><button type="button" class="dash-sr-hit" data-act="sav-details" data-sav="month" data-year="' + state.year + '" data-month="' + state.month + '"><span class="lbl">' + esc((dashSavingsRate().canonical || {}).label || "Savings rate") + '</span><b>' + dashSavingsRateText(dashSavingsRate()) + '</b></button><span class="dash-snap-sub">' +
         (function () { var t = currentYearMonth(); return Number(state.year) === t.year && Number(state.month) === t.month ? "this month" : esc(MONTH_NAMES[state.month - 1].slice(0, 3) + " " + state.year); })() + "</span></div>" +
       '<div><span class="lbl">Debt-free</span><b>' + (!dm || !dm.loans.length ? "No debt" : dm.plan.length ? esc(debtMonthLabel(dm.withX.months)) : "—") + "</b></div></div>";
     /* Weekly log streak sits right under Grade and Savings rate as a top-level stat. */
@@ -5260,15 +5263,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else html += '<p class="caption">Add a paycheck to estimate this year.</p>';
     /* v37.5.70: one savings rate (take-home based) + average tax; the Basic / True rate displays are gone. */
     var dsr = dashSavingsRate();
-    var srLine = !dsr || dsr.rate == null ? "No pay planned yet this month — add your paychecks to the budget (or a salary in Pay) to see your savings rate."
-      : dsr.state === "over" ? "Planned savings (" + moneyWhole(dsr.savings) + ") are more than this month’s planned take-home (" + moneyWhole(dsr.takeHome) + "). Check your budget’s income and Savings lines."
-      : "Based on your plan: " + moneyWhole(dsr.savings) + " planned to savings of " + moneyWhole(dsr.takeHome) + " planned take-home" + (dsr.basis === "pay" ? " (from your Pay plan)" : "") + (avg != null ? ". About " + pctWhole(avg) + " of your pay goes to taxes." : ".");
-    html += '<div class="dash-three dash-two-stat"><div><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">Savings rate · planned ' +
-      helpQ("Savings rate (planned) = what this month’s budget plans for savings (every Savings line, Checking included, plus Roth / house-fund lines) ÷ this month’s planned take-home (your planned paychecks, or your Pay plan ÷ 12). It uses the plan, not what has arrived, so it’s steady from day one.") + "</span></div>" +
+    var dsrC = dsr.canonical || {};
+    var srLine = dsrC.rate == null ? (dsrC.formula || "Add planned pay to see a savings rate.") : (dsrC.period || "");
+    html += '<div class="dash-three dash-two-stat"><div><button type="button" class="dash-sr-hit" data-act="sav-details" data-sav="month" data-year="' + state.year + '" data-month="' + state.month + '"><span class="dash-mid mono moss" id="dash-sr">' + dashSavingsRateText(dsr) + '</span><span class="caption">' + esc(dsrC.label || "Savings rate") + "</span></button></div>" +
       '<div class="dash-avgtax" id="dash-avgtax"><span class="dash-sub mono">' + pctWhole(avg) + '</span><span class="caption">Average tax ' + helpQ("Average tax = all taxes ÷ gross pay for " + yr + ".") + "</span></div></div>" +
       '<p class="plain-line">' + esc(srLine) + "</p>";
     var ysr = yearSavingsRate(yr);
-    if (ysr.rate != null) html += '<div class="dash-year-sr" id="dash-year-sr"><span class="dash-sub mono moss">' + pctWhole(ysr.rate) + '</span><span class="caption">Savings rate · this year, ' + esc(yearRateLabel(ysr)) + " " + helpQ(yearRateMathText(ysr)) + "</span></div>";
+    if (ysr.rate != null) html += '<button type="button" class="dash-year-sr dash-sr-hit" id="dash-year-sr" data-act="sav-details" data-sav="year" data-year="' + yr + '"><span class="dash-sub mono moss">' + pctWhole(ysr.rate) + '</span><span class="caption">' + esc((ysr.canonical && ysr.canonical.label) || "Savings rate") + " · " + esc(yearRateLabel(ysr)) + "</span></button>";
     html += "</section>";
     html += debtCardHtml();
     html += dashReservesHtml(dMonth);
@@ -7829,6 +7830,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       gradeScore: booksEmpty() ? null : grade.score,
       gradeBand: booksEmpty() ? "" : (grade.band && grade.band.title),
       savingsRate: periodSavingsRate(bounds),
+      sav: canonicalSavings(monthsInBounds(bounds)),
       trueSavingsRate: periodTrue && periodTrue.state === "ok" ? periodTrue.rate : null,
       trueSavingsState: periodTrue ? periodTrue.state : null,
       trueDetail: periodTrue && periodTrue.state === "ok" ? periodTrue : null, // Rows for the "?" formula
@@ -7918,17 +7920,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         ].filter(function (g) { return g.amount > 0; }) },
         footnote: "Net additions on your retirement and investment lines for " + Y + ", plus employer 401k money." });
     }
-    var bounds = periodBounds(month.year, month.month, "year");
-    var bag = activityInPeriod(bounds);
-    var rate = sharedSavingsRate(monthsInBounds(periodBounds(Y, 1, "year"))).rate;
-    if (rate != null && bag.takeHomePlanned > 0) {
-      var saved = Math.max(0, Math.min(bag.savingsPlanned, bag.takeHomePlanned));
-      out.push({ id: "g-rate", kicker: "Savings rate · " + Y, title: "That’s a " + wrapPct(rate) + " savings rate",
+    var gSav = canonicalSavings(monthsInBounds(periodBounds(Y, 1, "year")));
+    var rate = gSav.rate;
+    if (rate != null && gSav.divisor > 0) {
+      var saved = Math.max(0, Math.min(gSav.savings, gSav.divisor));
+      out.push({ id: "g-rate", kicker: gSav.label + " · " + Y, title: "That’s a " + wrapPct(rate) + " savings rate",
         lines: [], graph: { type: "stack", segs: [
           { label: "Saved", amount: saved, ink: "var(--moss)" },
-          { label: "Everything else", amount: Math.max(0, bag.takeHomePlanned - saved), ink: "var(--rule)" }
+          { label: "Everything else", amount: Math.max(0, gSav.divisor - saved), ink: "var(--rule)" }
         ] },
-        footnote: "Savings rate: planned savings " + moneyWhole(bag.savingsPlanned) + " ÷ planned take-home " + moneyWhole(bag.takeHomePlanned) + " (after tax, not gross). Same rule as the Dashboard." });
+        footnote: gSav.formula });
     }
     if (inv.length && start > 0 && adds > 0 && hasY) { // Needs this year's column (no end balance → no growth)
       var growth = end - start - adds;
@@ -8016,42 +8017,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function wrapRatePct(r) { return r == null || !isFinite(Number(r)) ? "—" : Math.round(Number(r) * 100) + "%"; }
   function wrapRateSlide(facts, month) {
-    var basic = facts.savingsRate == null || !isFinite(Number(facts.savingsRate)) ? null : Number(facts.savingsRate);
-    var tr = facts.trueSavingsRate == null || !isFinite(Number(facts.trueSavingsRate)) ? null : Number(facts.trueSavingsRate);
-    var takeHome = Math.max(0, Number(facts.moneyIn) || 0);
-    var saved = Math.max(0, Number(facts.savedPlanned) || 0);
-    if (basic == null && tr == null) return null;
-    var d = facts.trueDetail || null;
-    var sub = tr != null ? "True savings rate " + wrapRatePct(tr) + " of gross pay"
-      : facts.trueSavingsState === "locked" ? "True savings rate: Premium with a pay stub"
-      : "True savings rate: add a pay stub";
-    var help = [];
-    help.push("Savings rate = planned savings " + moneyWhole(saved) + " ÷ planned take-home " + moneyWhole(takeHome) +
-      " = " + wrapRatePct(basic) + ". Planned savings = your Savings group (Checking included) plus Roth, house fund and other savings lines; planned take-home = your planned paychecks. Same rule as the Dashboard.");
-    if (tr != null && d && d.rows) {
-      var parts = d.rows.filter(function (r) { return r.id === "savings" || Number(r.amount) > 0; }).map(function (r) { return r.label.replace(/\s*\((period|\d+ mo)\)/, "") + " " + moneyWhole(r.amount); });
-      help.push("True savings rate = " + parts.join(" + ") + " ÷ " +
-        (d.otherIncome > 0
-          ? "(gross pay on your stubs " + moneyWhole(d.stubGross) + " + Budget take-home not on a stub " + moneyWhole(d.otherIncome) + ")"
-          : "gross pay " + moneyWhole(d.gross)) + " = " + wrapRatePct(tr) + ".");
-      if (d.otherIncome > 0) help.push("Your Budget paychecks bring in more than your pay stubs pay out (another earner, commissions, side work). That income has no gross on file, so it counts at take-home.");
-      if (d.periodNote) help.push(d.periodNote);
-    } else if (facts.trueSavingsState === "needsStub") {
-      help.push("True savings rate (savings + 401k + employer 401k + HSA ÷ gross pay) needs a confirmed pay stub. It is never estimated.");
-    }
-    var prior = tr != null ? facts.priorTrueSavingsRate : facts.priorSavingsRate;
-    if (prior != null && isFinite(Number(prior))) help.push((tr != null ? "True" : "Basic") + " last year: " + wrapRatePct(prior) + ".");
-    help.push("For reference: " + BEA_SOURCE);
-    var segSaved = Math.min(saved, takeHome);
+    var c = facts.sav;
+    var rate = c && c.rate != null ? c.rate : (facts.savingsRate == null || !isFinite(Number(facts.savingsRate)) ? null : Number(facts.savingsRate));
+    if (rate == null) return null;
+    var of = c && c.basis === "gross" ? "gross pay" : "take-home";
+    var divisor = c ? c.divisor : Math.max(0, Number(facts.moneyIn) || 0);
+    var saved = c ? c.savings : Math.max(0, Number(facts.savedPlanned) || 0);
+    var prior = facts.priorSavingsRate;
     return {
-      id: "savings-rate", kicker: "Savings rate · " + month.year,
-      title: basic != null ? "You saved " + wrapRatePct(basic) + " of your take-home" : "You saved " + wrapRatePct(tr) + " of gross pay",
-      sub: basic != null ? sub : "",
-      graph: takeHome > 0 ? { type: "stack", segs: [
-        { label: "Saved", amount: segSaved, ink: "var(--moss)" },
-        { label: "Everything else", amount: Math.max(0, takeHome - segSaved), ink: "var(--rule)" }
+      id: "savings-rate", kicker: (c ? c.label : "Savings rate") + " · " + month.year,
+      title: "You saved " + wrapRatePct(rate) + " of your " + of,
+      sub: c && c.partial ? c.period : "",
+      graph: divisor > 0 ? { type: "stack", segs: [
+        { label: "Saved", amount: Math.min(saved, divisor), ink: "var(--moss)" },
+        { label: "Everything else", amount: Math.max(0, divisor - saved), ink: "var(--rule)" }
       ] } : null,
-      help: wrapHelp(help), tidy: true
+      help: wrapHelp([c ? c.formula : "", prior != null && isFinite(Number(prior)) ? "Last year: " + wrapRatePct(prior) + "." : "", "For reference: " + BEA_SOURCE]),
+      tidy: true
     };
   }
   /* Net worth % change is the co-headline, "+15% · +$118,110".
@@ -8256,20 +8238,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
 
   function quarterSlides(year, q, all) {
     var b = quarterBounds(year, q, true), pq = priorQuarter(year, q), pb = quarterBounds(pq.year, pq.q, false);
-    var bag = activityInPeriod(b), pbag = activityInPeriod(pb);
-    var rate = basicOf(bag), prate = basicOf(pbag);
+    var qSav = canonicalSavings(monthsInBounds(b)), pSav = canonicalSavings(monthsInBounds(pb));
+    var rate = qSav.rate, prate = pSav.rate;
     var slides = [];
     var qName = "Q" + q + " " + year;
     var wk = quarterWeeks(b);
     // 1) 90-day savings rate (Free)
-    var saved = Math.max(0, bag.savingsPlanned), th = Math.max(0, bag.takeHomePlanned);
-    slides.push({ id: "q-rate", tidy: true, kicker: "Your 90-day savings rate",
+    var saved = Math.max(0, qSav.savings), th = Math.max(0, qSav.divisor);
+    slides.push({ id: "q-rate", tidy: true, kicker: qSav.label,
       title: rate == null ? "No paychecks logged yet" : wrapRatePct(rate) + " saved" + wrapArrow(rate, prate),
       sub: rate == null ? "Add this quarter’s paychecks on Budget." : prate != null ? (Math.round(rate * 100) === Math.round(prate * 100) ? "Same as last quarter, " + wrapRatePct(prate) : (Math.round(rate * 100) > Math.round(prate * 100) ? "Up" : "Down") + " from " + wrapRatePct(prate) + " last quarter") : "First quarter on file — no arrow yet",
       graph: th > 0 ? { type: "stack", segs: [{ label: "Saved", amount: Math.min(saved, th), ink: "var(--moss)" }, { label: "Everything else", amount: Math.max(0, th - saved), ink: "var(--rule)" }] } : null,
-      help: wrapHelp(["Savings rate for " + b.name + " = planned savings " + moneyWhole(saved) + " ÷ planned take-home " + moneyWhole(th) + " = " + wrapRatePct(rate) + " (each month weighted by its planned take-home; same rule as the Dashboard).",
-        prate != null ? "Last quarter (" + pb.name + "): " + wrapRatePct(prate) + ". The arrow compares whole percents." : "No prior quarter on file, so there’s no arrow yet.",
-        "Planned savings = your Savings group (Checking included) plus Roth, house fund and other savings lines."]) });
+      help: wrapHelp([qSav.formula, prate != null ? "Last quarter: " + wrapRatePct(prate) + "." : "No prior quarter on file."]) });
     var premium = all || isPremium();
     if (premium) {
       // 2) Plot twist
@@ -8339,10 +8319,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       slides.push({ id: "q-locked", tidy: true, kicker: "Premium", title: "Plot twists and glow-ups", sub: "Your biggest surprise, your best cut, goal progress and a share card are on Premium.", locked: true });
     } else {
       slides.push({ id: "q-close", tidy: true, kicker: "Share", title: qName, sub: "",
-        fridge: { period: qName, weeks: wk, stamps: quarterStamps(year, q), rate: rate },
+        fridge: { period: qName, weeks: wk, stamps: quarterStamps(year, q), rate: rate, of: qSav.basis === "gross" ? "of gross pay" : "of take-home" },
         help: wrapHelp(["Weeks logged: weeks (Monday to Sunday) with a transaction or a budget edit, out of the quarter's weeks.",
           "Stamps: months wrapped up with every dollar assigned ($0 left).",
-          "Savings rate: planned savings ÷ planned take-home across the quarter's three months, each month weighted by its planned take-home — the same rule as the Dashboard. No dollar amounts on this card."]) });
+          qSav.formula]) });
     }
     return slides;
   }
@@ -8488,7 +8468,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<section class="fc-sec"><div class="fc-row"><span class="fc-lbl">Months closed at $0</span><span class="fc-val mono">' + nStamp + ' <small>of 3</small></span></div>' +
       '<div class="fc-stamps">' + stamps + "</div></section>" +
       '<section class="fc-sec fc-rate"><div class="fc-row"><span class="fc-lbl">Savings rate</span><span class="fc-big mono">' + esc(wrapRatePct(f.rate)) + "</span></div>" +
-      '<p class="fc-note">of planned take-home</p></section></article>';
+      '<p class="fc-note">' + esc(f.of || "of take-home") + "</p></section></article>";
   }
   function quarterPickerHtml() {
     var av = quarterAvail();
@@ -8917,44 +8897,195 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    *     GradeMath.isSavingsEnvelope already counts (Roth, House fund…); 401k lines are excluded there.
    *   planned take-home = the month's planned income lines; with none, the Pay plan's take-home ÷ 12.
    * Received income never enters, so day one, mid-month and month-end read the same until the plan changes. */
+  /* A budget line counts toward savings by default when it already did: the Savings group (Checking and a house fund included), or a Roth / house-fund / “Savings” line. A saved choice (state.savLineOn) wins. Nothing is dropped just because its name looks like a payroll account. */
+  function savKey(name) { return nwNorm(name); }
+  function savDefaultOn(cat, line) {
+    if (!line) return false;
+    var isSav = gm().isSavingsEnvelope || function () { return false; };
+    if (cat && (cat.system === "savings" || line.system === "checking")) return true;
+    return !!(cat && isSav(cat.name, line.name));
+  }
+  function savLineOn(cat, line) {
+    var map = state && state.savLineOn, k = savKey(line && line.name);
+    if (map && k && typeof map[k] === "boolean") return map[k];
+    return savDefaultOn(cat, line);
+  }
+  function savShowMarker(cat, line) {
+    if (!line) return false;
+    var map = state && state.savLineOn, k = savKey(line.name);
+    if (map && k && typeof map[k] === "boolean") return true;
+    return savDefaultOn(cat, line);
+  }
   function dashPlannedSavings(month) {
-    var isSav = gm().isSavingsEnvelope || function () { return false; }, total = 0;
+    var total = 0;
     (month.categories || []).forEach(function (cat) {
-      var lines = cat.lines || [];
-      if (!lines.length) { if (cat.system === "savings" || isSav(cat.name, cat.name)) total += Number(cat.assigned) || 0; return; }
+      var lines = cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
       lines.forEach(function (l) {
-        if (cat.system === "savings" || l.system === "checking" || isSav(cat.name, l.name)) total += Number(l.assigned) || 0;
+        if (!savLineOn(cat, l)) return;
+        total += Math.max(0, Number(l.assigned) || 0);
       });
     });
     return roundCents(Math.max(0, total));
   }
-  /* v37.5.73 (owner): ONE savings rate everywhere — Dashboard, Wrapped (annual + quarterly), the share card, the
-   * Income statement, the grade and the Budget notes all call sharedSavingsRate. Rate = planned savings ÷ planned
-   * take-home. Planned savings = every line in the built-in Savings group (Checking included) + any other savings
-   * line GradeMath.isSavingsEnvelope counts (Roth, House fund…). Planned take-home = the month's planned income
-   * lines; with none, the Pay plan's take-home ÷ 12. Over several months it is Σ savings ÷ Σ take-home, i.e. the
-   * monthly rates averaged weighted by planned take-home. */
+  /* Planned take-home for the savings rate is the month’s planned income. No pay-plan ÷ 12 stand-in. */
   function planMonthSavingsParts(month) {
-    var savings = dashPlannedSavings(month), th = 0, basis = "plan";
+    var savings = dashPlannedSavings(month), th = 0;
     try { th = Number(sums(month).income) || 0; } catch (e) {}
-    if (!(th > 0)) {
-      try { th = (Number(estimateCompensation(state.compensation || defaultCompensation()).takeHome) || 0) / 12; } catch (e) {}
-      basis = "pay";
+    return { savings: savings, takeHome: th > 0 ? roundCents(th) : 0, basis: "plan" };
+  }
+  function savAdd(map, item) {
+    var k = item.source + "\n" + item.name;
+    if (!map[k]) map[k] = { name: item.name, amount: 0, source: item.source };
+    map[k].amount = roundCents(map[k].amount + item.amount);
+  }
+  function savList(map) { return Object.keys(map).map(function (k) { return map[k]; }).filter(function (x) { return x.amount > 0; }); }
+  /* Share of a yearly typed-in figure that belongs to one month. Real payday count when known, so a 3-paycheck month is heavier than 1/12. */
+  function savMonthShare(year, month) {
+    var checks = 12;
+    try {
+      var est = estimateCompensation(state.compensation || defaultCompensation());
+      if (est && est.paychecksPerYear > 0) checks = est.paychecksPerYear;
+    } catch (e) {}
+    var pd = null;
+    try { pd = paydaysInMonth(year, month); } catch (e2) {}
+    return { share: pd != null && checks !== 12 ? pd / checks : 1 / 12, checks: checks, paydays: pd };
+  }
+  function savPayrollAllowed() { return isPremium(); }
+  function savTypedMonth(year, month) {
+    var plan = state.compensation || {}, est = null;
+    try { est = estimateCompensation(plan); } catch (e) {}
+    if (!est || !(Number(est.cashPay) > 0)) return { mode: "typed", gross: 0, paycheck: [], employer: [], source: "Typed-in pay", reason: "no-gross" };
+    var sh = savMonthShare(year, month), gross = roundCents((Number(est.cashPay) || 0) * sh.share);
+    var sv = itTrueSavesMap(plan), pay = [], er = [];
+    function addRow(r) {
+      if (!r || r.on === false || sv[r.id] !== true) return;
+      var amt = roundCents(deductionAmount(r, est.cashPay, 0) * sh.share);
+      if (amt > 0) pay.push({ name: r.name || "Deduction", amount: amt, source: "Typed-in pay" });
     }
-    return { savings: savings, takeHome: th > 0 ? roundCents(th) : 0, basis: basis };
+    (plan.preTax || []).forEach(addRow);
+    (plan.postTax || []).forEach(addRow);
+    var er401 = roundCents(((Number(est.employerMatch) || 0) + (Number(est.employerBase) || 0)) * sh.share);
+    if (er401 > 0 && itErCounts("Employer 401k")) er.push({ name: "Employer 401k", amount: er401, source: "Typed-in pay" });
+    return { mode: "typed", gross: gross, paycheck: pay, employer: er, source: "Typed-in pay", paydays: sh.paydays, share: sh.share, reason: gross > 0 ? "" : "no-gross" };
+  }
+  function savStubMonth(year, month) {
+    var sm = null;
+    try { sm = stubMonthFigures(year, month); } catch (e) {}
+    if (!sm || !(Number(sm.gross) > 0)) return { mode: "stub", gross: 0, paycheck: [], employer: [], source: "Pay stub", reason: "no-gross" };
+    var pay = [], er = [];
+    if (Number(sm.employee401k) > 0) pay.push({ name: "401k", amount: roundCents(sm.employee401k), source: "Pay stub" });
+    var basis = null, raw = null;
+    try { basis = payStubBasisFor(year); } catch (e2) {}
+    raw = basis && basis.months ? basis.months[Number(month)] : null;
+    var roth = raw ? roundCents(Number(raw.roth401) || 0) : 0;
+    if (roth > 0) pay.push({ name: "Roth 401k", amount: roth, source: "Pay stub" });
+    if (Number(sm.hsa) > 0) pay.push({ name: "HSA", amount: roundCents(sm.hsa), source: "Pay stub" });
+    var latest = null;
+    try { latest = itLatestStub(); } catch (e3) {}
+    if (latest && Array.isArray(latest.otherDeductions)) {
+      var checks = Number(sm.checks) > 0 ? Number(sm.checks) : 1;
+      latest.otherDeductions.forEach(function (d) {
+        if (!d || d.saves !== true) return;
+        /* The Roth 401k amount is already in the month basis. A mark on that same stub line is not a second contribution. */
+        if (roth > 0 && /\broth\b/i.test(String(d.name || "")) && !/\bira\b/i.test(String(d.name || "")) && /401|403|457/.test(String(d.name || ""))) return;
+        var amt = roundCents((Number(d.amount) || 0) * checks);
+        if (amt > 0) pay.push({ name: d.name || "Deduction", amount: amt, source: "Pay stub" });
+      });
+    }
+    var er401 = roundCents((Number(sm.employer401k) || 0) + (Number(sm.employer401kBase) || 0));
+    if (er401 > 0 && itErCounts("Employer 401k")) er.push({ name: "Employer 401k", amount: er401, source: "Pay stub" });
+    var erHsa = roundCents(Number(sm.employerHsa) || 0);
+    if (erHsa > 0 && itErCounts("Employer HSA")) er.push({ name: "Employer HSA", amount: erHsa, source: "Pay stub" });
+    return { mode: "stub", gross: roundCents(sm.gross), paycheck: pay, employer: er, source: "Pay stub", reason: "" };
+  }
+  function savPayrollMonth(year, month) {
+    if (!savPayrollAllowed()) return { mode: "none" };
+    if (itTypedInPay()) return savTypedMonth(year, month);
+    if (useStubBasis()) return savStubMonth(year, month);
+    return { mode: "none" };
+  }
+  function savPeriodText(recs) {
+    if (!recs.length) return "";
+    var sorted = recs.slice().sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); });
+    var a = sorted[0], b = sorted[sorted.length - 1], n = sorted.length, same = a.year === b.year;
+    if (n === 1) return MONTH_NAMES[a.month - 1] + " " + a.year;
+    if (n >= 12 && same && a.month === 1 && b.month === 12) return a.year + " · 12 months";
+    var range = MONTH_NAMES[a.month - 1].slice(0, 3) + "–" + MONTH_NAMES[b.month - 1].slice(0, 3) + (same ? " " + a.year : " " + a.year + "–" + b.year);
+    return range + " · estimate, based on " + n + " months";
+  }
+  /* One savings result for a set of months. Budget lines use planned amounts. Payroll is added only from lines explicitly marked savings, typed-in pay ahead of a stub, employer money on both sides. Same object feeds the headline and the details. */
+  function canonicalSavings(recs) {
+    recs = (recs || []).filter(Boolean).slice().sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); });
+    var budgetMap = {}, payMap = {}, erMap = {};
+    var budget = 0, pay = 0, er = 0, takeHome = 0, gross = 0, months = 0, skippedGross = 0, used = [];
+    var source = "budget", payroll = "none";
+    if (savPayrollAllowed() && itTypedInPay()) payroll = "typed";
+    else if (savPayrollAllowed() && useStubBasis()) payroll = "stub";
+    recs.forEach(function (rec) {
+      var th = 0;
+      try { th = Number(sums(rec).income) || 0; } catch (e) {}
+      th = th > 0 ? roundCents(th) : 0;
+      var bItems = [];
+      (rec.categories || []).forEach(function (cat) {
+        var lines = cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
+        lines.forEach(function (ln) {
+          if (!savLineOn(cat, ln)) return;
+          var amt = roundCents(Math.max(0, Number(ln.assigned) || 0));
+          if (amt > 0) bItems.push({ name: ln.name || cat.name, amount: amt, source: "Budget" });
+        });
+      });
+      var p = payroll === "none" ? { mode: "none" } : savPayrollMonth(rec.year, rec.month);
+      if (payroll !== "none") {
+        if (!p || p.mode === "none" || !(p.gross > 0)) { skippedGross++; return; }
+        months++;
+        used.push(rec);
+        source = p.source === "Typed-in pay" ? "typed" : "stub";
+        gross += p.gross;
+        bItems.forEach(function (it) { savAdd(budgetMap, it); budget += it.amount; });
+        (p.paycheck || []).forEach(function (it) { savAdd(payMap, it); pay += it.amount; });
+        (p.employer || []).forEach(function (it) { savAdd(erMap, it); er += it.amount; });
+        takeHome += th;
+      } else {
+        if (!(th > 0)) return;
+        months++;
+        used.push(rec);
+        takeHome += th;
+        bItems.forEach(function (it) { savAdd(budgetMap, it); budget += it.amount; });
+      }
+    });
+    budget = roundCents(budget); pay = roundCents(pay); er = roundCents(er); gross = roundCents(gross); takeHome = roundCents(takeHome);
+    var basis = payroll === "none" ? "take-home" : "gross";
+    var divisor = basis === "gross" ? roundCents(gross + er) : takeHome;
+    var savings = basis === "gross" ? roundCents(budget + pay + er) : budget;
+    var rate = divisor > 0 ? savings / divisor : null;
+    var stateName = rate == null ? (basis === "gross" ? "no-gross" : "no-income") : (rate > 1 ? "over" : "ok");
+    var period = savPeriodText(used.length ? used : recs) || "this period";
+    var partial = !(used.length >= 12 && used[0] && used[0].month === 1 && used[used.length - 1] && used[used.length - 1].month === 12 && used[0].year === used[used.length - 1].year);
+    if (used.length <= 1) partial = false;
+    var out = {
+      basis: basis, label: basis === "gross" ? "Savings rate · gross pay" : "Savings rate · take-home",
+      rate: rate, state: stateName, savings: savings, divisor: divisor, gross: gross, employer: er, paycheck: pay, budget: budget, takeHome: takeHome,
+      budgetItems: savList(budgetMap), paycheckItems: savList(payMap), employerItems: savList(erMap),
+      source: source, months: months, partial: partial, period: period, skippedGross: skippedGross, paydaysNote: ""
+    };
+    var top = [];
+    if (budget) top.push(money(budget) + " from your budget");
+    if (pay) top.push(money(pay) + " from your paycheck");
+    if (er) top.push(money(er) + " from your employer");
+    var denWords = basis === "gross"
+      ? (er ? money(gross) + " gross pay + " + money(er) + " from your employer" : money(gross) + " gross pay")
+      : money(divisor) + " planned take-home";
+    var src = source === "typed" ? " Typed-in pay is used (not your pay stubs)." : source === "stub" ? " From your pay stubs." : "";
+    var erNote = basis === "gross" && er ? " Employer money is added to savings and to the income it’s divided by." : "";
+    out.formula = (rate == null
+      ? (basis === "gross" ? "No gross pay for " + period + ", so this rate isn’t shown." : "No planned take-home for " + period + ", so this rate isn’t shown.")
+      : (top.join(" + ") || money(0)) + " ÷ " + denWords + " = " + pctWhole(rate) + "." + erNote + src);
+    if (rate != null) out.formula += " " + period + ".";
+    return out;
   }
   function sharedSavingsRate(months) {
-    var sv = 0, th = 0, basis = "plan", n = 0;
-    (months || []).forEach(function (m) {
-      if (!m) return;
-      var q = planMonthSavingsParts(m);
-      if (!(q.takeHome > 0)) return;
-      sv += q.savings; th += q.takeHome; n++; if (q.basis === "pay") basis = "pay";
-    });
-    sv = roundCents(sv); th = roundCents(th);
-    if (!(th > 0)) return { rate: null, state: "no-income", savings: sv, takeHome: 0, basis: basis, months: n };
-    var rate = sv / th;
-    return { rate: rate, state: rate > 1 ? "over" : "ok", savings: sv, takeHome: th, basis: basis, months: n };
+    var c = canonicalSavings(months);
+    return { rate: c.rate, state: c.state, savings: c.savings, takeHome: c.basis === "take-home" ? c.divisor : c.takeHome, divisor: c.divisor, basis: c.basis === "gross" ? "gross" : "plan", months: c.months, canonical: c };
   }
   /* Budget months whose first day falls inside a period (Wrapped month / quarter / year). */
   function monthsInBounds(bounds) {
@@ -8971,8 +9102,53 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return r;
   }
   function dashSavingsRateText(d) {
-    if (!d || d.rate == null) return "—";
-    return d.state === "over" ? "100%+" : pctWhole(d.rate);
+    var c = d && d.canonical ? d.canonical : d;
+    if (!c || c.rate == null) return "—";
+    return pctWhole(c.rate);
+  }
+  function savYearRecs(year) {
+    var cy = currentYearMonth(), last = Number(year) < cy.year ? 12 : Number(year) === cy.year ? cy.month : 0, out = [];
+    for (var m = 1; m <= last; m++) {
+      var rec = state.months && state.months[ymKey(Number(year), m)];
+      if (rec) out.push(rec);
+    }
+    return out;
+  }
+  function savMarkHtml(cat, line) {
+    var on = savLineOn(cat, line), name = (line && line.name) || (cat && cat.name) || "Line";
+    return '<button type="button" class="sav-mark' + (on ? " on" : " off") + '" data-act="sav-mark" data-name="' + esc(name) + '" aria-pressed="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Included in savings rate, " : "Excluded from savings rate, ") + name + ". " + (on ? "Activate to exclude." : "Activate to include.")) + '"><span class="sav-dot" aria-hidden="true">' + (on ? "" : "×") + '</span><span class="sav-mark-txt">' + (on ? "In" : "Out") + "</span></button>";
+  }
+  function savPayReady() { return itTypedInPay() || useStubBasis(); }
+  function savPayLinkHtml() {
+    if (!isPremium()) {
+      return '<button type="button" class="sav-pay-link" data-act="set-plan" data-plan="premium">Include paycheck savings</button><p class="caption">Count retirement contributions and employer contributions from your pay.</p>';
+    }
+    var on = savPayReady();
+    return '<button type="button" class="sav-pay-link" data-act="sav-pay-link">' + (on ? "Paycheck savings included · Edit" : "Include paycheck savings") + "</button>" +
+      (on ? "" : '<p class="caption">Count retirement contributions and employer contributions from your pay.</p>');
+  }
+  function savGroupHtml(title, items) {
+    var rows = (items || []).map(function (it) {
+      return '<div class="row"><span>' + esc(it.name) + '</span><span class="mono">' + money(it.amount) + "</span></div>";
+    }).join("");
+    return '<p class="sheet-label">' + esc(title) + "</p>" + (rows || '<p class="caption">None included.</p>');
+  }
+  function openSavDetails(kind, year, month) {
+    var recs = kind === "year" ? savYearRecs(year) : [state.months[ymKey(year, month)] || ensureMonth(year, month)];
+    var c = canonicalSavings(recs);
+    var src = c.source === "typed" ? "Typed-in pay" : c.source === "stub" ? "Pay stub" : "Budget";
+    var modal = document.getElementById("modal");
+    modal.hidden = false;
+    modal.innerHTML = '<div class="sheet sav-details"><div class="sheet-top"><h3>' + esc(c.label) + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<p class="caption">' + esc(c.period) + "</p>" +
+      '<p class="hero-amount">' + (c.rate == null ? "—" : pctWhole(c.rate)) + "</p>" +
+      savGroupHtml("From your budget", c.budgetItems) + savGroupHtml("From your paycheck", c.paycheckItems) + savGroupHtml("From your employer", c.employerItems) +
+      '<div class="row"><span>Total savings</span><span class="mono">' + money(c.savings) + "</span></div>" +
+      '<div class="row"><span>' + (c.basis === "gross" ? "Divided by" : "Planned take-home") + '</span><span class="mono">' + (c.divisor > 0 ? money(c.divisor) : "—") + "</span></div>" +
+      '<p class="caption">' + esc(c.formula) + "</p>" +
+      '<p class="caption">' + esc(src) + (c.basis === "gross" && c.employer ? " · employer money is in the savings and in the amount it’s divided by" : "") + "</p>" +
+      '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
+    armSheetA11y(modal);
   }
   function dashRateMode() { return "basic"; } /* v37.5.70: True rate display removed from the Dashboard. */
   function monthSavingsRates(month) {
@@ -10159,12 +10335,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     "Investments (the row above) are added back: money moved into investment accounts isn't living cost, so it isn't an operating outflow. " +
     "401k is already in it once: your pre-tax 401k and employer 401k are part of Total income and never subtracted, so they aren't added back again. Money you kept in checking or other cash counts as cash flow (it isn't an outflow).\n\n" +
     "The small figure under each year is the change versus the prior year. Whole dollars.";
-  var SAV_RATE_HELP = "Savings rate = planned savings ÷ planned take-home, the same rule as the Dashboard and Wrapped: your Savings group (Checking included) plus Roth, house fund and other savings lines ÷ your planned paychecks. A year with no Budget uses the statement: retirement money ÷ Take-home.\n\nThe dollars listed above are your retirement money for the year.\n\n" +
-    "Retirement money is one set, the same one the Dashboard and the monthly Basic / True savings rates use (only the period differs): " +
-    "budget lines that feed a Net worth account in the Retirement group (Feeds account), budget lines not linked yet whose name says Roth / IRA / HSA / retire, " +
-    "401k (you, traditional + Roth) and employer 401k from your pay stubs (or this statement / Pay settings without stubs), HSA from your pay stubs (you + employer), " +
-    "and extras you typed on Net worth retirement accounts (Added, employer match / base). A negative Added subtracts.\n\n" +
-    "Brokerage, cash and budget savings (like a house fund) aren’t in it; they show up in Investments and Op. cash flow.";
   var OCF_RATE_HELP = "OCF rate = Operating cash flow ÷ Total income.";
   /* Discretionary = budgeted amounts on every budget line that isn't a savings line (same test
    * as Saved: gm().isSavingsEnvelope), per calendar year, months after today left out. Read-only; expands by category. */
@@ -10315,29 +10485,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* The shared retirement money set (retireMoneySet) replaces retireParts, so this row, the Dashboard
      * and the monthly Basic / True rates count the same money. retireParts stays for reference only. */
     function retireContrib(y) { return retireMoneySet(y, 1, 12).total; }
-    function isYearShared(y) {
-      var cy = currentYearMonth(), recs = [];
-      for (var m = 1; m <= 12; m++) {
-        if (Number(y) * 12 + m > cy.year * 12 + cy.month) break;
-        var r = state.months && state.months[ymKey(Number(y), m)]; if (r) recs.push(r);
-      }
-      var sh = sharedSavingsRate(recs);
-      return sh.rate == null ? null : sh;
-    }
-    var savRP = retireMoneySet(sel, 1, 12);
-    var cymNow = currentYearMonth(), ytdLine = "";
-    if (Number(sel) === cymNow.year) {
-      ytdLine = "\n\n" + yearRateMathText(yearSavingsRate(sel)) + " * marks an estimate.";
-    }
-    var savHelp = sel + " counted:\n" + (savRP.parts.length ? savRP.parts.map(function (p) { return "• " + p[0] + " " + money(p[1]); }).join("\n") : "• Nothing yet") +
-      (savRP.skipped.length ? "\n\nNot counted:\n" + savRP.skipped.map(function (p) { return "• " + p[0] + " " + money(p[1]) + " — " + p[2]; }).join("\n") : "") + ytdLine + "\n\n" + SAV_RATE_HELP;
+    var ysrSel = yearSavingsRate(sel);
+    var savHelp = (ysrSel.canonical && ysrSel.canonical.formula ? ysrSel.canonical.formula : "No budget months for " + sel + ".") +
+      "\n\n* is a partial year (total savings ÷ total income for the months on file, not × 12).\n\n† is this statement’s own figure (retirement money entered here ÷ take-home), a different source from the budget rate.";
     html += sgRow("Savings rate", years, function (y) {
-      /* v37.5.73: years with a Budget use the one shared rate (planned savings ÷ planned take-home, months up to
-       * this one); a year with no Budget months keeps the statement's retirement money ÷ Take-home. */
-      var shY = isYearShared(y) ? yearSavingsRate(y) : null;
-      if (shY && shY.rate != null) return sgCell("is", "", y, shY.rate, { calc: true, on: y === sel, text: pct(shY.rate) + (shY.partial ? "*" : "") });
-      var c = retireContrib(y), th = D[y].takeHome, v = c != null && th > 0 ? c / th : null;
-      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: pct(v) });
+      var shY = yearSavingsRate(y);
+      if (shY && shY.rate != null) return sgCell("is", "", y, shY.rate, { calc: true, on: y === sel, text: '<button type="button" class="link-btn" data-act="sav-details" data-sav="year" data-year="' + y + '">' + pct(shY.rate) + (shY.partial ? "*" : "") + "</button>" });
+      var cAmt = retireContrib(y), th = D[y].takeHome, v = cAmt != null && th > 0 ? cAmt / th : null;
+      return sgCell("is", "", y, v, { calc: true, on: y === sel, text: v == null ? "—" : pct(v) + " †" });
     }, "sg-ratio is-sav-row sg-keep", "Savings rate " + helpQ(savHelp));
     html += sgRow("Average tax", years, calc(function (d) { return d.avgTax; }, pct), "sg-ratio", "Average tax " + helpQ("Average tax = total taxes ÷ taxed pay (salary + bonus + side gig + other). Employer 401k isn’t taxed pay."));
     html += "</tbody></table></div>" + sgBar() +
@@ -10787,7 +10942,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       stubs.forEach(function (s0) {
         var s = {};
         ["gross", "net", "employee401k", "hsa", "fsa", "federalTax", "stateTax", "socialSecurity", "medicare", "fica", "otherTaxes", "employer401k", "employer401kBase", "employerHsa"].forEach(function (f) { s[f] = m(s0[f]); });
-        s.otherDeductions = (s0.otherDeductions || []).map(function (o) { return o ? { name: o.name, amount: m(o.amount), preTax: o.preTax } : o; });
+        s.otherDeductions = (s0.otherDeductions || []).map(function (o) { return o ? { name: o.name, amount: m(o.amount), preTax: o.preTax, saves: o.saves } : o; });
         itAdd(grossL, "Gross pay", s.gross);
         /* Roth 401k on a stub: the stub's own "Roth" line, or Pay settings' 401k type when the stub has one 401k line. */
         var e401 = Number(s.employee401k) || 0, rothShare = k401TypeOf(state.compensation) === "roth" ? 1 : 0;
@@ -10797,7 +10952,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         itAdd(pre, "FSA", s.fsa);
         (s.otherDeductions || []).forEach(function (o) {
           if (!o) return;
-          var nm = String(o.name || "Other"), r = IT_RET.test(nm);
+          var nm = String(o.name || "Other"), r = o.saves === true;
           if (o.preTax === false || /\broth\b|after[\s-]*tax|post[\s-]*tax/i.test(nm)) itAdd(post, nm, o.amount, r); else itAdd(pre, nm, o.amount, r);
         });
         itAdd(tax, "Federal", s.federalTax);
@@ -10858,54 +11013,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     d.erCounted = roundCents(d.erLines.reduce(function (n, l) { return n + (l.ret ? l.amount : 0); }, 0));
     return d;
   }
-  /* Budget months of a year (current year: through this month). */
-  function itBudgetMonths(y) {
-    var t = currentYearMonth();
-    return Object.keys(state.months || {}).map(function (k) { return state.months[k]; }).filter(function (m) {
-      return m && Number(m.year) === Number(y) && !(Number(y) === t.year && Number(m.month) > t.month);
-    });
-  }
-  /* Budget savings lines that ARE payroll money (401k / 403b / 457 / HSA by name) are left out of the True numerator
-   * when payroll already has that money, so it isn't counted twice. Roth IRA, brokerage, Checking stay (paid from take-home). */
-  function itBudgetPayrollDup(months, d) {
-    if (!d || !(d.retPayroll > 0)) return 0;
-    var isSav = gm().isSavingsEnvelope || function () { return false; }, dup = 0;
-    months.forEach(function (m) {
-      (m.categories || []).forEach(function (cat) {
-        (cat.lines || []).forEach(function (l) {
-          if (!(cat.system === "savings" || l.system === "checking" || isSav(cat.name, l.name))) return;
-          if (/401\s*\(?k|403\s*\(?b|457|\bhsa\b/i.test(String(l.name || ""))) dup += Math.max(0, Number(l.assigned) || 0);
-        });
-      });
-    });
-    return roundCents(dup);
-  }
-  function itRates(y, d) {
-    var months = itBudgetMonths(y), sh = sharedSavingsRate(months);
-    var out = { budget: sh, months: months.length, trueRate: null, why: "" };
-    if (!d || !(d.gross > 0)) { out.why = "No gross pay for " + y + " yet."; return out; }
-    var budgetSav = sh.takeHome > 0 ? sh.savings : 0, dup = itBudgetPayrollDup(months, d);
-    /* Employer money that counts as savings is pay the employer adds on top of gross, so it joins the denominator too;
-     * counting it on top only would inflate the rate. */
-    var erC = d.erCounted || 0;
-    var num = roundCents(Math.max(0, budgetSav - dup) + d.retPayroll + erC);
-    /* Income the budget plans that isn't on these stubs (side gig, a partner's pay) has no known gross; it counts at take-home. */
-    var other = sh.takeHome > 0 && d.net > 0 && sh.takeHome - d.net > Math.max(1, d.net * 0.02) ? roundCents(sh.takeHome - d.net) : 0;
-    var den = roundCents(d.gross + other + erC);
-    out.erCounted = erC;
-    out.trueRate = den > 0 ? num / den : null;
-    out.num = num; out.den = den; out.budgetSav = budgetSav; out.dup = dup; out.other = other;
-    if (!(sh.takeHome > 0)) out.why = "No budget for " + y + ", so only payroll savings count.";
-    return out;
-  }
   function itAmtCell(v) { return '<td class="it-now-v mono">' + (v == null ? "—" : moneyWhole(v)) + "</td>"; }
   function itSvMark(l, d) {
-    if (l && l.rowId && d.typedIn) return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-saves" data-row="' + esc(l.rowId) + '" aria-pressed="' + !!l.ret + '" aria-label="Counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button>';
-    if (l && l.ret) return '<span class="it-sv on static" role="img" aria-label="Counts toward savings"><span></span></span>';
-    return '<span class="it-sv blank" aria-hidden="true"></span>';
+    l = l || {};
+    var lab = (l.ret ? "Counts toward retirement savings" : "Not counted toward retirement savings") + (l.name ? ", " + l.name : "");
+    if (l && l.rowId && d.typedIn) return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-saves" data-row="' + esc(l.rowId) + '" aria-pressed="' + !!l.ret + '" aria-label="' + esc(lab) + '" title="' + esc(lab) + '"><span aria-hidden="true"></span><span class="it-sv-txt">' + (l.ret ? "In" : "Out") + "</span></button>";
+    if (l && l.ret) return '<span class="it-sv on static" role="img" aria-label="' + esc(lab) + '"><span aria-hidden="true"></span><span class="it-sv-txt">In</span></span>';
+    return '<span class="it-sv blank static" role="img" aria-label="' + esc(lab) + '"><span aria-hidden="true"></span><span class="it-sv-txt">Out</span></span>';
   }
   function itErMark(l) {
-    return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-er-saves" data-k="' + l.key + '" aria-pressed="' + !!l.ret + '" aria-label="' + esc(l.name) + ' counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button>';
+    var lab = (l.ret ? "Counts toward retirement savings" : "Not counted toward retirement savings") + ", " + (l.name || "employer");
+    return '<button type="button" class="it-sv' + (l.ret ? " on" : "") + '" data-act="it-er-saves" data-k="' + l.key + '" aria-pressed="' + !!l.ret + '" aria-label="' + esc(lab) + '" title="' + esc(lab) + '"><span aria-hidden="true"></span><span class="it-sv-txt">' + (l.ret ? "In" : "Out") + "</span></button>";
   }
   function itGroupRow(id, title, d, total, lines) {
     var list = d[lines] || [], open = !!itOpenGrp[id], canOpen = list.length > 0;
@@ -10940,7 +11058,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       });
       else html += '<tr class="it-now-er"><th scope="row"><span class="it-now-nm"><span class="it-sv blank" aria-hidden="true"></span><span class="it-now-lbl">Employer 401k match</span></span></th>' + itAmtCell(null) + "</tr>";
       html += "</tbody></table>";
-      html += '<p class="it-key"><span class="it-sv on it-key-dot" aria-hidden="true"><span></span></span> counts toward savings · ' + (d.typedIn ? "tap a circle to change it" : "tap an employer circle to change it") + "</p></section>";
+      html += '<p class="it-key"><span class="it-sv on it-key-dot" aria-hidden="true"><span></span></span> Counts toward retirement savings. <span class="it-sv it-key-dot" aria-hidden="true"><span></span></span> Not counted. The words say which; the dot is only a marker. ' + (d.typedIn ? "Tap a circle to change a line you typed in." : "Tap an employer circle to change it.") + "</p></section>";
     } else {
       html += '<section class="card it-now"><h3>Your pay now</h3><p class="caption">Add a pay stub or type in your pay to see it here.</p></section>';
     }
@@ -10980,51 +11098,28 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" class="text-btn" data-act="it-ny-dismiss">Not now</button></div></div>';
   }
   function itHeadlineHtml(cy, d) {
-    var ybm = itBudgetMonths(cy), sh = sharedSavingsRate(ybm);
-    /* Same rule as the Dashboard (planned savings ÷ planned take-home) but over the year so far, so name the months. */
-    var mNums = ybm.map(function (m) { return Number(m.month); }), span = mNums.length ? MONTH_NAMES[Math.min.apply(null, mNums) - 1].slice(0, 3) + (mNums.length > 1 ? "–" + MONTH_NAMES[Math.max.apply(null, mNums) - 1].slice(0, 3) : "") + " " + cy : String(cy);
-    var basicCap = "of take-home, from your budget · " + span;
-    var basicTxt = sh.rate == null ? "—" : (sh.state === "over" ? "100%+" : pctWhole(sh.rate));
-    var html = '<section class="card it-head">';
-    if (isPremium() && itTrueReady() && d && d.gross > 0) {
-      var R = itRates(cy, d);
-      /* Shown in whole $ and whole %, all from the same rounded parts so "num ÷ den = %" always agrees with the headline. */
-      var wB = Math.round(Math.max(0, R.budgetSav - R.dup)), wP = Math.round(d.retPayroll + (R.erCounted || 0)), wT = wB + wP, wD = Math.round(R.den || 0), wE = Math.round(R.erCounted || 0);
-      var rateTxt = wD > 0 ? Math.round(wT / wD * 100) + "%" : "—";
-      html += '<button type="button" class="it-head-btn" data-act="it-math" aria-expanded="' + !!itMathOpen + '">' +
-        '<span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + (d.typedIn ? "of gross pay, from your typed-in pay" : d.estimate ? "of gross pay, from your Pay sheet" : "of gross pay, from your pay stub") + '</span></span>' +
-        '<span class="it-head-n">' + rateTxt + '<small>' + (itMathOpen ? "Hide math ▴" : "See the math ▾") + "</small></span></button>";
-      if (itMathOpen) {
-        html += '<div class="it-math"><div class="row"><span>Saved in budget</span><span class="mono">' + moneyWhole(wB) + "</span></div>" +
-          '<div class="row"><span>Saved from your paycheck<br><small class="caption">' + (d.estimate ? "Lines marked Counts toward savings" : "401k, Roth 401k, HSA") + "</small></span><span class=\"mono\">" + moneyWhole(wP - wE) + "</span></div>" +
-          '<div class="row"><span>Employer money counted<br><small class="caption">' + (!d.erKnown ? "Employer match unknown" : wE > 0 ? d.erLines.filter(function (l) { return l.ret; }).map(function (l) { return esc(l.name); }).join(", ") : "None counted (turn a circle on in the table)") + "</small></span><span class=\"mono\">" + moneyWhole(wE) + "</span></div>" +
-          '<div class="row it-math-tot"><span>Total saved</span><span class="mono">' + moneyWhole(wT) + "</span></div>" +
-          '<div class="row"><span>' + (wE > 0 ? "Gross pay + employer money counted" : "Gross pay") + '<br><small class="caption">' + (d.typedIn ? "From your typed-in pay" : d.estimate ? "From your Pay sheet" : "From your pay stubs") + "</small>" + (R.other > 0 ? '<br><small class="caption">+ ' + moneyWhole(R.other) + " budgeted income not on your pay, at take-home</small>" : "") + '</span><span class="mono">' + moneyWhole(wD) + "</span></div>" +
-          '<p class="caption">' + moneyWhole(wT) + " ÷ " + moneyWhole(wD) + " = " + rateTxt + "." + (wE > 0 ? " Employer money you count as savings is added to both sides, since it is pay on top of your gross." : "") + " Each dollar counts once: budget lines named 401k or HSA aren’t added again" + (R.dup > 0 ? " (" + moneyWhole(R.dup) + " left out)" : "") + ". Budget-only rate (of take-home, " + span + "): " + basicTxt + ".</p>" +
-          "</div>";
-      }
-    } else {
-      html += '<div class="it-head-btn static"><span class="it-head-l"><span class="kicker">Savings rate</span><span class="caption">' + basicCap + '</span></span>' +
-        '<span class="it-head-n">' + basicTxt + "</span></div>";
-      if (isPremium()) {
-        html += '<button type="button" class="it-true-cta" data-act="it-true-setup"><strong>See your true savings rate ›</strong>' +
-          '<span class="caption">Includes payroll savings like 401k and HSA, measured against gross pay</span></button>';
-      } else {
-        html += '<div class="it-true-cta locked"><span class="kicker">Premium</span><strong>True savings rate</strong>' +
-          '<span class="caption">Includes payroll savings like 401k and HSA, measured against gross pay</span>' +
-          '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock true savings rate</button></div>';
-      }
+    var c = canonicalSavings(savYearRecs(cy));
+    var src = c.source === "typed" ? "Typed-in pay" : c.source === "stub" ? "Pay stub" : "Budget";
+    var html = '<section class="card it-head"><button type="button" class="it-head-btn" data-act="sav-details" data-sav="year" data-year="' + cy + '">' +
+      '<span class="it-head-l"><span class="kicker">' + esc(c.label) + '</span><span class="caption">' + esc(c.period + " · " + src) + '</span></span>' +
+      '<span class="it-head-n">' + (c.rate == null ? "—" : pctWhole(c.rate)) + "<small>Details</small></span></button>";
+    if (isPremium() && !itTrueReady()) {
+      html += '<button type="button" class="it-true-cta" data-act="sav-pay-link"><strong>Include paycheck savings</strong>' +
+        '<span class="caption">Count retirement contributions and employer contributions from your pay.</span></button>';
+    } else if (!isPremium()) {
+      html += '<div class="it-true-cta locked"><span class="kicker">Premium</span><strong>Paycheck savings</strong>' +
+        '<span class="caption">Count retirement contributions and employer contributions from your pay.</span>' +
+        '<button class="matters-btn" type="button" data-act="set-plan" data-plan="premium">Unlock paycheck savings</button></div>';
     }
     return html + itNewYearHtml() + "</section>";
   }
-  var itMathOpen = false;
   function openItTrueSetup() {
     var modal = document.getElementById("modal");
     captureModalReturnScreenTop();
     modal.hidden = false;
-    modal.innerHTML = '<div class="sheet it-setup it-sheet"><div class="sheet-top"><h3>See your true savings rate</h3>' +
+    modal.innerHTML = '<div class="sheet it-setup it-sheet"><div class="sheet-top"><h3>Include paycheck savings</h3>' +
       '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
-      '<p class="caption it-setup-lead">Includes payroll savings like 401k and HSA, measured against gross pay. Pick one:</p>' +
+      '<p class="caption it-setup-lead">Count retirement contributions and employer contributions from your pay. Pick one:</p>' +
       '<button type="button" class="it-choice" data-act="vault-add-paystub"><strong>Upload a pay stub</strong><span class="caption">Read on this device. You review the numbers before anything is saved.</span></button>' +
       '<button type="button" class="it-choice" data-act="it-true-manual"><strong>Type it in</strong><span class="caption">Your pay, ZIP, 401k, HSA, other deductions and employer match.</span></button>' +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Not now</button></div></div>';
@@ -11072,7 +11167,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* Collapsed: one compact row (savings dot, name, amount). Tap to open the details; one line open at a time. */
     return '<div class="it-line" data-it-line="' + n + '" data-it-amt="ln' + n + '">' +
       '<button type="button" class="it-line-sum" data-act="it-line-open" aria-expanded="false">' +
-        '<span class="it-sv' + (l.saves === true ? " on" : " blank") + ' static" aria-hidden="true"><span></span></span>' +
+        '<span class="it-sv' + (l.saves === true ? " on" : " blank") + ' static" role="img" aria-label="' + (l.saves === true ? "Counts toward retirement savings" : "Not counted toward retirement savings") + '"><span></span></span><span class="it-sv-txt">' + (l.saves === true ? "In" : "Out") + "</span>" +
         '<span class="it-sum-name">' + esc(sm.name) + '</span><span class="it-sum-amt mono">' + esc(sm.amt) + (sm.amt ? "" : '<span class="it-sum-empty">Add amount</span>') + '</span><span class="it-sum-chev" aria-hidden="true">›</span></button>' +
       '<div class="it-line-body">' +
       '<div class="it-line-top"><input class="it-line-name" name="lnName' + n + '" type="text" autocomplete="off" aria-label="Deduction name" data-it-clear="1" value="' + esc(l.name || "") + '">' +
@@ -11116,6 +11211,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       plain("salary", "Yearly pay (gross, $)", Number(c.baseSalary) > 0 ? commaMoneyText(String(c.baseSalary)) : "") +
       '<label class="field"><span>Paychecks a year</span><select name="checks">' + [[52, "Weekly (52)"], [26, "Every 2 weeks (26)"], [24, "Twice a month (24)"], [12, "Monthly (12)"]].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === checks ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" +
       plain("zip", "ZIP code (for state tax)", c.zipCode || "", "numeric") +
+      '<p class="caption">Filled dot, In: counts toward retirement savings. Empty dot, Out: not counted. The words say which.</p>' +
       (function () {
         /* A line's group is its tax status: pre-tax lines come out before taxes, after-tax lines after. */
         var all = itTrueLines(c);
@@ -11127,8 +11223,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }).join("");
       })() +
       '<p class="section-label it-lines-h">Paid by your employer</p>' +
-      '<div class="field it-amt it-er" data-it-amt="erMatchAmt"><div class="it-er-top">' + (function () { var on = itErCounts("Employer 401k"); return '<button type="button" class="it-sv' + (on ? " on" : "") + '" data-act="it-er-form-sv" aria-pressed="' + on + '" aria-label="Employer match counts toward savings" title="Counts toward savings"><span aria-hidden="true"></span></button><input type="hidden" name="erSaves" value="' + (on ? "1" : "0") + '">'; })() +
-        '<span>Employer 401k match (added on top of your pay; blank if you don’t know)</span></div><div class="it-amt-row">' +
+      '<div class="field it-amt it-er" data-it-amt="erMatchAmt"><div class="it-er-top">' + (function () { var on = itErCounts("Employer 401k"); var lab = (on ? "Counts toward retirement savings" : "Not counted toward retirement savings") + ", Employer 401k match"; return '<button type="button" class="it-sv' + (on ? " on" : "") + '" data-act="it-er-form-sv" aria-pressed="' + on + '" aria-label="' + esc(lab) + '" title="' + esc(lab) + '"><span aria-hidden="true"></span><span class="it-sv-txt">' + (on ? "In" : "Out") + '</span></button><input type="hidden" name="erSaves" value="' + (on ? "1" : "0") + '">'; })() +
+        '<span>Employer 401k match (added on top of your pay; blank if you don’t know). Filled dot: counts toward retirement savings. Empty dot: not counted.</span></div><div class="it-amt-row">' +
         '<span class="it-amt-unit" aria-hidden="true">' + (erPct ? "%" : "$") + '</span>' +
         '<input name="erMatchAmt" type="text" inputmode="decimal" autocomplete="off" data-it-clear="1" aria-label="Employer 401k match" value="' + esc(c.employerMatchKnown ? itAmtShow(c.employer401kMatch, erPct) : "") + '">' +
         '<input type="hidden" name="erMatchAmtUnit" value="' + (erPct ? "pct" : "usd") + '">' + itUnitHtml("Employer match", erPct) + "</div></div>" +
@@ -12106,45 +12202,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     total = roundCents(total);
     return { total: total, months: n, full: n >= 12, estimate: n ? roundCents(n >= 12 ? total : total / n * 12) : 0 };
   }
-  function typedPayMonth(year, month, est) {
-    var checks = Number(est.paychecksPerYear) || 12, pd = paydaysInMonth(year, month), share = pd != null && checks !== 12 ? pd / checks : 1 / 12;
-    var pay = (Number(est.employee401k) || 0) + (Number(est.employerBase) || 0) + (Number(est.employerMatch) || 0) + (hsaCountsForTrue() ? Number(est.hsa) || 0 : 0);
-    return { gross: roundCents((Number(est.cashPay) || 0) * share), paySavings: roundCents(pay * share) };
-  }
   function yearSavingsRate(year) {
-    var recs = yearMonthsSoFar(year), n = recs.length, cy = currentYearMonth();
-    var out = { year: Number(year), months: n, partial: n < 12, mode: "basic", rate: null, savings: 0, base: 0, budgetSavings: 0, paySavings: 0, lastMonth: n ? Number(recs[n - 1].month) : 0 };
-    if (!n) return out;
-    if (Number(year) === cy.year && itTypedInPay()) {
-      var est = estimateCompensation(state.compensation), bs = 0, ps = 0, g = 0;
-      recs.forEach(function (rec) { var t = typedPayMonth(rec.year, rec.month, est); bs += dashPlannedSavings(rec); ps += t.paySavings; g += t.gross; });
-      if (g > 0) { out.mode = "typed"; out.budgetSavings = roundCents(bs); out.paySavings = roundCents(ps); out.savings = roundCents(bs + ps); out.base = roundCents(g); out.rate = out.savings / out.base; return out; }
-    }
-    if (isPremium() && useStubBasis()) {
-      var num = 0, den = 0, k = 0;
-      recs.forEach(function (rec) {
-        var t = null; try { t = monthSavingsRates(rec).trueRate; } catch (e) {}
-        if (!t || t.state !== "ok" || t.rate == null) return;
-        var d = Number(t.denominator != null ? t.denominator : t.gross) || 0;
-        if (!(d > 0)) return;
-        num += Number(t.numerator != null ? t.numerator : t.rate * d) || 0; den += d; k++;
-      });
-      if (k === n && den > 0) { out.mode = "stub"; out.savings = roundCents(num); out.base = roundCents(den); out.rate = num / den; return out; }
-    }
-    var sh = sharedSavingsRate(recs);
-    out.savings = sh.savings; out.budgetSavings = sh.savings; out.base = sh.takeHome; out.rate = sh.rate;
-    return out;
+    var recs = savYearRecs(year), c = canonicalSavings(recs);
+    var last = 0;
+    recs.forEach(function (r) { if (r.month > last) last = r.month; });
+    return {
+      year: Number(year), months: c.months, partial: c.partial, mode: c.basis === "gross" ? (c.source === "typed" ? "typed" : "stub") : "basic",
+      rate: c.rate, savings: c.savings, base: c.divisor, budgetSavings: c.budget, paySavings: roundCents(c.paycheck + c.employer),
+      lastMonth: last, canonical: c
+    };
   }
-  function yearRateLabel(r) { return r.partial ? "estimate, based on " + r.months + (r.months === 1 ? " month" : " months") : "12 months"; }
-  function yearRateMathText(r) {
-    if (r.rate == null) return "No months with pay logged yet this year.";
-    var of = r.mode === "basic" ? "planned take-home" : "gross pay";
-    var top = r.mode === "basic" ? moneyWhole(r.savings) + " planned savings" : r.mode === "stub" ? moneyWhole(r.savings) + " savings (budget savings + pay-stub 401k you + employer, HSA)" : moneyWhole(r.budgetSavings || 0) + " budget savings + " + moneyWhole(r.savings - (r.budgetSavings || 0)) + " pay savings (401k you + employer, HSA)";
-    return "This year’s savings rate = total savings ÷ total " + of + " across the months logged (Jan–" + MONTH_NAMES[Math.max(0, r.lastMonth - 1)].slice(0, 3) + (r.partial ? ", " + r.months + " so far" : "") + "):\n\n" +
-      top + " ÷ " + moneyWhole(r.base) + " " + of + " = " + pctWhole(r.rate) + ".\n\n" +
-      "Each month counts by its dollars, so a 3-paycheck month weighs more; no × 12 and no average of monthly rates." +
-      (r.mode === "typed" ? " Gross comes from your typed-in pay (it wins over pay stubs)." : r.mode === "stub" ? " Gross comes from your pay stubs." : " With typed-in pay or a pay stub this switches to gross pay.") +
-      (r.partial ? "\n\nAn estimate, based on " + r.months + " months. In December it covers all 12 and matches the Income statement." : "\n\nAll 12 months — the same number as the Income statement.");
+  function yearRateLabel(r) {
+    var c = r && r.canonical;
+    if (!c || c.rate == null) return r && r.partial ? "estimate, based on " + r.months + " months" : "";
+    return c.partial ? "estimate, based on " + c.months + (c.months === 1 ? " month" : " months") : "12 months";
   }
   function copyPlanFromTo(src, destYM) {
     var destKey = ymKey(destYM.year, destYM.month);
@@ -17822,7 +17893,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.90";
+  var APP_VERSION = "37.5.91";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20318,12 +20389,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.vaultDocId = card.id;
       saveState();
       render();
-    } else if (act === "it-math") {
-      itMathOpen = !itMathOpen;
-      render();
     } else if (act === "it-er-form-sv") {
       var efOn = actEl.getAttribute("aria-pressed") !== "true", efIn = actEl.parentNode.querySelector("input[name=erSaves]");
-      actEl.setAttribute("aria-pressed", String(efOn)); actEl.classList.toggle("on", efOn); if (efIn) efIn.value = efOn ? "1" : "0";
+      var efLab = (efOn ? "Counts toward retirement savings" : "Not counted toward retirement savings") + ", Employer 401k match";
+      actEl.setAttribute("aria-pressed", String(efOn)); actEl.classList.toggle("on", efOn); actEl.setAttribute("aria-label", efLab); actEl.setAttribute("title", efLab);
+      var efTxt = actEl.querySelector(".it-sv-txt"); if (efTxt) efTxt.textContent = efOn ? "In" : "Out";
+      if (efIn) efIn.value = efOn ? "1" : "0";
     } else if (act === "it-er-saves") {
       var erc = state.compensation, ek = actEl.getAttribute("data-k") || "er401k";
       erc.erSaves = erc.erSaves || {};
@@ -20354,6 +20425,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       itUnitToggle(actEl);
     } else if (act === "it-true-choices") {
       /* Upload-or-type choice sheet, kept for when stub upload returns; nothing links here for now. */
+      openItTrueSetup();
+    } else if (act === "sav-details") {
+      openSavDetails(actEl.getAttribute("data-sav") === "year" ? "year" : "month", Number(actEl.getAttribute("data-year")) || state.year, Number(actEl.getAttribute("data-month")) || state.month);
+    } else if (act === "sav-mark") {
+      var svName = actEl.getAttribute("data-name") || "";
+      if (!state.savLineOn || typeof state.savLineOn !== "object") state.savLineOn = {};
+      state.savLineOn[savKey(svName)] = actEl.getAttribute("aria-pressed") !== "true";
+      saveState();
+      render();
+    } else if (act === "sav-pay-link") {
       openItTrueSetup();
     } else if (act === "it-true-setup") {
       /* Upload is not offered up front for now: go straight to the typed-in form (the upload sheet code stays). */
@@ -22297,6 +22378,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     clearPrintReport: clearPrintReport,
     buildBackup: buildBackup,
     /* V37.5.59.110 test hook: every savings figure from the one money set. */
+    canonicalSavings: function (year, m1, m2) {
+      var recs = [];
+      for (var m = m1; m <= m2; m++) { var r = state.months && state.months[ymKey(year, m)]; if (r) recs.push(r); }
+      return canonicalSavings(recs);
+    },
     savingsReconcile: function () {
       var c = currentYearMonth(), mr = monthSavingsRates(ensureMonth(c.year, c.month)), d = dashMonthlySavings(), ytd = ytdSavingsRate(c.year, c.month);
       var yearSet = retireMoneySet(c.year, 1, 12), thY = annualTakeHomeFor(c.year), sumMonths = 0;

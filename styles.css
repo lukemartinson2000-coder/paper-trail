@@ -5343,12 +5343,13 @@ body.kb-fit .screen{padding-bottom:0}
 .it-key { margin: 8px 16px 0; font-size: 13px; font-weight: 600; }
 .it-key-dot { color: var(--moss); }
 /* next7: savings circle in the current-year column */
-.it-sv { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; -webkit-tap-highlight-color: transparent; }
-.it-sv > span { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--moss); box-sizing: border-box; background: transparent; }
-.it-sv.on > span { background: var(--moss); box-shadow: inset 0 0 0 2px var(--card, #fff); }
-.it-sv.static { cursor: default; width: 22px; height: 22px; min-width: 22px; }
+.it-sv { display: inline-flex; align-items: center; justify-content: center; gap: 4px; width: auto; height: 44px; min-width: 44px; padding: 0 4px; border: 0; background: transparent; cursor: pointer; vertical-align: middle; -webkit-tap-highlight-color: transparent; }
+.it-sv > span:not(.it-sv-txt) { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--muted, #8a8175); box-sizing: border-box; background: transparent; flex: none; }
+.it-sv-txt { font: 700 11px/1 var(--ui); letter-spacing: .02em; }
+.it-sv.on > span:not(.it-sv-txt) { background: var(--moss); border-color: var(--moss); box-shadow: inset 0 0 0 2px var(--card, #fff); }
+.it-sv.static { cursor: default; width: auto; height: auto; min-width: 0; }
 .it-key .it-sv { width: 20px; height: 20px; min-width: 20px; vertical-align: -4px; }
-.it-key .it-sv > span { width: 14px; height: 14px; }
+.it-key .it-sv > span:not(.it-sv-txt) { width: 14px; height: 14px; }
 /* next7: "Your pay now" — one point-in-time column, fits 360 wide */
 .it-now { margin: 12px 0; padding: 14px 12px 10px; }
 .it-now h3 { margin: 0; }
@@ -5369,12 +5370,12 @@ body.kb-fit .screen{padding-bottom:0}
 .it-now-nm { display: inline-flex; align-items: center; gap: 0; margin-left: -12px; }
 .it-now-line th { padding-left: 4px !important; }
 .it-now-er th { padding-top: 0; padding-bottom: 0; }
-.it-now-nm .it-sv { width: 44px; height: 44px; min-width: 44px; flex: 0 0 44px; }
-.it-now-nm .it-sv.static, .it-now-nm .it-sv.blank { width: 44px; height: 44px; min-width: 44px; display: inline-flex; }
-.it-now-nm .it-sv > span { width: 11px; height: 11px; border-width: 1.5px; }
-.it-now-nm .it-sv.on > span { box-shadow: none; }
+.it-now-nm .it-sv { width: auto; height: 44px; min-width: 44px; flex: 0 0 auto; }
+.it-now-nm .it-sv.static, .it-now-nm .it-sv.blank { width: auto; height: 44px; min-width: 44px; display: inline-flex; }
+.it-now-nm .it-sv > span:not(.it-sv-txt) { width: 11px; height: 11px; border-width: 1.5px; }
+.it-now-nm .it-sv.on > span:not(.it-sv-txt) { box-shadow: none; }
 .it-now-lbl { overflow-wrap: anywhere; }
-.it-key .it-sv > span { width: 11px; height: 11px; border-width: 1.5px; box-shadow: none; }
+.it-key .it-sv > span:not(.it-sv-txt) { width: 11px; height: 11px; border-width: 1.5px; box-shadow: none; }
 /* Budget: green + adds a transaction; "+ Add category" after the last envelope */
 /* A true 32px circle drawn inside a 44px-tall hit area that never shrinks, so it can't stretch into an oval. */
 .month-bar .bar-tool.bar-add-tx, .bar-add-tx { position: relative; isolation: isolate; flex: 0 0 40px; width: 40px; min-width: 40px; height: 44px; padding: 0; background: transparent !important; color: #fff !important; font-weight: 700; line-height: 44px; border-radius: 0; }
@@ -5389,6 +5390,13 @@ body.night .add-category-btn { border-color: rgb(82,199,158); color: rgb(82,199,
 .it-now-chev { display: inline-block; width: 14px; line-height: 1; text-align: center; transition: transform .15s; }
 .it-now-chev.open { transform: rotate(90deg); }
 .add-category-btn { width: calc(100% - 32px); margin-left: 16px; margin-right: 16px; }
+.sav-mark { display: inline-flex; align-items: center; gap: 4px; min-width: 44px; min-height: 44px; margin: 0 2px 0 0; padding: 0 6px; border: 0; background: transparent; color: var(--ink); font: 600 11px var(--ui); cursor: pointer; }
+.sav-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--moss); background: var(--moss); box-sizing: border-box; color: var(--danger); font-size: 11px; line-height: 8px; text-align: center; }
+.sav-mark.off .sav-dot { background: transparent; border-color: var(--danger); }
+.sav-mark-txt { font-size: 11px; letter-spacing: .02em; }
+.sav-pay-link { display: block; width: calc(100% - 8px); margin: 8px 4px 4px; min-height: 44px; padding: 8px 10px; border: 1px dashed var(--moss); border-radius: 12px; background: transparent; color: var(--moss); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.dash-sr-hit { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.sav-details .hero-amount { margin: 4px 0 12px; }
 
 /* Smooth pay sheets: contained scroll, drag handle, short motion, no page scroll behind. */
 .modal { overscroll-behavior: contain; }
@@ -5446,8 +5454,9 @@ body.it-sheet-open #screen { overflow: hidden; }
 .dash-snap-sub { display: block; font-family: var(--ui); font-size: calc(11px * var(--fs-scale)); color: var(--muted); margin-top: 1px; }
 @media (prefers-reduced-motion: reduce) { .it-line.open .it-line-body, .it-sum-chev { animation: none; transition: none; } }
 .it-line-sum .it-sv { width: 20px; height: 20px; min-width: 20px; cursor: inherit; }
+.it-line-sum .it-sv-txt { font-size: 12px; }
 .it-er-top { display: flex; align-items: center; gap: 4px; }
-.it-er-top .it-sv { flex: none; width: 36px; height: 36px; min-width: 36px; margin-left: -8px; touch-action: manipulation; }
+.it-er-top .it-sv { flex: none; width: auto; height: 44px; min-width: 44px; margin-left: -8px; touch-action: manipulation; }
 .it-now-erh th { padding-top: 14px; text-align: left; }
 .it-now-sub { font-family: var(--ui); font-size: calc(12px * var(--fs-scale)); color: var(--muted); font-weight: 500; }
 .env-suggest { margin: 6px 0 8px; padding: 8px 10px; border-radius: 10px; background: var(--highlight); color: var(--ink); line-height: 1.35; }
