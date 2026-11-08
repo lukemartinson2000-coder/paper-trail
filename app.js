@@ -3125,12 +3125,13 @@
       move.push({ offset: k / n, transform: "translate(" + p.x.toFixed(2) + "px," + p.y.toFixed(2) + "px) rotate(" + (45 + p.hd).toFixed(2) + "deg)" });
       look.push({ offset: k / n, opacity: +op.toFixed(3), transform: "scale(" + sc.toFixed(3) + ")" });
     }
-    var dots = [];
+    /* Each dot is a short wake: it appears just behind the plane and is gone about 220ms later. */
+    var dots = [], WAKE = 220;
     for (var d = SPACING; d < total - 30; d += SPACING) {
-      var along = d <= L1 ? 0 : (d - L1) / L2;
       var qT = tAt(Math.min(total - 0.01, d));
-      var q = pose(qT);
-      dots.push({ x: q.x, y: q.y, s: d, t: Math.min(T, tAt(Math.min(total - 0.01, d + 34 * (1 + 0.9 * along * along)))) });
+      var q = pose(Math.max(0, qT - 28));
+      var born = Math.min(T - 40, Math.max(0, qT));
+      dots.push({ x: q.x, y: q.y, s: d, t: born, gone: Math.min(T, born + WAKE) });
     }
     return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: total / T };
   }
@@ -3168,7 +3169,7 @@
       plane.style.opacity = "1";
       anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
     } else {
-      /* Enters from the top-left, one loop, climbs away. Trail dots stay until the crossfade into Budget. */
+      /* Enters from the top-left, one loop, climbs away. The wake fades out behind the plane. */
       var vw = window.innerWidth || 390, vh2 = window.innerHeight || 700, NS = "http://www.w3.org/2000/svg";
       var keys = launchSplashPath(T, vh2, vw);
       var xf = Math.max(0.5, Math.min(0.75, (keys.loopEndT + 250) / T)); /* crossfade starts just after the loop */
@@ -3183,14 +3184,16 @@
       ov.insertBefore(svg, orbit);
       keys.dots.forEach(function (dt) {
         var c = document.createElementNS(NS, "circle");
-        c.setAttribute("cx", dt.x.toFixed(1)); c.setAttribute("cy", dt.y.toFixed(1)); c.setAttribute("r", "2.6");
+        c.setAttribute("cx", dt.x.toFixed(1)); c.setAttribute("cy", dt.y.toFixed(1)); c.setAttribute("r", "2.1");
         g.appendChild(c);
-        var a0 = Math.min(0.99, dt.t / T), a1 = Math.min(0.995, a0 + 60 / T);
+        var a0 = Math.max(0.004, Math.min(0.9, dt.t / T)), a1 = Math.min(0.94, a0 + 40 / T), a2 = Math.min(0.99, a1 + 180 / T);
+        if (a1 <= a0) a1 = Math.min(0.95, a0 + 0.008);
+        if (a2 <= a1) a2 = Math.min(0.995, a1 + 0.012);
         anims.push(c.animate([
-          { opacity: 0 }, { opacity: 0, offset: a0 }, { opacity: 0.8, offset: a1 }, { opacity: 0.8 }
+          { opacity: 0 }, { opacity: 0, offset: a0 }, { opacity: 0.45, offset: a1 }, { opacity: 0, offset: a2 }, { opacity: 0 }
         ], { duration: T, fill: "forwards" }));
       });
-      /* The trail stays put; it leaves with the overlay's crossfade. */
+      /* Any wake still showing leaves with the overlay. The dots themselves have already faded. */
       anims.push(svg.animate([
         { opacity: 1 }, { opacity: 1, offset: xf, easing: "cubic-bezier(.4,0,.2,1)" }, { opacity: 0 }
       ], { duration: T, fill: "forwards" }));
@@ -18510,7 +18513,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.95";
+  var APP_VERSION = "37.5.96";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

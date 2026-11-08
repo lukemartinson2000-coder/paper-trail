@@ -129,8 +129,15 @@ const SEED = `(() => {
       p.move.forEach((k, i) => { if (!p.move[i+1]) return; const y1 = +k.transform.match(/,([-0-9.]+)px/)[1]; const y2 = +p.move[i+1].transform.match(/,([-0-9.]+)px/)[1]; const dy = y2 - y1; if (dy > 2) downs.push(dy); if (dy < -2) ups.push(-dy); dh.push(Math.abs(ang(p.move[i+1]) - ang(k))); });
       const avg = (a) => a.reduce((n, x) => n + x, 0) / a.length;
       const max = (a) => a.reduce((n, x) => Math.max(n, x), 0);
-      return { n: p.move.length, loop: p.loopEndT, down: avg(downs), up: avg(ups), maxTurn: max(dh), end: p.move[p.move.length - 1].offset, dots: p.dots.length }; })()`);
-    check(out.plane.n > 200 && out.plane.loop > 400 && out.plane.loop < 2600 && out.plane.down > out.plane.up && out.plane.maxTurn < 12 && out.plane.end === 1 && out.plane.dots > 20, "plane flight is continuous and faster downhill " + JSON.stringify(out.plane));
+      let alive = 0;
+      for (let ms = 0; ms <= 3000; ms += 40) {
+        let n = 0;
+        p.dots.forEach((d) => { if (d.t <= ms && ms < d.gone) n++; });
+        if (n > alive) alive = n;
+      }
+      const wake = p.dots.length ? Math.max.apply(null, p.dots.map((d) => d.gone - d.t)) : 0;
+      return { n: p.move.length, loop: p.loopEndT, down: avg(downs), up: avg(ups), maxTurn: max(dh), end: p.move[p.move.length - 1].offset, dots: p.dots.length, alive: alive, wake: wake }; })()`);
+    check(out.plane.n > 200 && out.plane.loop > 400 && out.plane.loop < 2600 && out.plane.down > out.plane.up && out.plane.maxTurn < 12 && out.plane.end === 1 && out.plane.dots > 20 && out.plane.alive > 0 && out.plane.alive < 16 && out.plane.wake <= 260, "plane flight stays continuous and the wake fades " + JSON.stringify(out.plane));
     await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
     await sleep(60);
     out.menu = await cdp.eval(`({ open: document.getElementById("budget-menu") && !document.getElementById("budget-menu").hidden, items: [...document.querySelectorAll("#budget-menu [role=menuitem]")].map((b) => b.textContent.trim()) })`);
