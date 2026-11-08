@@ -124,11 +124,13 @@ const SEED = `(() => {
     check(out.alloc.basis === "take-home" && !out.alloc.slices.some((s) => s.label === "Taxes") && near(out.alloc.divisor, 4000) && food && near(food.amount, 3250) && sav && near(sav.amount, 750), "take-home allocation, no invented taxes " + JSON.stringify(out.alloc && { b: out.alloc.basis, d: out.alloc.divisor, slices: out.alloc.slices }));
     out.zero = await cdp.eval(`PaperTrailPreview.allocationMonth(2026, 1)`);
     check(out.zero && !(out.zero.divisor > 0), "zero month has no divisor");
-    out.plane = await cdp.eval(`(() => { const p = window.__ptSplashPath(3000, 800, 390); const downs = []; const ups = [];
-      p.move.forEach((k, i) => { if (!p.move[i+1]) return; const y1 = +k.transform.match(/,([-0-9.]+)px/)[1]; const y2 = +p.move[i+1].transform.match(/,([-0-9.]+)px/)[1]; const dy = y2 - y1; if (dy > 2) downs.push(dy); if (dy < -2) ups.push(-dy); });
+    out.plane = await cdp.eval(`(() => { const p = window.__ptSplashPath(3000, 800, 390); const downs = []; const ups = []; const dh = [];
+      const ang = (k) => +k.transform.match(/rotate\\(([-0-9.]+)deg\\)/)[1];
+      p.move.forEach((k, i) => { if (!p.move[i+1]) return; const y1 = +k.transform.match(/,([-0-9.]+)px/)[1]; const y2 = +p.move[i+1].transform.match(/,([-0-9.]+)px/)[1]; const dy = y2 - y1; if (dy > 2) downs.push(dy); if (dy < -2) ups.push(-dy); dh.push(Math.abs(ang(p.move[i+1]) - ang(k))); });
       const avg = (a) => a.reduce((n, x) => n + x, 0) / a.length;
-      return { n: p.move.length, loop: p.loopEndT, down: avg(downs), up: avg(ups) }; })()`);
-    check(out.plane.n > 100 && out.plane.loop > 400 && out.plane.loop < 2600 && out.plane.down > out.plane.up, "plane still loops and is faster downhill " + JSON.stringify(out.plane));
+      const max = (a) => a.reduce((n, x) => Math.max(n, x), 0);
+      return { n: p.move.length, loop: p.loopEndT, down: avg(downs), up: avg(ups), maxTurn: max(dh), end: p.move[p.move.length - 1].offset, dots: p.dots.length }; })()`);
+    check(out.plane.n > 200 && out.plane.loop > 400 && out.plane.loop < 2600 && out.plane.down > out.plane.up && out.plane.maxTurn < 12 && out.plane.end === 1 && out.plane.dots > 20, "plane flight is continuous and faster downhill " + JSON.stringify(out.plane));
     await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
     await sleep(60);
     out.menu = await cdp.eval(`({ open: document.getElementById("budget-menu") && !document.getElementById("budget-menu").hidden, items: [...document.querySelectorAll("#budget-menu [role=menuitem]")].map((b) => b.textContent.trim()) })`);
@@ -187,6 +189,16 @@ const SEED = `(() => {
         restored: back.basis };
     })()`);
     check(out.gross && out.gross.restored === "take-home", "pay plan restored");
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html" });
+    let reduceSeen = false;
+    for (let i = 0; i < 30 && !reduceSeen; i++) {
+      reduceSeen = await cdp.eval(`!!document.querySelector(".launch-splash") && !document.querySelector(".ls-trail") && matchMedia("(prefers-reduced-motion: reduce)").matches`);
+      if (!reduceSeen) await sleep(40);
+    }
+    await sleep(800);
+    out.reduce = { seen: reduceSeen, still: await cdp.eval(`!!document.querySelector(".launch-splash")`) };
+    check(out.reduce.seen && !out.reduce.still, "reduced motion is a short fade " + JSON.stringify(out.reduce));
     check(out.gross && out.gross.basis === "gross" && out.gross.source === "typed" && out.gross.of.indexOf("employer") >= 0, "gross basis " + JSON.stringify(out.gross));
     check(out.gross && near(out.gross.food, 3250) && near(out.gross.aside, 200) && near(out.gross.savings, 1300) && near(out.gross.other, 50) && out.gross.taxes > 0 && out.gross.park === 0 && out.gross.k === 0, "no double count " + JSON.stringify(out.gross));
     check(out.gross && near(out.gross.canSav, out.gross.savings) && out.gross.divisor > 5000, "savings rate not refit " + JSON.stringify(out.gross));

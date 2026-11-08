@@ -3023,76 +3023,116 @@
    * sheet closes or visibility resume). The app has already rendered under the overlay, so data load is not delayed.
    * Plane appears, flies one loop-de-loop, zooms up and away while the screen fades/slides in. Tap skips.
    * Reduced motion: a short fade. ?nosplash=1 skips (QA). */
-  /* The splash flight as one arc-length path. Entry: a Bézier from off-screen top-left down and to the
-   * right, landing on the loop's bottom heading right · one full 360° loop (radius 110) · a Bézier climb leaving on the
-   * same heading. Speed is constant through entry + loop (no stall at the bottom) and ramps smoothly up during the climb.
-   * Keyframes every ~16ms; nose = path tangent (unwrapped). dots = trail dots at fixed arc-length spacing. */
+  /* One cubic curve for the whole flight, so the turn never snaps from a straight piece onto a circle.
+   * Speed comes from height: faster at the bottom, slower at the top, and it keeps moving through the climb.
+   * The nose leads the tangent by a few degrees in the turn. Keyframes are dense so the pose stays smooth. */
   function launchSplashPath(T, vh, vw) {
     vw = vw || 390;
-    var R = 110, SPACING = 17, MOVE_END = T - 280;
-    function bezPts(P, n, out) {
-      for (var i = 1; i <= n; i++) {
-        var u = i / n, a = 1 - u;
-        out.push([a * a * a * P[0][0] + 3 * a * a * u * P[1][0] + 3 * a * u * u * P[2][0] + u * u * u * P[3][0],
-          a * a * a * P[0][1] + 3 * a * a * u * P[1][1] + 3 * a * u * u * P[2][1] + u * u * u * P[3][1]]);
+    vh = vh || 800;
+    var SPACING = 17;
+    var ctrls = [
+      [-vw / 2 - 110, -vh / 2 - 30],
+      [-vw / 2 - 10, -vh / 2 + 70],
+      [-200, -150],
+      [-186, -40],
+      [-150, 28],
+      [-78, 86],
+      [8, 96],
+      [92, 62],
+      [140, -8],
+      [150, -100],
+      [124, -186],
+      [40, -236],
+      [-58, -246],
+      [-140, -200],
+      [-176, -110],
+      [-168, -10],
+      [-112, 52],
+      [-20, 64],
+      [78, 18],
+      [140, -78],
+      [146, -210],
+      [110, -vh / 2 + 10],
+      [70, -vh / 2 - 70],
+      [36, -vh / 2 - 180]
+    ];
+    var pts = [], nC = ctrls.length, per = 18, i, s;
+    for (i = 0; i < nC - 3; i++) {
+      for (s = 0; s < per; s++) {
+        var u = s / per, u2 = u * u, u3 = u2 * u;
+        var b0 = (1 - 3 * u + 3 * u2 - u3) / 6, b1 = (4 - 6 * u2 + 3 * u3) / 6;
+        var b2 = (1 + 3 * u + 3 * u2 - 3 * u3) / 6, b3 = u3 / 6;
+        var p0 = ctrls[i], p1 = ctrls[i + 1], p2 = ctrls[i + 2], p3 = ctrls[i + 3];
+        pts.push([b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0], b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1]]);
       }
     }
-    var sx = -vw / 2 - 70, sy = -vh / 2 + 10;
-    var pts = [[sx, sy]];
-    bezPts([[sx, sy], [sx + 120, sy + 150], [-170, 0], [0, 0]], 400, pts);
-    for (var i = 1; i <= 720; i++) { var th = 2 * Math.PI * i / 720; pts.push([R * Math.sin(th), -R + R * Math.cos(th)]); }
-    var loopEnd = pts.length - 1;
-    bezPts([[0, 0], [130, 0], [200, -vh * 0.22], [180, -vh * 0.75]], 500, pts);
-    var cum = [0];
-    for (var j = 1; j < pts.length; j++) cum.push(cum[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
-    var L1 = cum[loopEnd], L2 = cum[pts.length - 1] - L1;
-    /* Faster downhill and around the bottom, slower climbing toward the top. Same path and duration. */
-    var segW = [];
-    for (var w = 0; w < pts.length - 1; w++) {
-      var dy = pts[w + 1][1] - pts[w][1], dx = pts[w + 1][0] - pts[w][0], hyp = Math.hypot(dx, dy) || 1;
-      segW.push(0.42 + 1.05 * ((dy / hyp + 1) / 2));
+    var e1 = ctrls[nC - 3], e2 = ctrls[nC - 2], e3 = ctrls[nC - 1];
+    pts.push([(e1[0] + 4 * e2[0] + e3[0]) / 6, (e1[1] + 4 * e2[1] + e3[1]) / 6]);
+    var cum = [0], hd = [];
+    for (var j = 1; j < pts.length; j++) {
+      var dx = pts[j][0] - pts[j - 1][0], dy = pts[j][1] - pts[j - 1][1];
+      cum.push(cum[j - 1] + Math.hypot(dx, dy));
+      var hdg = Math.atan2(dy, dx) * 180 / Math.PI;
+      if (j === 1) hd.push(hdg);
+      var prevH = hd[hd.length - 1];
+      while (hdg - prevH > 180) hdg -= 360;
+      while (hdg - prevH < -180) hdg += 360;
+      hd.push(hdg);
     }
-    var timeCum = [0];
-    for (var tw = 0; tw < segW.length; tw++) timeCum.push(timeCum[tw] + (cum[tw + 1] - cum[tw]) / segW[tw]);
-    var timeScale = MOVE_END / (timeCum[timeCum.length - 1] || 1);
-    function tAt(s) {
+    var iBot = 0;
+    for (i = 1; i < pts.length; i++) if (pts[i][1] > pts[iBot][1]) iBot = i;
+    var iLoop = pts.length - 1;
+    for (i = iBot; i < pts.length; i++) if (hd[i] <= hd[iBot] - 340) { iLoop = i; break; }
+    var yTop = pts[iBot][1];
+    for (i = iBot; i <= iLoop; i++) if (pts[i][1] < yTop) yTop = pts[i][1];
+    var drop = Math.max(80, pts[iBot][1] - yTop);
+    var vTop = 0.36, vBot = 0.9, grav = (vBot * vBot - vTop * vTop) / drop, vFloor = 0.3;
+    function vAt(y) { var raw = vTop * vTop + grav * (y - yTop); return Math.sqrt(raw > vFloor * vFloor ? raw : vFloor * vFloor); }
+    var rawT = [0];
+    for (i = 0; i < pts.length - 1; i++) rawT.push(rawT[i] + (cum[i + 1] - cum[i]) / (0.5 * (vAt(pts[i][1]) + vAt(pts[i + 1][1]))));
+    var timeScale = T / (rawT[rawT.length - 1] || 1);
+    var lead = [];
+    for (i = 0; i < pts.length; i++) {
+      var i0 = Math.max(0, i - 1), i1 = Math.min(pts.length - 1, i + 1);
+      var ds = (cum[i1] - cum[i0]) || 1;
+      lead.push(Math.max(-11, Math.min(11, (hd[i1] - hd[i0]) / ds * 16)));
+    }
+    var leadSm = lead.slice();
+    for (i = 1; i < lead.length - 1; i++) leadSm[i] = (lead[i - 1] + lead[i] + lead[i + 1]) / 3;
+    function tAt(arc) {
       var segT = 0;
-      if (s < cum[segT]) segT = 0;
-      while (segT < pts.length - 2 && cum[segT + 1] < s) segT++;
-      return (timeCum[segT] + (s - cum[segT]) / (segW[segT] || 1)) * timeScale;
+      while (segT < pts.length - 2 && cum[segT + 1] < arc) segT++;
+      var f = (arc - cum[segT]) / ((cum[segT + 1] - cum[segT]) || 1);
+      return (rawT[segT] + (rawT[segT + 1] - rawT[segT]) * f) * timeScale;
     }
-    function sAt(t) {
-      var u = t / timeScale, segT = 0;
-      if (u < timeCum[segT]) segT = 0;
-      while (segT < timeCum.length - 2 && timeCum[segT + 1] < u) segT++;
-      return Math.min(cum[cum.length - 1], cum[segT] + (u - timeCum[segT]) * (segW[segT] || 1));
+    function pose(t) {
+      var segT = 0, uT = t / timeScale;
+      while (segT < rawT.length - 2 && rawT[segT + 1] < uT) segT++;
+      var f = Math.max(0, Math.min(1, (uT - rawT[segT]) / ((rawT[segT + 1] - rawT[segT]) || 1)));
+      var seg = Math.min(pts.length - 2, segT), a = pts[seg], b = pts[seg + 1];
+      return {
+        x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f,
+        s: cum[seg] + (cum[seg + 1] - cum[seg]) * f,
+        hd: hd[seg] + (hd[seg + 1] - hd[seg]) * f + leadSm[seg] + (leadSm[seg + 1] - leadSm[seg]) * f
+      };
     }
-    var t1 = tAt(L1);
-    var seg = 0;
-    function at(s) {
-      if (s < cum[seg]) seg = 0;
-      while (seg < pts.length - 2 && cum[seg + 1] < s) seg++;
-      var a = pts[seg], b = pts[seg + 1], f = (s - cum[seg]) / ((cum[seg + 1] - cum[seg]) || 1);
-      return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, hd: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI };
-    }
-    var move = [], look = [], prev = null, n = Math.round(T / 16);
-    for (var k = 0; k <= n; k++) {
-      var t = T * k / n, s = sAt(t), p = at(Math.min(s, cum[pts.length - 1] - 0.01));
-      var cp = s <= L1 ? 0 : (s - L1) / L2, sc = 1 + 1.2 * cp * cp, op = cp < 0.8 ? 1 : Math.max(0, 1 - (cp - 0.8) / 0.2);
-      var hd = p.hd;
-      if (prev != null) { while (hd - prev > 180) hd -= 360; while (hd - prev < -180) hd += 360; }
-      prev = hd;
-      move.push({ offset: k / n, transform: "translate(" + p.x.toFixed(2) + "px," + p.y.toFixed(2) + "px) rotate(" + (45 + hd).toFixed(2) + "deg)" });
+    var L1 = cum[iLoop], total = cum[cum.length - 1], L2 = Math.max(1, total - L1), t1 = tAt(L1);
+    var move = [], look = [], n = Math.round(T / 8), k;
+    for (k = 0; k <= n; k++) {
+      var t = T * k / n, p = pose(t);
+      var cp = p.s <= L1 ? 0 : (p.s - L1) / L2;
+      var sc = 1 + 0.9 * cp * cp, op = cp < 0.82 ? 1 : Math.max(0, 1 - (cp - 0.82) / 0.18);
+      move.push({ offset: k / n, transform: "translate(" + p.x.toFixed(2) + "px," + p.y.toFixed(2) + "px) rotate(" + (45 + p.hd).toFixed(2) + "deg)" });
       look.push({ offset: k / n, opacity: +op.toFixed(3), transform: "scale(" + sc.toFixed(3) + ")" });
     }
-    /* Dots every SPACING px of arc length; each appears once the tail (~34px behind the nose centre) has passed it. */
-    var dots = [], total = cum[pts.length - 1];
-    seg = 0;
-    for (var d = SPACING; d < total - 40; d += SPACING) {
-      var q = at(d), tt = tAt(Math.min(total, d + 34 * (d > L1 ? 1 + 1.2 * Math.pow((d - L1) / L2, 2) : 1)));
-      dots.push({ x: q.x, y: q.y, s: d, t: Math.min(tt, MOVE_END) });
+    var dots = [];
+    for (var d = SPACING; d < total - 30; d += SPACING) {
+      var along = d <= L1 ? 0 : (d - L1) / L2;
+      var qT = tAt(Math.min(total - 0.01, d));
+      var q = pose(qT);
+      dots.push({ x: q.x, y: q.y, s: d, t: Math.min(T, tAt(Math.min(total - 0.01, d + 34 * (1 + 0.9 * along * along)))) });
     }
-    return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: (cum[cum.length - 1] || 1) / MOVE_END };
+    return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: total / T };
   }
   window.__ptSplashPath = launchSplashPath;
 
@@ -3128,8 +3168,7 @@
       plane.style.opacity = "1";
       anims.push(ov.animate([{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { duration: T, easing: "ease-out", fill: "forwards" }));
     } else {
-      /* Enters from the top-left, steady speed through the loop, climbs away; trail of round dots at even
-       * arc-length spacing that stays until the crossfade into Budget. */
+      /* Enters from the top-left, one loop, climbs away. Trail dots stay until the crossfade into Budget. */
       var vw = window.innerWidth || 390, vh2 = window.innerHeight || 700, NS = "http://www.w3.org/2000/svg";
       var keys = launchSplashPath(T, vh2, vw);
       var xf = Math.max(0.5, Math.min(0.75, (keys.loopEndT + 250) / T)); /* crossfade starts just after the loop */
@@ -18471,7 +18510,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.94";
+  var APP_VERSION = "37.5.95";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
