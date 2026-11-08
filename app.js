@@ -3029,7 +3029,7 @@
    * Keyframes every ~16ms; nose = path tangent (unwrapped). dots = trail dots at fixed arc-length spacing. */
   function launchSplashPath(T, vh, vw) {
     vw = vw || 390;
-    var R = 110, SPACING = 17, MOVE_END = T - 280, K = 2.4;
+    var R = 110, SPACING = 17, MOVE_END = T - 280;
     function bezPts(P, n, out) {
       for (var i = 1; i <= n; i++) {
         var u = i / n, a = 1 - u;
@@ -3046,17 +3046,28 @@
     var cum = [0];
     for (var j = 1; j < pts.length; j++) cum.push(cum[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
     var L1 = cum[loopEnd], L2 = cum[pts.length - 1] - L1;
-    var v = (L1 + 2 * L2 / (1 + K)) / MOVE_END, t1 = L1 / v, tc = MOVE_END - t1;
+    /* Faster downhill and around the bottom, slower climbing toward the top. Same path and duration. */
+    var segW = [];
+    for (var w = 0; w < pts.length - 1; w++) {
+      var dy = pts[w + 1][1] - pts[w][1], dx = pts[w + 1][0] - pts[w][0], hyp = Math.hypot(dx, dy) || 1;
+      segW.push(0.42 + 1.05 * ((dy / hyp + 1) / 2));
+    }
+    var timeCum = [0];
+    for (var tw = 0; tw < segW.length; tw++) timeCum.push(timeCum[tw] + (cum[tw + 1] - cum[tw]) / segW[tw]);
+    var timeScale = MOVE_END / (timeCum[timeCum.length - 1] || 1);
+    function tAt(s) {
+      var segT = 0;
+      if (s < cum[segT]) segT = 0;
+      while (segT < pts.length - 2 && cum[segT + 1] < s) segT++;
+      return (timeCum[segT] + (s - cum[segT]) / (segW[segT] || 1)) * timeScale;
+    }
     function sAt(t) {
-      if (t <= t1) return v * t;
-      var u = Math.min(t - t1, tc);
-      return L1 + v * u + (K - 1) * v * u * u / (2 * tc);
+      var u = t / timeScale, segT = 0;
+      if (u < timeCum[segT]) segT = 0;
+      while (segT < timeCum.length - 2 && timeCum[segT + 1] < u) segT++;
+      return Math.min(cum[cum.length - 1], cum[segT] + (u - timeCum[segT]) * (segW[segT] || 1));
     }
-    function tAt(s) { /* inverse of sAt */
-      if (s <= L1) return s / v;
-      var a = (K - 1) * v / (2 * tc), b = v, c = L1 - s;
-      return t1 + (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a);
-    }
+    var t1 = tAt(L1);
     var seg = 0;
     function at(s) {
       if (s < cum[seg]) seg = 0;
@@ -3081,7 +3092,7 @@
       var q = at(d), tt = tAt(Math.min(total, d + 34 * (d > L1 ? 1 + 1.2 * Math.pow((d - L1) / L2, 2) : 1)));
       dots.push({ x: q.x, y: q.y, s: d, t: Math.min(tt, MOVE_END) });
     }
-    return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: v };
+    return { move: move, look: look, dots: dots, loopEndT: t1, spacing: SPACING, speed: (cum[cum.length - 1] || 1) / MOVE_END };
   }
   window.__ptSplashPath = launchSplashPath;
 
@@ -4047,7 +4058,9 @@
       '<span class="month-jump-caret" aria-hidden="true">▾</span></button></h1>' +
       '<button class="icon-btn" type="button" data-act="next-month" aria-label="Next month">›</button>' +
       budgetTools +
-      '<button class="icon-btn" type="button" data-act="open-profile" aria-label="Profile">⚙</button>';
+      (state.tab === "budget"
+        ? '<div class="bar-menu"><button class="icon-btn" type="button" data-act="bar-menu" aria-label="Settings" aria-haspopup="menu" aria-expanded="false" aria-controls="budget-menu"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button><div class="bar-menu-pop" id="budget-menu" hidden role="menu" aria-label="Settings"><button type="button" role="menuitem" data-act="open-profile">Profile and settings</button><button type="button" role="menuitem" data-act="set-theme" data-theme="auto">Theme · Auto</button><button type="button" role="menuitem" data-act="set-theme" data-theme="light">Theme · Light</button><button type="button" role="menuitem" data-act="set-theme" data-theme="dark">Theme · Night</button><button type="button" role="menuitem" data-act="set-theme" data-theme="seasonal"' + (isPremium() ? "" : " disabled") + ">Theme · Seasonal" + (isPremium() ? "" : " (Premium)") + '</button><button type="button" role="menuitem" data-act="open-about">About and privacy</button></div></div>'
+        : '<button class="icon-btn" type="button" data-act="open-profile" aria-label="Profile">⚙</button>');
   }
 
   function renderTabs() {
@@ -4520,6 +4533,7 @@
       var shown = envelopeAmount(assigned, spent);
       var amountClass = envelopeMode() === "remaining" && shown >= 0 ? tone(shown) : "ink";
       html += '<div class="envelope">' +
+        (cat.system === "savings" ? '<p class="sav-count-h">Count towards savings rate ' + helpQ("Want to track how much you’re saving for retirement? Include money set aside for retirement, and leave out funds intended for future spending, like a car or vacation. You choose which items count.") + "</p>" : "") +
         '<div class="envelope-head">' +
         '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + esc(cat.id) + '">' +
         '<div class="name">' + esc(cat.name) + "</div>" +
@@ -4585,6 +4599,9 @@
 
 var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h1.5v-8H10zm3.5 0v8H15v-8h-1.5z" fill="currentColor"/></svg>';
 
+  function txNoteClean(v) {
+    return String(v || "").replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/^\s+|\s+$/g, "").slice(0, 200);
+  }
   function spendRowHtml(month, tx) {
     var income = isIncomeTx(tx);
     var summary = gm().txSummary(tx);
@@ -4603,7 +4620,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '" aria-label="Edit amount" ');
     var caption = (isSplitTx(tx) ? "Split · " : esc(displayEnvelope(month, tx)) + " · ") +
       esc(displayDate(tx.date)) +
-      (tx.note && !isSplitTx(tx) ? " · " + esc(tx.note) : "");
+      (tx.note ? " · " + esc(tx.note) : "");
     if (!income && tx.refundKind === "partial" && summary.refund > 0) caption += " · Net " + esc(money(summary.net));
     if (standalone) caption += " · Money back, not income";
     var chips = "";
@@ -5405,33 +5422,133 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" class="text-btn" data-dash="tax-open" data-year="' + ty + '">Checklist ›</button></div></section>';
   }
 
-  function dashBarsHtml(rows, fmt) {
-    var max = rows.reduce(function (m, r) { return Math.max(m, Math.abs(r.v) || 0); }, 0) || 1;
-    return '<div class="dash-bars">' + rows.map(function (r) {
-      return '<div class="dash-bar-row"><span class="dash-bar-lbl">' + esc(r.label) + '</span><span class="dash-bar-track"><span class="dash-bar-fill' + (r.dim ? " dim" : "") +
-        '" style="width:' + Math.max(2, Math.round(Math.abs(r.v) / max * 100)) + '%"></span></span><span class="dash-bar-v mono">' + esc(fmt(r.v)) + "</span></div>";
-    }).join("") + "</div>";
+  /* Planned allocation of the same period as the savings rate. Included savings lines are the Savings slice, not also a category. */
+  function allocPayrollExtras(rec, canonical) {
+    if (!canonical || canonical.basis !== "gross") return { taxes: 0, other: 0 };
+    var marked = 0;
+    (canonical.paycheckItems || []).forEach(function (it) {
+      if (/^(401k|Roth 401k|HSA)$/i.test(it.name)) return;
+      marked += Number(it.amount) || 0;
+    });
+    marked = roundCents(marked);
+    if (canonical.source === "typed") {
+      var est = null;
+      try { est = estimateCompensation(state.compensation || defaultCompensation()); } catch (e) {}
+      if (!est) return { taxes: 0, other: 0 };
+      var share = 1 / 12;
+      try { share = savMonthShare(rec.year, rec.month).share; } catch (e2) {}
+      var fica = roundCents(Math.max(0, (Number(est.totalTax) || 0) - (Number(est.federalTax) || 0) - (Number(est.stateTax) || 0) - (Number(est.localTax) || 0) - (Number(est.statePayroll) || 0)));
+      var taxes = roundCents(((Number(est.federalTax) || 0) + (Number(est.stateTax) || 0) + (Number(est.localTax) || 0) + (Number(est.statePayroll) || 0) + fica) * share);
+      var sv = {};
+      try { (state.compensation.trueLines || []).forEach(function (x) { if (x && x.id) sv[x.id] = x.saves === true; }); } catch (e3) {}
+      var other = 0;
+      function addOther(r) {
+        if (!r || r.on === false || sv[r.id] === true) return;
+        other += roundCents(deductionAmount(r, est.cashPay, 0) * share);
+      }
+      (state.compensation.preTax || []).forEach(addOther);
+      (state.compensation.postTax || []).forEach(addOther);
+      return { taxes: taxes, other: roundCents(other) };
+    }
+    var raw = null;
+    try { var b = payStubBasisFor(rec.year); raw = b && b.months ? b.months[Number(rec.month)] : null; } catch (e4) {}
+    if (!raw) return { taxes: 0, other: 0 };
+    var taxesS = roundCents((Number(raw.fed) || 0) + (Number(raw.state) || 0) + (Number(raw.ss) || 0) + (Number(raw.med) || 0) + (Number(raw.otherTax) || 0));
+    var otherS = roundCents(Math.max(0, (Number(raw.otherPre) || 0) + (Number(raw.fsa) || 0) - marked));
+    return { taxes: taxesS, other: otherS };
+  }
+  function allocMonth(rec) {
+    if (!rec) return { slices: [], divisor: 0, basis: "take-home", source: "budget", period: "", shortfall: 0, of: "planned take-home" };
+    var c = canonicalSavings([rec]);
+    var catMap = {};
+    (rec.categories || []).forEach(function (cat) {
+      var lines = cat.lines && cat.lines.length ? cat.lines : [{ name: cat.name, assigned: cat.assigned }];
+      lines.forEach(function (ln) {
+        if (savLineOn(cat, ln)) return;
+        var amt = roundCents(Math.max(0, Number(ln.assigned) || 0));
+        if (!(amt > 0)) return;
+        var name = cat && cat.system === "savings" ? "Set aside, not in the rate" : ((cat && cat.name) || ln.name || "Category");
+        catMap[name] = roundCents((catMap[name] || 0) + amt);
+      });
+    });
+    var slices = [];
+    Object.keys(catMap).forEach(function (n) { slices.push({ label: n, amount: catMap[n], kind: "budget" }); });
+    if (c.savings > 0) slices.push({ label: "Savings", amount: c.savings, kind: "savings" });
+    var extra = allocPayrollExtras(rec, c);
+    if (c.basis === "gross" && extra.taxes > 0) slices.push({ label: "Taxes", amount: extra.taxes, kind: "tax" });
+    if (c.basis === "gross" && extra.other > 0) slices.push({ label: "Other payroll deductions", amount: extra.other, kind: "deduction" });
+    var used = roundCents(slices.reduce(function (n, s) { return n + s.amount; }, 0));
+    var gap = roundCents((c.divisor || 0) - used);
+    var shortfall = 0;
+    if (c.divisor > 0 && gap > 0) slices.push({ label: "Unallocated", amount: gap, kind: "gap" });
+    else if (gap < 0) shortfall = roundCents(-gap);
+    slices.sort(function (a, b) { return b.amount - a.amount; });
+    return {
+      slices: slices, divisor: c.divisor || 0, basis: c.basis, source: c.source, period: c.period,
+      shortfall: shortfall, of: c.basis === "gross" ? (c.employer ? "gross pay + employer" : "gross pay") : "planned take-home",
+      savings: c.savings, label: c.label
+    };
+  }
+  function allocYear(year) {
+    var recs = [], mixed = false, basis = "", i;
+    for (i = 1; i <= 12; i++) {
+      var rec = state.months && state.months[ymKey(Number(year), i)];
+      if (!rec) continue;
+      var one = allocMonth(rec);
+      if (!(one.divisor > 0)) continue;
+      if (!basis) basis = one.basis;
+      else if (basis !== one.basis) mixed = true;
+      recs.push(one);
+    }
+    if (!recs.length) return { months: 0, mixed: false, divisor: 0, slices: [], of: "" };
+    if (mixed) return { months: recs.length, mixed: true, divisor: 0, slices: [], of: "" };
+    var map = {}, div = 0;
+    recs.forEach(function (one) {
+      div += one.divisor;
+      one.slices.forEach(function (s) {
+        if (s.kind === "gap") return;
+        map[s.label] = roundCents((map[s.label] || 0) + s.amount);
+      });
+    });
+    div = roundCents(div);
+    var slices = Object.keys(map).map(function (n) { return { label: n, amount: map[n] }; });
+    var used = roundCents(slices.reduce(function (n, s) { return n + s.amount; }, 0));
+    var gap = roundCents(div - used);
+    if (gap > 0) slices.push({ label: "Unallocated", amount: gap });
+    slices.sort(function (a, b) { return b.amount - a.amount; });
+    return { months: recs.length, mixed: false, divisor: div, slices: slices, of: recs[0].of, partial: recs.length < 12 };
+  }
+  function allocPct(amount, divisor) {
+    if (!(divisor > 0)) return null;
+    return amount / divisor;
   }
   function dashSpendByCategoryHtml() {
-    /* The viewed month; early in a month with nothing logged yet, the latest month that has spending. */
     var month = ensureMonth(state.year, state.month);
-    if (!(month.transactions || []).length) {
-      var prior = Object.keys(state.months || {}).map(function (k) { return state.months[k]; })
-        .filter(function (m) { return m && m.year && (m.year * 12 + m.month) < (month.year * 12 + month.month) && (m.transactions || []).length; })
-        .sort(function (a, b) { return (b.year * 12 + b.month) - (a.year * 12 + a.month); })[0];
-      if (prior) month = prior;
-    }
-    var label = MONTH_NAMES[month.month - 1];
-    var rows = sortedCategories(month).filter(function (cat) { return cat.system !== "checking"; }).map(function (cat) {
-      return { label: cat.name || "Category", v: roundCents((cat.lines || []).reduce(function (n, l) { return l.system === "checking" ? n : n + spentOnLine(month, l.id); }, 0)) };
-    }).filter(function (r) { return r.v > 0; }).sort(function (a, b) { return b.v - a.v; });
-    var total = rows.reduce(function (n, r) { return n + r.v; }, 0);
+    var pic = allocMonth(month);
+    var label = MONTH_NAMES[month.month - 1] + " " + month.year;
     var html = '<section class="dash-card dash-spendcat" id="dash-spendcat"><p class="dash-k">Spending by category · ' + esc(label) + "</p>";
-    if (!rows.length) return html + '<p class="dash-big mono">$0</p><p class="caption">Log a transaction to see where the money goes.</p></section>';
-    var top = rows.slice(0, 6);
-    if (rows.length > 6) top.push({ label: "Other", v: roundCents(rows.slice(6).reduce(function (n, r) { return n + r.v; }, 0)), dim: true });
-    return html + '<p class="dash-big mono">' + moneyWhole(total) + "</p>" + dashBarsHtml(top, function (v) { return moneyWhole(v); }) +
-      '<p class="plain-line">What you spent in each category in ' + esc(label) + ', net of refunds. Most at ' + esc(rows[0].label) + ".</p></section>";
+    if (!(pic.divisor > 0)) return html + '<p class="dash-big mono">$0</p><p class="caption">No planned income for this month, so there is nothing to divide.</p></section>';
+    var top = pic.slices[0];
+    html += '<p class="dash-big mono">' + (top && allocPct(top.amount, pic.divisor) != null ? pctWhole(allocPct(top.amount, pic.divisor)) : "—") + '</p>';
+    html += '<div class="dash-bars">' + pic.slices.map(function (s) {
+      var p = allocPct(s.amount, pic.divisor);
+      var w = p == null ? 0 : Math.max(2, Math.min(100, Math.round(p * 100)));
+      return '<div class="dash-bar-row"><span class="dash-bar-lbl">' + esc(s.label) + '</span><span class="dash-bar-track"><span class="dash-bar-fill' + (s.kind === "gap" ? " dim" : "") +
+        '" style="width:' + w + '%"></span></span><span class="dash-bar-v mono">' + esc(moneyWhole(s.amount)) + " · " + (p == null ? "—" : pctWhole(p)) + "</span></div>";
+    }).join("") + "</div>";
+    var src = pic.source === "typed" ? "Typed-in pay" : pic.source === "stub" ? "Pay stub" : "Budget";
+    html += '<p class="caption">Planned for ' + esc(pic.period || label) + ". Each percent is of " + moneyWhole(pic.divisor) + " " + esc(pic.of) + " (" + esc(src) + "). Amounts are not scaled to 100%.</p>";
+    if (pic.shortfall > 0) html += '<p class="caption">Shortfall ' + moneyWhole(pic.shortfall) + ": planned amounts are over what this chart divides by.</p>";
+    var yearPic = allocYear(month.year);
+    if (yearPic.mixed) html += '<p class="plain-line">This year mixes take-home months and gross-pay months, so there isn’t one annual percentage.</p>';
+    else if (yearPic.months > 1) {
+      html += '<p class="plain-line">' + (yearPic.partial ? "Estimate, based on " + yearPic.months + " months. " : "Full year. ") + "Weighted by dollars, divided by " + moneyWhole(yearPic.divisor) + " " + esc(yearPic.of) + ".</p>";
+      html += yearPic.slices.slice(0, 6).map(function (s) {
+        var p = allocPct(s.amount, yearPic.divisor);
+        return '<p class="caption">' + esc(s.label) + " " + moneyWhole(s.amount) + (p == null ? "" : " · " + pctWhole(p)) + "</p>";
+      }).join("");
+    }
+    return html + "</section>";
   }
   function dashSavingsTrendHtml(embed) {
     var cym = currentYearMonth(), pts = [];
@@ -6523,7 +6640,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* v37.5.70 shelved features: the code stays for a later rework, but nothing renders while a flag is false.
    *  fooNextStep  — Dashboard "What to do next" (FOO order-of-operations step; it stuck on the deductibles step).
    *  taxFreeRoom  — Dashboard "Roth / HSA room left" card. */
-  var SHELVED_FEATURES = { fooNextStep: false, taxFreeRoom: false };
+  /* Wishlist, not built: a Year in Review slide that gathers gift notes (“what the $100 Gifts bought”). */
+  var SHELVED_FEATURES = { fooNextStep: false, taxFreeRoom: false, giftNoteReview: false };
   /* Headline = the grade's next-dollar step, so this card always agrees with the grade. */
   function nextActionHtml(grade) {
     var foo = grade.foo || {}, na = grade.nextAction || {};
@@ -13615,7 +13733,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>') +
       '<div class="ed-card">' +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(d.date || "") + '"></label>' +
-      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label></div>' +
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label>' +
+      '<label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Optional note" placeholder="Optional, such as what a gift was" value="' + esc(d.note || "") + '"></label></div>' +
       (inc || d.id ? "" : edMerchHtml());
     if (inc) {
       h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
@@ -13961,6 +14080,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); }
     }
     else if (k === "date") { if (el.value) spendDraft.date = el.value; }
+    else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
     else if (li != null) {
@@ -14066,7 +14186,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       }
       if (form.date.value !== spendDraft.date) form.date.value = spendDraft.date;
     }
-    spendDraft.note = form.note ? form.note.value : spendDraft.note;
+    spendDraft.note = txNoteClean(form.note ? form.note.value : spendDraft.note);
     if (form.amount) spendDraft.amount = centsFromDigits(form.amount.value);
     if (form.incomeId) spendDraft.incomeId = form.incomeId.value;
     if (form.refundKind) spendDraft.refundKind = form.refundKind.value;
@@ -16092,7 +16212,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           var on = (state.theme || "auto") === o[0], lock = o[0] === "seasonal" && !isPremium();
           return '<button type="button" data-act="set-theme" data-theme="' + o[0] + '"' + (lock ? " disabled" : "") + (on ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + ">" + o[1] + (lock ? " 🔒" : "") + "</button>";
         }).join("") + "</div>" +
-        '<p class="caption">Auto follows your phone’s light or dark setting. ' + (isPremium() ? "Seasonal is a light look dressed for the month you’re viewing, like falling leaves in November; other months look like Light." : "Seasonal is a Premium look for the season.") + "</p>" +
+        '<p class="caption">Auto follows your phone’s light or dark setting. ' + (isPremium() ? "Seasonal is a light look dressed for the month you’re viewing: leaves in November, snow in December. Other months look like Light." : "Seasonal is a Premium look for the season.") + "</p>" +
         '<p class="sheet-label">Text size</p><div class="plan-toggle text-size-pick" role="group" aria-label="Text size">' +
         TEXT_SIZES.map(function (o) {
           var on = textSizeOf() === o[0];
@@ -18351,7 +18471,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.93";
+  var APP_VERSION = "37.5.94";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -19520,8 +19640,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function seasonNow() {
     migrateSeasonTheme();
     if (!state || state.theme !== "seasonal" || !isPremium()) return "";
-    if (seasonPreview() === "november") return "nov";
-    return Number(state.month) === 11 ? "nov" : "";
+    var preview = seasonPreview();
+    if (preview === "november") return "nov";
+    if (preview === "december") return "dec";
+    if (Number(state.month) === 11) return "nov";
+    if (Number(state.month) === 12) return "dec";
+    return "";
   }
   function seasonFeathers() {
     var cols = ["#7E3F1F", "#A8462A", "#C9702B", "#D9A441", "#C9702B", "#A8462A", "#7E3F1F"], h = "";
@@ -19563,14 +19687,26 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<span class="season-turkey t1">' + TURKEY_SVG + "</span>" +
       '<span class="season-turkey t2">' + TURKEY_SVG + "</span></div>";
   }
+  function seasonDecStripHtml() {
+    return '<div class="season-lane season-lane-dec">' +
+      '<span class="season-acc s-holly a1">' + HOLLY_SVG + "</span>" +
+      '<span class="season-acc s-flake a2">' + FLAKE_SVG + "</span>" +
+      '<span class="season-acc s-holly a3">' + HOLLY_SVG + "</span></div>";
+  }
   /* Ambient seasonal layer behind content. kind: "leaves" (November) or "snow" (December). */
   var SEASON_FX_GLYPHS = {
     leaves: function (i) {
       var c = ["#A4521C", "#8E3320", "#B07A1E", "#6E3A18"][i % 4];
       return '<svg viewBox="0 0 20 20" width="100%" height="100%"><path d="M10 1C6 5 3 8 4 12c1 3 4 5 6 7 2-2 5-4 6-7 1-4-2-7-6-11z" fill="' + c + '"/><path d="M10 4v15" stroke="rgba(40,20,8,.45)" stroke-width=".8"/></svg>';
     },
-    snow: function () { return '<svg viewBox="0 0 20 20" width="100%" height="100%"><circle cx="10" cy="10" r="7" fill="rgba(255,255,255,.9)"/></svg>'; }
+    snow: function (i) {
+      var fill = i % 5 === 0 ? "rgba(196,161,90,.85)" : "rgba(255,255,255,.92)";
+      return '<svg viewBox="0 0 20 20" width="100%" height="100%"><path d="M10 1.5v17M2.2 5.5l15.6 9M17.8 5.5L2.2 14.5" stroke="' + fill + '" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="10" r="1.3" fill="' + fill + '"/></svg>';
+    }
   };
+  var HOLLY_SVG = '<svg viewBox="0 0 28 22" aria-hidden="true"><path d="M6 14c-4-2-5-8-2-10 3 1 5 5 6 8-2 1-3 2-4 2z" fill="#1F6B4A"/><path d="M22 14c4-2 5-8 2-10-3 1-5 5-6 8 2 1 3 2 4 2z" fill="#174E36"/><circle cx="11" cy="15" r="2.1" fill="#A33B45"/><circle cx="15.2" cy="13.4" r="2.1" fill="#A33B45"/><circle cx="13.2" cy="17.2" r="1.8" fill="#C4A15A"/></svg>';
+  var FLAKE_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M3 5.5l14 9M17 5.5L3 14.5" stroke="#F4F7F8" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  var SANTA_SVG = '<svg viewBox="0 0 120 36" aria-hidden="true"><g fill="none" stroke="#C4A15A" stroke-width="1"><path d="M8 22c6-8 10-8 14 0" stroke="#1F6B4A"/><circle cx="14" cy="14" r="3" fill="#C4A15A"/><path d="M22 20h8l6 6H26z" fill="#8C2F38"/><path d="M30 16c8 0 14 4 16 8H34c-1-3-4-5-8-5z" fill="#F4F1EA"/><circle cx="48" cy="18" r="2" fill="#1C1E21"/><path d="M62 24h28l6-8H70z" fill="#8C2F38"/><path d="M66 24v4M86 24v4" stroke="#C4A15A"/><circle cx="70" cy="28" r="2" fill="#1C1E21"/><circle cx="90" cy="28" r="2" fill="#1C1E21"/></g></svg>';
   function seasonFx(phone, kind) {
     var fx = document.getElementById("season-fx");
     if (!kind) { if (fx) fx.remove(); return; }
@@ -19614,39 +19750,95 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   document.addEventListener("visibilitychange", function () {
     if (document.body) document.body.classList.toggle("fx-paused", document.hidden);
   });
+  document.addEventListener("click", function (e) {
+    var pop = document.getElementById("budget-menu");
+    if (!pop || pop.hidden) return;
+    var toggle = e.target.closest && e.target.closest('[data-act="bar-menu"]');
+    if (toggle) return;
+    pop.hidden = true;
+    var btn = document.querySelector('[data-act="bar-menu"]');
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var pop = document.getElementById("budget-menu");
+    if (!pop || pop.hidden) return;
+    pop.hidden = true;
+    var btn = document.querySelector('[data-act="bar-menu"]');
+    if (btn) { btn.setAttribute("aria-expanded", "false"); try { btn.focus(); } catch (err) {} }
+  });
+  var santaTimer = null, santaArmed = false;
+  function seasonSantaStop() {
+    santaArmed = false;
+    if (santaTimer) { clearInterval(santaTimer); santaTimer = null; }
+    var el = document.getElementById("season-santa");
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function seasonSantaArm(phone) {
+    if (santaArmed) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    santaArmed = true;
+    function fly() {
+      if (!santaArmed || document.hidden || seasonNow() !== "dec") return;
+      var prev = document.getElementById("season-santa");
+      if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+      var run = document.createElement("div");
+      run.id = "season-santa"; run.className = "season-santa"; run.setAttribute("aria-hidden", "true");
+      run.innerHTML = SANTA_SVG;
+      phone.appendChild(run);
+      setTimeout(function () { if (run.parentNode) run.parentNode.removeChild(run); }, 9000);
+    }
+    santaTimer = setInterval(fly, 60000);
+    setTimeout(fly, 1500);
+  }
   function applySeason() {
     var phone = document.getElementById("phone");
     if (!phone) return;
-    /* Seasonal background tint follows the viewed month on every tab; the strip and hat stay on Budget. */
+    /* Seasonal background tint follows the viewed month on every tab; the strip stays on Budget. */
     var sAll = seasonNow();
-    /* Seasonal mode is one look with its own palette, whatever the light/dark theme. */
-    if (document.body) document.body.classList.toggle("season-bg", sAll === "nov");
-    document.documentElement.classList.toggle("season-bg", sAll === "nov");
-    seasonFx(phone, sAll === "nov" ? "leaves" : "");
+    var on = sAll === "nov" || sAll === "dec";
+    if (document.body) {
+      document.body.classList.toggle("season-bg", on);
+      document.body.classList.toggle("season-dec", sAll === "dec");
+    }
+    document.documentElement.classList.toggle("season-bg", on);
+    document.documentElement.classList.toggle("season-dec", sAll === "dec");
+    seasonFx(phone, sAll === "nov" ? "leaves" : sAll === "dec" ? "snow" : "");
+    if (sAll === "dec") seasonSantaArm(phone); else seasonSantaStop();
     var nightOn = isNightNow();
     if (document.body) document.body.classList.toggle("night", nightOn);
     document.documentElement.classList.toggle("night", nightOn);
     var s = state.tab === "budget" ? sAll : "";
     phone.classList.toggle("season-nov", s === "nov");
+    phone.classList.toggle("season-dec", s === "dec");
     var strip = document.getElementById("season-strip");
-    if (s === "nov") {
-      if (!strip) {
+    if (s === "nov" || s === "dec") {
+      var markup = s === "dec" ? seasonDecStripHtml() : seasonStripHtml();
+      if (!strip || strip.getAttribute("data-season") !== s) {
+        if (strip && strip.parentNode) strip.parentNode.removeChild(strip);
         strip = document.createElement("div");
-        strip.id = "season-strip"; strip.className = "season-strip"; strip.setAttribute("aria-hidden", "true");
-        strip.innerHTML = seasonStripHtml();
+        strip.id = "season-strip"; strip.className = "season-strip" + (s === "dec" ? " season-strip-dec" : "");
+        strip.setAttribute("data-season", s); strip.setAttribute("aria-hidden", "true");
+        strip.innerHTML = markup;
         phone.insertBefore(strip, document.getElementById("tab-bar"));
       }
-      /* Keep clear of a floating + if one is showing on this screen. */
       var fab = document.getElementById("fab-add");
       strip.classList.toggle("fab-clear", !!(fab && !fab.hidden));
       var lane = strip.firstChild;
       if (lane) lane.style.setProperty("--lane", Math.max(120, lane.clientWidth - 34) + "px");
       var h1 = document.querySelector("#month-bar .month-jump");
-      if (h1 && !h1.querySelector(".season-hat")) h1.insertAdjacentHTML("afterbegin", HAT_SVG);
+      if (h1) {
+        var hat = h1.querySelector(".season-hat");
+        var sprig = h1.querySelector(".season-sprig");
+        if (s === "nov") { if (sprig) sprig.parentNode.removeChild(sprig); if (!hat) h1.insertAdjacentHTML("afterbegin", HAT_SVG); }
+        else { if (hat) hat.parentNode.removeChild(hat); if (!sprig) h1.insertAdjacentHTML("afterbegin", '<span class="season-sprig" aria-hidden="true">' + HOLLY_SVG + "</span>"); }
+      }
     } else {
       if (strip) strip.parentNode.removeChild(strip);
-      var hat = document.querySelector("#month-bar .season-hat");
-      if (hat) hat.parentNode.removeChild(hat);
+      var oldHat = document.querySelector("#month-bar .season-hat");
+      if (oldHat) oldHat.parentNode.removeChild(oldHat);
+      var oldSprig = document.querySelector("#month-bar .season-sprig");
+      if (oldSprig) oldSprig.parentNode.removeChild(oldSprig);
     }
   }
   /* Themed close: one turkey runs across, then the existing stamp lands. Skipped for reduced motion. */
@@ -21318,7 +21510,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     else if (act === "prev-month") shiftMonth(-1);
     else if (act === "next-month") shiftMonth(1);
-    else if (act === "open-settings" || act === "open-profile") openProfile();
+    else if (act === "bar-menu") {
+      var menu = document.getElementById("budget-menu");
+      if (menu) {
+        var opening = menu.hidden;
+        menu.hidden = !opening;
+        actEl.setAttribute("aria-expanded", opening ? "true" : "false");
+        if (opening) {
+          var item = menu.querySelector("button:not([disabled])");
+          if (item) { try { item.focus(); } catch (err) {} }
+        }
+      }
+    } else if (act === "open-settings" || act === "open-profile") openProfile();
     else if (act === "copy-month") copyBudgetOntoNext();
     else if (act === "copy-last-month") copyLastMonthOntoCurrent();
     else if (act === "start-month") openRitual();
@@ -22090,7 +22293,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           payee: String(spendDraft.payee || "").replace(/^\s+|\s+$/g, "") || incLine.name || "Income",
           amount: incAmount,
           date: spendDraft.date || isoDate(state.year, state.month, new Date().getDate()),
-          note: String(spendDraft.note || "").replace(/^\s+|\s+$/g, ""),
+          note: txNoteClean(spendDraft.note),
           incomeId: incLine.id
         };
       } else {
@@ -22146,7 +22349,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           return;
         }
         var payee = String(spendDraft.payee || "").replace(/^\s+|\s+$/g, "") || "Spend";
-        var note = String(spendDraft.note || "").replace(/^\s+|\s+$/g, "");
+        var note = txNoteClean(spendDraft.note);
         payload = {
           id: spendDraft.id || nextId(),
           payee: payee,
@@ -22198,7 +22401,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var categoryId = foundLine ? foundLine.cat.id : parts[0];
       var lineId = foundLine ? foundLine.line.id : (parts[1] || "");
       if (act === "save-quick-spend" && (!foundLine || !(Number(data.amount) > 0))) return;
-      var note = (data.note || "").replace(/^\s+|\s+$/g, "");
+      var note = txNoteClean(data.note);
       var quickPayee = note || (data.payee || "Spend").replace(/^\s+|\s+$/g, "") || "Spend";
       var quickAmount = Number(data.amount) || 0;
       var suggestion = merchantSuggestion(month, quickPayee, quickAmount);
@@ -22849,6 +23052,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     clearPrintReport: clearPrintReport,
     buildBackup: buildBackup,
     /* V37.5.59.110 test hook: every savings figure from the one money set. */
+    allocationMonth: function (year, month) {
+      var rec = state.months && state.months[ymKey(year, month)];
+      return rec ? allocMonth(rec) : allocMonth(null);
+    },
+    allocationYear: function (year) { return allocYear(year); },
+    /* Test hook: apply a pay plan, read allocation, then put the plan back. */
+    allocationWithPay: function (spec) {
+      spec = spec || {};
+      var keepC = state.compensation, keepS = state.savLineOn;
+      if (spec.compensation) state.compensation = spec.compensation;
+      if (spec.savLineOn) state.savLineOn = spec.savLineOn;
+      try {
+        var y = Number(spec.year), m = Number(spec.month);
+        return { month: allocMonth(state.months[ymKey(y, m)]), january: allocMonth(state.months[ymKey(y, 1)]), year: allocYear(y), canonical: canonicalSavings([state.months[ymKey(y, m)]]) };
+      } finally { state.compensation = keepC; state.savLineOn = keepS; }
+    },
     canonicalSavings: function (year, m1, m2) {
       var recs = [];
       for (var m = m1; m <= m2; m++) { var r = state.months && state.months[ymKey(year, m)]; if (r) recs.push(r); }
