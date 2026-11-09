@@ -5256,6 +5256,8 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
  * Rebuilding the sheet must not anchor-scroll the page. The page behind stays put while the sheet is open. */
 .sheet.ed-add{overflow-y:auto;-webkit-overflow-scrolling:touch;overflow-anchor:none}
 body.ed-add-open #screen{overflow:hidden}
+body.tx-editor-open #screen{overflow:hidden}
+body.tx-editor-open .sheet{overscroll-behavior:contain}
 .ed-picker button{touch-action:manipulation}
 .sheet.ed-add.ed-kb .ed-head{padding-bottom:6px}
 .sheet.ed-add.ed-kb .ed-hero .ed-amt-v{font-size:calc(30px * var(--fs-scale-lg));height:calc(36px * var(--fs-scale-lg));line-height:calc(36px * var(--fs-scale-lg))}

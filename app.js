@@ -11997,10 +11997,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     window.visualViewport.addEventListener("resize", function () { itFit(); if (itRevealEl && document.activeElement === itRevealEl) itRevealField(itRevealEl, false); });
     window.visualViewport.addEventListener("scroll", function () { itFit(); if (itRevealEl && document.activeElement === itRevealEl) itRevealField(itRevealEl, false); });
   }
-  /* Drag the sheet's top bar down to dismiss. */
+  /* Drag the pay sheet's top bar down to dismiss. A transaction sheet never dismisses this way. */
   document.addEventListener("pointerdown", function (e) {
     var top = e.target.closest && e.target.closest("#modal .it-sheet .sheet-top");
     if (!top || e.target.closest("button, input, select, a")) return;
+    if (top.closest('form[data-act="save-spend-sheet"]')) return;
     var sh = top.closest(".it-sheet"), y0 = e.clientY, t0 = Date.now(), dy = 0;
     sh.style.transition = "none";
     var mv = function (ev) { dy = Math.max(0, ev.clientY - y0); sh.style.transform = dy ? "translateY(" + dy + "px)" : ""; };
@@ -13768,7 +13769,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var h = '<form class="sheet ed-add" data-act="save-spend-sheet" novalidate>' +
       /* Title + amount stay pinned at the top of the sheet, so the number being typed is always in view
        * (short screens and an open keyboard included). Fixed height: typing never moves anything. */
-      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' +
+      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3></div>" +
       '<button type="button" class="ed-amt ed-hero' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="Amount"><span class="kicker">Amount</span><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + '">' + edAmountText() + "</span></button></div>" +
       (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
@@ -13823,6 +13824,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     modal.hidden = false;
     modal.innerHTML = h;
     document.body.classList.add("ed-add-open");
+    document.body.classList.add("tx-editor-open");
     /* Rebuilding the sheet used to focus ✕ at the top. That focus scrolls on the next frame and jumps the sheet up. */
     armSheetA11y(modal, { preventScroll: true, skipFocus: !!keep });
     edFit();
@@ -14411,14 +14413,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     form.classList.add("sheet-sticky");
     var acts = form.querySelector(".sheet-actions");
     if (!acts) return;
-    /* Editing → Save sits in the sticky top bar beside ✕, so nothing covers the transaction.
-     * The bottom bar only remains for the Left to split status. */
+    /* Editing → Save sits in the sticky top bar, so nothing covers the transaction.
+     * The bottom bar only remains for the Left to split status. */}
     if (spendDraft && spendDraft.id) {
-      var top = form.querySelector(".sheet-top"), sv = acts.querySelector('button[type="submit"]'), x = top && top.querySelector(".sheet-x");
-      if (top && sv && x) {
+      var top = form.querySelector(".sheet-top"), sv = acts.querySelector('button[type="submit"]');
+      if (top && sv) {
         sv.classList.add("sheet-top-save");
-        top.insertBefore(sv, x);
-        acts.parentNode.removeChild(acts);
+        top.appendChild(sv);
+        if (!acts.querySelector("button")) acts.parentNode.removeChild(acts);
         var st0 = form.querySelector("#split-status");
         if (st0) { var f0 = document.createElement("div"); f0.className = "sheet-foot sheet-foot-status"; st0.parentNode.insertBefore(f0, st0); f0.appendChild(st0); }
         spendSheetFit();
@@ -18513,7 +18515,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.96";
+  var APP_VERSION = "37.5.97";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20043,6 +20045,20 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   }
 
+  /* Add / Edit transaction. It stays until Save or Delete — a tap outside, Escape,
+   * a swipe, ✕, Cancel, or a tab / month change does not discard what was typed. */
+  function txEditorForm() {
+    var modal = document.getElementById("modal");
+    if (!modal || modal.hidden) return null;
+    return modal.querySelector('form[data-act="save-spend-sheet"]');
+  }
+  function outsideTxEditor(target) {
+    if (!txEditorForm()) return false;
+    var el = target;
+    if (el && el.nodeType !== 1) el = el.parentElement;
+    return !(el && el.closest && el.closest('form[data-act="save-spend-sheet"]'));
+  }
+
   function closeModal() {
     itStashDraft();
     document.body.classList.remove("it-sheet-open");
@@ -20050,6 +20066,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var itM = document.getElementById("modal"); if (itM) itM.classList.remove("it-fading");
     document.body.classList.remove("ed-typing");
     document.body.classList.remove("ed-add-open");
+    document.body.classList.remove("tx-editor-open");
     moneyWholeModal = false;
     ritual = { step: 0, destKey: ritual.destKey };
     var modal = document.getElementById("modal");
@@ -20125,17 +20142,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     captureModalReturnScreenTop();
     var modal = document.getElementById("modal");
     modal.hidden = false;
+    /* A transaction stays until Save or Delete: no ✕ and no Cancel. Other sheets keep both. */
+    var lockTx = saveAct === "save-spend-sheet";
     modal.innerHTML =
       '<form class="sheet" data-act="' + saveAct + '">' +
       /* Sticky top bar with a close X so long sheets (budget line, category, income) close without scrolling; bottom Cancel stays. */
-      '<div class="sheet-top"><h3>' + esc(title) + '</h3><button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button></div>' + fieldsHtml +
+      '<div class="sheet-top"><h3>' + esc(title) + "</h3>" +
+      (lockTx ? "" : '<button type="button" class="sheet-x" data-act="close-modal" aria-label="Close">✕</button>') +
+      "</div>" + fieldsHtml +
       '<div class="sheet-actions">' +
-      '<button type="button" data-act="close-modal">Cancel</button>' +
+      (lockTx ? "" : '<button type="button" data-act="close-modal">Cancel</button>') +
       '<button class="primary" type="submit">Save</button></div></form>';
     bindMoneyInputs(modal);
     armSheetA11y(modal);
     var f = modal.querySelector("form.sheet");
     if (f && SAVE_ON_CLOSE[saveAct]) { f.setAttribute("data-save-on-close", "1"); f.__initial = sheetFormSnapshot(f); }
+    if (lockTx) document.body.classList.add("tx-editor-open");
   }
   /* Budget line / envelope sheets: the top ✕ keeps your edits (saves) instead of throwing them away.
    * Cancel at the bottom still discards; untouched sheets just close. */
@@ -20754,6 +20776,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* A tab-bar tap is a "clear the screen" tap — always the tab's home, even when already on it:
    * closes sheets, tours and sub-screens, resets search / edit modes, and scrolls to the top. */
   function clearToTabHome() {
+    if (txEditorForm()) return;
     try { closeModal(); } catch (err) {}
     try { tourClose(); } catch (err) {}
     pendingScreenUi = null;
@@ -20775,6 +20798,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function onTab(tab) {
+    if (txEditorForm()) return;
     if (tab === "income") tab = "budget";
     clearToTabHome();
     if (tab === "worth") {
@@ -20915,7 +20939,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function shiftMonth(delta) {
-    if (state.tab === "insights") return;
+    if (state.tab === "insights" || txEditorForm()) return;
     var next = offsetMonth(state.year, state.month, delta);
     state.year = next.year;
     state.month = next.month;
@@ -20927,6 +20951,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function handleClick(event) {
     /* Short swallow only after Save. */
     if (ignoreClicksUntil && Date.now() < ignoreClicksUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    /* Anywhere outside the open transaction — backdrop, month bar, tabs — leaves it up. */
+    if (outsideTxEditor(event.target)) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -21652,6 +21682,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (act === "plan-copy-yes" || act === "plan-copy-blank") answerPlanCopy(act === "plan-copy-yes");
     else if (act === "close-modal") {
       if (closeSavesSheet(actEl)) return;
+      if (txEditorForm() && actEl.closest && actEl.closest('form[data-act="save-spend-sheet"]')) return;
       pendingScreenUi = captureScreenUi();
       closeModal();
       render();
@@ -23037,6 +23068,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var modal = document.getElementById("modal");
     if (modal && !modal.hidden) {
       event.preventDefault();
+      if (txEditorForm()) return;
       pendingScreenUi = captureScreenUi();
       closeModal();
       render();
@@ -23064,6 +23096,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   });
   document.addEventListener("click", handleClick);
+  /* A press or scroll on the dimmed area must not move the page or start a dismiss. */
+  document.addEventListener("pointerdown", function (event) {
+    if (!outsideTxEditor(event.target)) return;
+    event.preventDefault();
+  }, true);
+  document.addEventListener("touchmove", function (event) {
+    if (!outsideTxEditor(event.target)) return;
+    event.preventDefault();
+  }, { passive: false, capture: true });
+  document.addEventListener("wheel", function (event) {
+    if (!outsideTxEditor(event.target)) return;
+    event.preventDefault();
+  }, { passive: false, capture: true });
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("change", handleChange);
   document.addEventListener("input", function (event) {

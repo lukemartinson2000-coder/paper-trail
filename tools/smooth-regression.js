@@ -194,8 +194,70 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
     if (cat.after.top < cat.before.top - 8) fail.push("sheet jumped upward " + cat.before.top + " -> " + cat.after.top);
     if (!cat.after.rowVisible) fail.push("chosen category row is off screen");
 
-    await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
-    await sleep(200);
+    out.stay = await cdp.eval(`(async () => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      if (pay) { pay.value = "Corner store"; pay.dispatchEvent(new Event("input", { bubbles: true })); }
+      document.getElementById("modal").click();
+      document.querySelector('[data-tab="stats"]').click();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise((r) => setTimeout(r, 80));
+      const sh = document.querySelector("form.sheet.ed-add");
+      const pay2 = sh && sh.querySelector('[data-ed-in="payee"]');
+      const tab = document.querySelector(".tab.active");
+      return {
+        open: !!sh,
+        payee: pay2 ? pay2.value : "",
+        closeBtn: !!(sh && sh.querySelector('[data-act="close-modal"]')),
+        tab: tab ? tab.getAttribute("data-tab") : ""
+      };
+    })()`);
+    if (!out.stay.open) fail.push("outside click, tab, or escape closed the transaction");
+    if (out.stay.payee !== "Corner store") fail.push("typed merchant was lost: " + out.stay.payee);
+    if (out.stay.closeBtn) fail.push("transaction sheet still offers a dismiss control");
+    if (out.stay.tab !== "budget") fail.push("tab changed while entering a transaction: " + out.stay.tab);
+
+    await cdp.eval(`(async () => {
+      document.querySelector('[data-ed="pad"]').click();
+      await new Promise((r) => setTimeout(r, 40));
+      ["1", "0", "0"].forEach((k) => document.querySelector('.ed-pad [data-k="' + k + '"]').click());
+      document.querySelector(".ed-save").click();
+    })()`);
+    await sleep(300);
+    out.saved = await cdp.eval(`(() => {
+      const raw = JSON.parse(localStorage.getItem("PaperTrail.preview.v6") || "{}");
+      const txs = (raw.months && raw.months["2026-11"] && raw.months["2026-11"].transactions) || [];
+      return { open: !!document.querySelector("form[data-act='save-spend-sheet']"), saved: txs.some((t) => t.payee === "Corner store" && t.amount === 1) };
+    })()`);
+    if (out.saved.open) fail.push("save did not close the transaction");
+    if (!out.saved.saved) fail.push("save did not keep the transaction");
+
+    out.del = await cdp.eval(`(async () => {
+      document.querySelector('[data-tab="spend"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const row = document.querySelector('[data-act="edit-spend"][data-id="t1"]');
+      if (!row) return { error: "no market row" };
+      row.click();
+      await new Promise((r) => setTimeout(r, 200));
+      const del = document.querySelector('form[data-act="save-spend-sheet"] [data-act="delete-spend"]');
+      if (!del) return { error: "delete not shown" };
+      document.getElementById("modal").click();
+      const still = !!document.querySelector('[data-act="delete-spend"]');
+      window.confirm = function () { return false; };
+      del.click();
+      const kept = !!document.querySelector('form[data-act="save-spend-sheet"]');
+      window.confirm = function () { return true; };
+      document.querySelector('[data-act="delete-spend"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const raw = JSON.parse(localStorage.getItem("PaperTrail.preview.v6") || "{}");
+      const txs = (raw.months && raw.months["2026-11"] && raw.months["2026-11"].transactions) || [];
+      return { still: still, kept: kept, open: !!document.querySelector('form[data-act="save-spend-sheet"]'), hasMarket: txs.some((t) => t.id === "t1") };
+    })()`);
+    if (out.del.error) fail.push("delete: " + out.del.error);
+    else {
+      if (!out.del.still || !out.del.kept) fail.push("delete confirm was skipped or outside tap closed the editor " + JSON.stringify(out.del));
+      if (out.del.open) fail.push("confirmed delete left the editor open");
+      if (out.del.hasMarket) fail.push("confirmed delete left the transaction");
+    }
 
     out.dashboard = await cdp.eval(`(async () => {
       document.querySelector('[data-tab="stats"]').click();
