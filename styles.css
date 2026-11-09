@@ -106,8 +106,8 @@ button {
 .month-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px 8px;
+  gap: 2px;
+  padding: 10px 4px 8px;
   border-bottom: 1px solid var(--rule);
   background: var(--paper);
   min-height: 52px;
@@ -117,10 +117,12 @@ button {
 
 .month-bar h1 {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   margin: 0;
   text-align: center;
   font-family: var(--serif);
-  font-size: calc(17px * var(--fs-scale));
+  font-size: calc(15px * var(--fs-scale));
   font-weight: 600;
 }
 
@@ -4756,9 +4758,10 @@ body.night .launch-splash .ls-trail circle { fill: #A585F0; }
 
 /* Budget header — month jump, ⇅ reorder, + add; one-line left to budget; hold-to-edit feedback. */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.month-bar .bar-tool { width: 38px; font-size: calc(20px * var(--fs-scale)); }
+.month-bar .icon-btn { width: 36px; min-width: 36px; padding: 0; }
+.month-bar .bar-tool { width: 36px; font-size: calc(20px * var(--fs-scale)); }
 .month-jump {
-  border: 0; background: transparent; color: var(--ink); font: inherit; padding: 6px 4px; cursor: pointer;
+  border: 0; background: transparent; color: var(--ink); font: inherit; padding: 4px 0; cursor: pointer;
   display: inline-flex; align-items: center; gap: 4px; border-radius: 8px; max-width: 100%; white-space: nowrap;
 }
 .month-jump-caret { font-size: calc(12px * var(--fs-scale)); color: var(--muted); }
@@ -5379,7 +5382,7 @@ body.kb-fit .screen{padding-bottom:0}
 .it-key .it-sv > span:not(.it-sv-txt) { width: 11px; height: 11px; border-width: 1.5px; box-shadow: none; }
 /* Budget: green + adds a transaction; "+ Add category" after the last envelope */
 /* A true 32px circle drawn inside a 44px-tall hit area that never shrinks, so it can't stretch into an oval. */
-.month-bar .bar-tool.bar-add-tx, .bar-add-tx { position: relative; isolation: isolate; flex: 0 0 40px; width: 40px; min-width: 40px; height: 44px; padding: 0; background: transparent !important; color: #fff !important; font-weight: 700; line-height: 44px; border-radius: 0; }
+.month-bar .bar-tool.bar-add-tx, .bar-add-tx { position: relative; isolation: isolate; flex: 0 0 36px; width: 36px; min-width: 36px; height: 44px; padding: 0; background: transparent !important; color: #fff !important; font-weight: 700; line-height: 44px; border-radius: 0; }
 .bar-add-tx::before { content: ""; position: absolute; z-index: -1; left: 50%; top: 50%; width: 32px; height: 32px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--moss); }
 body.night .bar-add-tx { color: rgb(12,20,17) !important; }
 .add-category-btn { display: block; width: 100%; min-height: 48px; margin: 12px 0 8px; border: 1.5px dashed var(--moss); border-radius: 12px; background: transparent; color: var(--moss); font: inherit; font-weight: 600; cursor: pointer; }
@@ -5577,7 +5580,33 @@ body.fx-paused .season-fx-p { animation-play-state: paused; }
   75% { transform: translate3d(calc(var(--fx-sway) * -1), 86vh, 0) rotate(calc(var(--fx-spin) * .75)); }
   100% { transform: translate3d(0, 115vh, 0) rotate(var(--fx-spin)); }
 }
-@media (prefers-reduced-motion: reduce) { .season-fx-p { animation: none; will-change: auto; top: var(--fx-top); } }
+@media (prefers-reduced-motion: reduce) { .season-fx-p { animation: none; will-change: auto; top: var(--fx-top); } .season-santa { display: none; } }
+html.season-bg.season-dec, body.season-bg.season-dec, body.night.season-bg.season-dec {
+  --paper: rgb(252, 248, 242); --card: rgb(255, 252, 247); --highlight: rgb(236, 242, 236);
+  --ink: rgb(24, 36, 30); --muted: rgb(70, 88, 76); --rule: rgb(214, 210, 200);
+  --moss: rgb(15, 90, 62); --gold: rgb(154, 122, 58);
+  --danger: rgb(142, 28, 36); --rust: rgb(142, 28, 36); --rose: rgb(142, 28, 36); --berry: rgb(142, 28, 36);
+  background: radial-gradient(120% 70% at 50% 0%, rgb(255, 252, 247), rgb(244, 240, 232) 72%) fixed rgb(244, 240, 232);
+}
+body.season-bg.season-dec .phone { background: linear-gradient(180deg, rgb(255, 252, 247), rgb(246, 242, 234)); }
+body.season-bg.season-dec .tab-bar { background: rgba(252, 248, 242, 0.96); }
+.phone.season-dec .month-bar { background-image: linear-gradient(rgba(15, 90, 62, 0.08), rgba(15, 90, 62, 0.08)); border-bottom-color: rgba(15, 90, 62, 0.28); }
+.season-strip-dec { border-top-color: rgba(15, 90, 62, 0.28); background: linear-gradient(180deg, rgba(255,255,255,.4), rgba(15, 90, 62, 0.08)); }
+.season-sprig { width: 22px; height: 16px; display: inline-block; margin-right: 4px; vertical-align: -2px; }
+.season-sprig svg { width: 100%; height: 100%; display: block; }
+.season-acc.s-holly { width: 26px; height: 20px; } .season-acc.s-flake { width: 16px; height: 16px; }
+.season-santa { position: absolute; top: 16%; left: 0; width: 128px; height: 40px; pointer-events: none; z-index: 4; animation: santa-cross 8s linear both; }
+.season-santa svg { width: 100%; height: 100%; display: block; }
+@keyframes santa-cross { from { transform: translateX(-150px); } to { transform: translateX(430px); } }
+body.fx-paused .season-santa { animation-play-state: paused; }
+.sav-count-h { margin: 10px 0 0; display: flex; align-items: center; gap: 6px; font: 600 calc(13px * var(--fs-scale)) var(--ui); color: var(--muted); }
+.bar-menu { position: relative; flex: none; }
+.bar-menu .icon-btn svg { width: 22px; height: 22px; }
+.bar-menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 210px; max-width: min(280px, calc(100vw - 24px)); background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 12px 28px rgba(0,0,0,.14); padding: 6px; display: flex; flex-direction: column; }
+.bar-menu-pop[hidden] { display: none; }
+.bar-menu-pop button { min-height: 44px; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.bar-menu-pop button:disabled { opacity: .5; cursor: default; }
+.bar-menu-pop button:focus-visible, .bar-menu .icon-btn:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
 /* Keypad Done: dark text on the light accent in dark mode and seasonal (white on mint is ~2:1). */
 body.night .ed-pad .ed-done { color: rgb(18, 19, 21); }
 /* Pay screen: typed-in pay highlighted as the source in use, with a pencil to edit it. */
