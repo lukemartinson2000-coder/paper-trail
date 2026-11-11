@@ -5254,13 +5254,24 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .dash-streak-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--moss); flex: none; }
 /* v37.5.74: Add Transaction with the keyboard up — pad collapsed, Amount pinned, Save reachable.
  * Rebuilding the sheet must not anchor-scroll the page. The page behind stays put while the sheet is open. */
-.sheet.ed-add{overflow-y:auto;-webkit-overflow-scrolling:touch;overflow-anchor:none}
+.sheet.ed-add{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.sheet.ed-add .ed-head{flex:none}
+.sheet.ed-add .ed-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overflow-anchor:none}
+.sheet.ed-add .ed-actions{flex:none;margin:0 -16px;padding:8px 16px calc(8px + env(safe-area-inset-bottom));background:var(--paper);border-top:1px solid var(--rule);z-index:4}
+.sheet.ed-add .ed-actions .ed-save{margin:0;width:100%}
+.sheet.ed-add .ed-actions .sheet-delete{margin:8px 0 0}
+.sheet.ed-add .ed-pad{position:relative;flex:none;bottom:auto}
+.ed-hero .ed-amt-v.is-ph{color:var(--muted);font-size:calc(28px * var(--fs-scale-lg));font-weight:500}
+.ed-hero.active .ed-amt-v.is-ph::after{content:none}
+.sheet.ed-add.ed-enter{animation:ed-sheet-in .2s ease both}
+.sheet.ed-add.ed-out{animation:ed-sheet-out .16s ease forwards}
+@keyframes ed-sheet-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes ed-sheet-out{to{opacity:0;transform:translateY(12px)}}
+@media (prefers-reduced-motion:reduce){.sheet.ed-add.ed-enter,.sheet.ed-add.ed-out{animation:none}}
 body.ed-add-open #screen{overflow:hidden}
 body.tx-editor-open #screen{overflow:hidden}
 body.tx-editor-open .sheet{overscroll-behavior:contain}
 .ed-picker button{touch-action:manipulation}
-.sheet.ed-add.ed-kb .ed-head{padding-bottom:6px}
-.sheet.ed-add.ed-kb .ed-hero .ed-amt-v{font-size:calc(30px * var(--fs-scale-lg));height:calc(36px * var(--fs-scale-lg));line-height:calc(36px * var(--fs-scale-lg))}
 body.ed-typing .tab-bar{display:none!important}
 body.ed-typing .modal:not(.wrap-open){bottom:0}
 /* v37.5.74 flat envelopes (no subcategory): the header amount is the planned amount and is tappable. */
