@@ -13783,7 +13783,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var amtShown = edAmountRaw();
     var h = '<form class="sheet ed-add' + (enter ? " ed-enter" : "") + '" data-act="save-spend-sheet" novalidate>' +
       /* The frame keeps its height; only the middle scrolls. Amount sits in the card, not a hero. */
-      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3></div></div>" +
+      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3>" +
+      (d.id ? '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' + esc(d.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>' : "") +
+      "</div></div>" +
       '<div class="ed-scroll">' +
       (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
@@ -13802,9 +13804,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += edItemsHtml(month);
     }
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
-    h += '</div><div class="ed-actions"><button type="submit" class="primary ed-save">Save</button>';
-    if (d.id) h += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(d.id) + '"');
-    h += "</div>";
+    h += '</div><div class="ed-actions"><button type="submit" class="primary ed-save">Save</button></div>';
     if (edUi.pad) {
       h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
         ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
@@ -14435,14 +14435,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (spendDraft.error && !envErrorShown) html += '<p class="caption rust sheet-error">' + esc(spendDraft.error) + "</p>";
     if (spendDraft.id) {
       html += '<input type="hidden" name="id" value="' + esc(spendDraft.id) + '">';
-      // Delete lives at the TOP of the transaction detail, Transactions tab only.
-      if (state.tab === "spend") {
-        html += deleteBtnHtml("delete-spend", "Delete transaction", ' data-id="' + esc(spendDraft.id) + '"');
-      }
     }
     if (spendDraft.id) { html = spendSummaryHtml(month) + html; sheetNoAutoFocus = true; }
     openSheet(spendDraft.id ? "Edit transaction" : "Add transaction", html, "save-spend-sheet");
     spendStickyFoot();
+    /* Income and refund edits use this sheet. The ✕ deletes; it does not close. */
+    if (spendDraft.id && state.tab === "spend") {
+      var delTop = document.querySelector("#modal form.sheet .sheet-top");
+      if (delTop && !delTop.querySelector("[data-act='delete-spend']")) {
+        delTop.insertAdjacentHTML("beforeend", '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' +
+          esc(spendDraft.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>');
+      }
+    }
     splitArm();
   }
 
@@ -18584,7 +18588,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.100";
+  var APP_VERSION = "37.5.101";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
