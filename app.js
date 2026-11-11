@@ -13751,7 +13751,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var modal = document.getElementById("modal");
     if (modal) modal.hidden = true;
     spendDraft.categoryTouched = true;
-    edUi = { pad: true, picker: false, q: "", amt: "", err: "", dateOn: false };
+    edUi = { pad: true, picker: false, q: "", amt: "", err: "" };
     renderEdAdd(month);
   }
   function edLines(month) {
@@ -13777,7 +13777,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = spendDraft, inc = d.type === "income";
     var modalWas = document.getElementById("modal");
     var enter = !(modalWas && modalWas.querySelector(".sheet.ed-add"));
-    var dateVal = (d.id || edUi.dateOn) ? (d.date || "") : "";
+    var dateVal = d.date || "";
     if (!edUi.noteOpen && d.note && String(d.note).replace(/^\s+|\s+$/g, "")) edUi.noteOpen = true;
     var noteOpen = !!edUi.noteOpen && !edUi.noteAnim;
     var amtShown = edAmountRaw();
@@ -14194,7 +14194,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       spendDraft.payee = el.value;
       if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); }
     }
-    else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) { spendDraft.date = el.value; edUi.dateOn = true; } }
+    else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
     else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
@@ -14212,7 +14212,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var el = e.target;
     if (!edUi || !spendDraft || !el.closest || !el.closest(".ed-add")) return;
     if (el.getAttribute("data-ed-in") === "incomeId") spendDraft.incomeId = el.value;
-    if (el.getAttribute("data-ed-in") === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) { spendDraft.date = el.value; edUi.dateOn = true; } }
+    if (el.getAttribute("data-ed-in") === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
     e.stopPropagation();
   }, true);
   /* Check before the shared save runs, so a mistake shows here instead of falling back to the long sheet. */
@@ -14264,14 +14264,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         incomeId: "",
         refundKind: "",
         payee: "",
-        // Viewing the current calendar month → today's date; older months keep day-of-month.
+        // Local calendar day, not the month being viewed. Still editable.
         date: (function () {
           var now = new Date();
-          var cur = currentYearMonth();
-          if (state.year === cur.year && state.month === cur.month) {
-            return isoDate(cur.year, cur.month, now.getDate());
-          }
-          return isoDate(state.year, state.month, Math.min(now.getDate(), 28));
+          return isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
         })(),
         note: "",
         amount: 0,
@@ -18588,7 +18584,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.99";
+  var APP_VERSION = "37.5.100";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
