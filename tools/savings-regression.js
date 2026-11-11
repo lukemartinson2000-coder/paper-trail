@@ -220,8 +220,39 @@ function near(a, b, eps) {
     out.uiBudget = await cdp.eval(`(async () => {
       for (let i = 0; i < 20 && !/November/.test(document.body.innerText); i++) await new Promise((r) => setTimeout(r, 150));
       const link = document.querySelector(".sav-pay-link");
+      const env0 = document.querySelector(".sav-envelope");
+      const toggle = document.querySelector(".sav-count-toggle");
+      const hiddenMarks = [...document.querySelectorAll(".sav-envelope .sav-mark")];
+      const head0 = env0.querySelector(".envelope-head").getBoundingClientRect();
+      const amt0 = env0.querySelector(".line-assigned-btn").getBoundingClientRect();
+      const scroll0 = document.getElementById("screen").scrollTop;
+      const folded = {
+        expanded: toggle.getAttribute("aria-expanded"),
+        label: toggle.getAttribute("aria-label"),
+        controls: toggle.getAttribute("aria-controls"),
+        header: document.querySelector(".sav-count-h").textContent.replace(/\\s+/g, " ").trim(),
+        help: !!document.querySelector(".sav-count-h .help-q"),
+        hidden: hiddenMarks.length > 1 && hiddenMarks.every((el) => el.getAttribute("aria-hidden") === "true" && el.getAttribute("tabindex") === "-1" && getComputedStyle(el).visibility === "hidden" && getComputedStyle(el).opacity === "0"),
+        checksInDom: hiddenMarks.filter((el) => el.querySelector(".sav-check")).length
+      };
+      toggle.click();
+      await new Promise((r) => setTimeout(r, 80));
+      const midOpacity = Number(getComputedStyle(env0.querySelector(".sav-mark")).opacity);
+      await new Promise((r) => setTimeout(r, 180));
+      const head1 = env0.querySelector(".envelope-head").getBoundingClientRect();
+      const amt1 = env0.querySelector(".line-assigned-btn").getBoundingClientRect();
+      const still = {
+        head: Math.abs(head1.top - head0.top) < 0.5 && Math.abs(head1.left - head0.left) < 0.5,
+        amtRight: Math.abs(amt1.right - amt0.right) < 0.5,
+        nameLeft: Math.abs(env0.querySelector(".line-name").getBoundingClientRect().left - (head0.left + 44)) < 1.5,
+        scroll: document.getElementById("screen").scrollTop === scroll0,
+        mid: midOpacity,
+        open: toggle.getAttribute("aria-expanded"),
+        openLabel: toggle.getAttribute("aria-label")
+      };
       const marks = [...document.querySelectorAll(".sav-mark")].map((el) => ({
-        name: el.getAttribute("data-name"), pressed: el.getAttribute("aria-pressed"), label: el.getAttribute("aria-label"), text: el.textContent.trim(), check: !!el.querySelector(".sav-check")
+        name: el.getAttribute("data-name"), pressed: el.getAttribute("aria-pressed"), label: el.getAttribute("aria-label"), text: el.textContent.trim(), check: !!el.querySelector(".sav-check"),
+        shown: getComputedStyle(el).visibility === "visible" && getComputedStyle(el).opacity === "1" && el.getAttribute("aria-hidden") !== "true"
       }));
       const env = document.querySelector(".sav-envelope");
       const head = env && env.querySelector(".envelope-head");
@@ -249,7 +280,7 @@ function near(a, b, eps) {
       return {
         link: link ? { act: link.getAttribute("data-act"), plan: link.getAttribute("data-plan"), text: link.textContent.trim() } : null,
         caption: (document.querySelector(".sav-pay-link + .caption") || {}).textContent || "",
-        marks: marks, layout: layout,
+        marks: marks, layout: layout, folded: folded, still: still,
         slogan: ltb.textContent.trim(), sticky: getComputedStyle(ltb).position,
         lineDelta: Math.round(ltb.getBoundingClientRect().top - b0),
         heroDelta: Math.round(hero.getBoundingClientRect().top - h0)
@@ -258,7 +289,10 @@ function near(a, b, eps) {
     const ui = out.uiBudget;
     check(ui.link && ui.link.act === "set-plan" && ui.link.plan === "premium" && ui.link.text === "Include paycheck savings", "free paycheck link uses the premium gate");
     check(/Count retirement contributions and employer contributions from your pay/.test(ui.caption), "paycheck link caption");
-    check(ui.marks.some((m) => m.name === "House fund" && m.pressed === "true" && /Included in savings rate/.test(m.label) && m.check && !/\b(In|Out)\b/.test(m.text)), "house fund marker is a check, not in/out");
+    check(ui.folded && ui.folded.expanded === "false" && ui.folded.label === "Show which lines count towards the savings rate" && ui.folded.controls === "sav-count-col" && /Count towards savings rate/.test(ui.folded.header) && ui.folded.help && ui.folded.hidden && ui.folded.checksInDom >= 1, "checks hidden until expand " + JSON.stringify(ui.folded));
+    check(ui.still && ui.still.head && ui.still.amtRight && ui.still.nameLeft && ui.still.scroll && ui.still.mid > 0.05 && ui.still.mid < 0.98 && ui.still.open === "true" && ui.still.openLabel === "Hide which lines count towards the savings rate", "expand fades the checks without moving the rows " + JSON.stringify(ui.still));
+    check(ui.marks.some((m) => m.name === "House fund" && m.pressed === "true" && /Included in savings rate/.test(m.label) && m.check && m.shown && !/\b(In|Out)\b/.test(m.text)), "house fund marker is a check, not in/out");
+    check(ui.marks.every((m) => m.shown), "opened checks are shown");
     check(ui.layout && ui.layout.labelBelow && ui.layout.labelLeft && ui.layout.markLeftOfName && ui.layout.sameColumn && ui.layout.noInOut, "count column sits under the savings total, on the left " + JSON.stringify(ui.layout));
     check(ui.slogan === "Every dollar has a job" && ui.sticky !== "sticky" && Math.abs(ui.lineDelta - ui.heroDelta) <= 2 && Math.abs(ui.lineDelta) > 100, "slogan still scrolls with the balance");
     if (SHOTS) {
@@ -281,6 +315,19 @@ function near(a, b, eps) {
     out.excluded = await rate(2026, 11, 11);
     check(out.excluded && near(out.excluded.savings, 550) && near(out.excluded.rate, 550 / 4000) && !out.excluded.budgetItems.some((it) => it.name === "House fund"), "excluding house fund leaves 550/4000");
     check(out.excluded && out.excluded.budgetItems.some((it) => it.name === "401k cash"), "excluding house fund does not drop 401k cash");
+    await cdp.eval(`document.querySelector(".sav-count-toggle").click()`);
+    await sleep(220);
+    out.refolded = await cdp.eval(`(() => {
+      const marks = [...document.querySelectorAll(".sav-envelope .sav-mark")];
+      const btn = document.querySelector(".sav-count-toggle");
+      return {
+        expanded: btn && btn.getAttribute("aria-expanded"),
+        hidden: marks.length > 1 && marks.every((el) => el.getAttribute("aria-hidden") === "true" && getComputedStyle(el).visibility === "hidden")
+      };
+    })()`);
+    check(out.refolded && out.refolded.expanded === "false" && out.refolded.hidden, "collapsing hides the checks again " + JSON.stringify(out.refolded));
+    out.stillExcluded = await rate(2026, 11, 11);
+    check(out.stillExcluded && near(out.stillExcluded.savings, 550) && !out.stillExcluded.budgetItems.some((it) => it.name === "House fund"), "collapsed column still uses the saved exclusion");
 
     out.dash = await cdp.eval(`(async () => {
       document.querySelector('[data-tab="stats"]').click();
