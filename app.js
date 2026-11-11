@@ -13762,12 +13762,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out;
   }
   /* v37.5.70 calculator-style entry: edUi.amt holds cents digits, so typing 1234 reads $12.34 and 5 reads $0.05.
-   * A new transaction starts blank (placeholder only). An edit shows the saved amount. */
-  function edAmountPlaceholder() { return !(spendDraft && spendDraft.id) && !(edUi && edUi.amt); }
-  function edAmountText() {
-    if (edAmountPlaceholder()) return "Enter amount";
-    return esc(formatMoney(edCentsValue(edUi && edUi.amt), 2));
+   * A new transaction's amount stays blank until digits are typed. An edit shows the saved amount. */
+  function edAmountBlank() { return !(spendDraft && spendDraft.id) && !(edUi && edUi.amt); }
+  function edAmountRaw() {
+    if (edAmountBlank()) return "";
+    return formatMoney(edCentsValue(edUi && edUi.amt), 2);
   }
+  function edAmountText() { return esc(edAmountRaw()); }
   function edCentsValue(digits) { return centsFromDigits(digits); }
   function edCentsDigits(n) { var c = Math.round((Number(n) || 0) * 100); return c > 0 ? String(c) : ""; }
   function edAmtLen() { return Math.max(3, String(edUi && edUi.amt || "").length); }
@@ -13777,19 +13778,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var modalWas = document.getElementById("modal");
     var enter = !(modalWas && modalWas.querySelector(".sheet.ed-add"));
     var dateVal = (d.id || edUi.dateOn) ? (d.date || "") : "";
+    if (!edUi.noteOpen && d.note && String(d.note).replace(/^\s+|\s+$/g, "")) edUi.noteOpen = true;
+    var noteOpen = !!edUi.noteOpen && !edUi.noteAnim;
+    var amtShown = edAmountRaw();
     var h = '<form class="sheet ed-add' + (enter ? " ed-enter" : "") + '" data-act="save-spend-sheet" novalidate>' +
-      /* Title + amount stay pinned at the top of the sheet, so the number being typed is always in view
-       * (short screens and an open keyboard included). The frame keeps its height; only the middle scrolls. */
-      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3></div>" +
-      '<button type="button" class="ed-amt ed-hero' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="Amount"><span class="kicker">Amount</span><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + (edAmountPlaceholder() ? " is-ph" : "") + '">' + edAmountText() + "</span></button></div>" +
+      /* The frame keeps its height; only the middle scrolls. Amount sits in the card, not a hero. */
+      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3></div></div>" +
       '<div class="ed-scroll">' +
       (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
       '<button type="button" role="tab" data-ed="type" data-type="expense" aria-selected="' + !inc + '" class="' + (inc ? "" : "on") + '">Expense</button>' +
       '<button type="button" role="tab" data-ed="type" data-type="income" aria-selected="' + inc + '" class="' + (inc ? "on" : "") + '">Income</button></div>') +
       '<div class="ed-card">' +
-      '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" value="' + esc(dateVal) + '"></label>' +
-      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" placeholder="' + (inc ? "Employer, person…" : "Where’d you spend it?") + '" value="' + esc(d.payee || "") + '"></label>' +
-      '<label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Optional note" placeholder="Optional, such as what a gift was" value="' + esc(d.note || "") + '"></label></div>' +
+      '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" aria-label="Date" class="' + (dateVal ? "" : "ed-date-empty") + '" value="' + esc(dateVal) + '"></label>' +
+      '<div class="ed-row ed-amt-row"><span class="lbl">Amount</span><button type="button" class="ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="' + esc(amtShown ? "Amount, " + amtShown : "Amount") + '"><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + '">' + edAmountText() + "</span></button></div>" +
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" aria-label="' + (inc ? "From" : "Merchant") + '" value="' + esc(d.payee || "") + '"></label></div>' +
+      '<div class="ed-note' + (noteOpen ? " is-open" : "") + '"><button type="button" class="ed-add-note" data-ed="note-open" aria-expanded="' + (edUi.noteOpen ? "true" : "false") + '" aria-controls="ed-note-box">Add note</button>' +
+      '<div class="ed-note-box" id="ed-note-box"' + (edUi.noteOpen ? "" : ' aria-hidden="true"') + '><label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Note" tabindex="' + (edUi.noteOpen ? "0" : "-1") + '" value="' + esc(d.note || "") + '"></label></div></div>' +
       (inc || d.id ? "" : edMerchHtml());
     if (inc) {
       h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
@@ -13850,6 +13854,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         entered.classList.remove("ed-enter");
         edFit();
       });
+    }
+    if (edUi.noteAnim) {
+      var noteHost = modal.querySelector(".ed-note");
+      edUi.noteAnim = false;
+      var openNote = function () {
+        if (!noteHost || !document.body.contains(noteHost)) return;
+        noteHost.classList.add("is-open");
+        var noteWrap = noteHost.querySelector(".ed-note-box");
+        if (noteWrap) noteWrap.removeAttribute("aria-hidden");
+        var noteIn = noteHost.querySelector("[data-ed-in='note']");
+        if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } edKeepField(noteIn); }
+      };
+      var reduceNote = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduceNote) openNote();
+      else requestAnimationFrame(openNote);
     }
     if (edUi.picker) {
       var s = modal.querySelector(".ed-search");
@@ -13939,7 +13958,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
           var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
           var rem = roundCents(remainingForLine(month, l.lineId));
           return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
-            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '" placeholder="Amount">' +
+            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
             '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
         }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
       }
@@ -14108,6 +14127,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     else if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
     else if (a === "pad") { edUi.pad = true; edUi.holdTop = null; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
     else if (a === "done") edUi.pad = false;
+    else if (a === "note-open") { edUi.noteOpen = true; edUi.noteAnim = true; edUi.pad = false; }
     else if (a === "next") {
       /* One tap commits the typed amount, closes the number pad and moves on to Merchant (no Done step first). */
       edSyncAmount(); edUi.pad = false; renderEdAdd(month);
@@ -14174,7 +14194,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       spendDraft.payee = el.value;
       if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); }
     }
-    else if (k === "date") { if (el.value) { spendDraft.date = el.value; edUi.dateOn = true; } }
+    else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) { spendDraft.date = el.value; edUi.dateOn = true; } }
     else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
@@ -14192,7 +14212,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var el = e.target;
     if (!edUi || !spendDraft || !el.closest || !el.closest(".ed-add")) return;
     if (el.getAttribute("data-ed-in") === "incomeId") spendDraft.incomeId = el.value;
-    if (el.getAttribute("data-ed-in") === "date" && el.value) { spendDraft.date = el.value; edUi.dateOn = true; }
+    if (el.getAttribute("data-ed-in") === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) { spendDraft.date = el.value; edUi.dateOn = true; } }
     e.stopPropagation();
   }, true);
   /* Check before the shared save runs, so a mistake shows here instead of falling back to the long sheet. */
@@ -18568,7 +18588,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.98";
+  var APP_VERSION = "37.5.99";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
