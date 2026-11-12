@@ -4906,7 +4906,10 @@ button.danger,.danger-btn{color:var(--danger);border-color:var(--danger)}
 .ed-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px -4px 0;padding:8px 4px 4px;border-top:1px solid var(--rule)}
 .ed-pad button{padding:14px 0;font:600 calc(22px * var(--fs-scale)) var(--ui);background:var(--card);border:1px solid var(--rule);border-radius:12px;color:var(--ink)}
 .ed-pad .ed-done{grid-column:1/-1;background:var(--moss);color:#fff;border-color:var(--moss);font-size:calc(17px * var(--fs-scale))}
-.ed-picker{position:absolute;inset:0;background:var(--paper);z-index:5;overflow:auto;padding:12px 16px 20px}
+.ed-picker{position:absolute;inset:0;background:var(--paper);z-index:5;overflow:auto;padding:12px 16px 20px;animation:ed-picker-in .18s ease}
+.ed-picker.ed-picker-out{animation:ed-picker-out .16s ease forwards;pointer-events:none}
+@keyframes ed-picker-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes ed-picker-out{to{opacity:0;transform:translateY(8px)}}
 .ed-search{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;font:calc(15px * var(--fs-scale)) var(--ui);margin:8px 0;background:var(--card);color:var(--ink)}
 .ed-grp{font:700 calc(12px * var(--fs-scale)) var(--ui);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 4px 4px}
 .ed-item{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;width:100%;padding:10px 8px;border:0;border-bottom:1px solid var(--rule);background:none;font:calc(15px * var(--fs-scale)) var(--ui);color:var(--ink);text-align:left}
@@ -5267,23 +5270,28 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .ed-amt-row .ed-amt.active .ed-amt-v::after{content:"";display:inline-block;width:2px;height:.8em;margin-left:3px;vertical-align:-.05em;background:var(--moss);animation:ed-caret 1s steps(1) infinite}
 .ed-add input.ed-date-empty:not(:focus),
 .ed-add input.ed-date-empty:not(:focus)::-webkit-datetime-edit{color:transparent}
-.ed-add-note{display:block;width:100%;margin:2px 0 12px;padding:8px 2px;border:0;background:none;text-align:left;color:var(--moss);font:calc(15px * var(--fs-scale)) var(--serif);cursor:pointer}
-.ed-note.is-open .ed-add-note{display:none}
-.ed-note-box{max-height:0;overflow:hidden;opacity:0;transition:max-height .18s ease,opacity .18s ease}
-.ed-note.is-open .ed-note-box{max-height:72px;opacity:1}
-.ed-note-box>.ed-row{background:var(--card);border:1px solid var(--rule);border-radius:10px;margin:0 0 12px}
-@media (prefers-reduced-motion:reduce){.ed-note-box{transition:none}.ed-amt-row .ed-amt.active .ed-amt-v::after{animation:none}}
+.ed-add-note{display:block;width:100%;margin:2px 0 12px;padding:8px 2px;border:0;background:none;text-align:left;color:var(--moss);font:calc(15px * var(--fs-scale)) var(--serif);cursor:pointer;max-height:48px;overflow:hidden;opacity:1;transition:max-height .2s ease,opacity .18s ease,margin .2s ease,padding .2s ease,visibility 0s linear 0s}
+.ed-note.is-open .ed-add-note{max-height:0;opacity:0;margin:0;padding-top:0;padding-bottom:0;pointer-events:none;visibility:hidden;transition:max-height .2s ease,opacity .18s ease,margin .2s ease,padding .2s ease,visibility 0s linear .2s}
+.ed-note-box{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .2s ease,opacity .18s ease}
+.ed-note.is-open .ed-note-box{grid-template-rows:1fr;opacity:1}
+.ed-note-box>.ed-row{overflow:hidden;min-height:0;background:var(--card);border:1px solid transparent;border-radius:10px;margin:0}
+.ed-note.is-open .ed-note-box>.ed-row{border-color:var(--rule);margin:0 0 12px}
+.sheet.ed-add{transition:transform .22s ease,opacity .2s ease,height .22s ease,max-height .22s ease}
+.sheet.ed-add.ed-enter,.sheet.ed-add.ed-out{transition:none}
+.sheet.ed-add .ed-pad{flex:none;position:relative;max-height:280px;overflow:hidden;opacity:1;transform:none;transition:max-height .2s ease,opacity .18s ease,transform .2s ease,padding .2s ease,border-width .2s ease,visibility 0s linear 0s}
+.sheet.ed-add.ed-pad-off .ed-pad{max-height:0;opacity:0;transform:translateY(8px);padding-top:0;padding-bottom:0;border-top-width:0;pointer-events:none;visibility:hidden;transition:max-height .2s ease,opacity .18s ease,transform .2s ease,padding .2s ease,border-width .2s ease,visibility 0s linear .2s}
+.sheet.ed-add .ed-scroll input,.sheet.ed-add .ed-scroll select,.sheet.ed-add .ed-scroll textarea,.sheet.ed-add .ed-scroll .ed-items{scroll-margin-top:8px;scroll-margin-bottom:12px}
+@media (prefers-reduced-motion:reduce){.ed-note-box,.ed-add-note,.sheet.ed-add,.sheet.ed-add .ed-pad,.ed-picker{transition:none;animation:none}.ed-amt-row .ed-amt.active .ed-amt-v::after{animation:none}}
 .sheet.ed-add.ed-enter{animation:ed-sheet-in .2s ease both}
 .sheet.ed-add.ed-out{animation:ed-sheet-out .16s ease forwards}
 @keyframes ed-sheet-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes ed-sheet-out{to{opacity:0;transform:translateY(12px)}}
-@media (prefers-reduced-motion:reduce){.sheet.ed-add.ed-enter,.sheet.ed-add.ed-out{animation:none}}
+@media (prefers-reduced-motion:reduce){.sheet.ed-add.ed-enter,.sheet.ed-add.ed-out,.ed-picker{animation:none}}
 body.ed-add-open #screen{overflow:hidden}
 body.tx-editor-open #screen{overflow:hidden}
 body.tx-editor-open .sheet{overscroll-behavior:contain}
 .ed-picker button{touch-action:manipulation}
 body.ed-typing .tab-bar{display:none!important}
-body.ed-typing .modal:not(.wrap-open){bottom:0}
 /* v37.5.74 flat envelopes (no subcategory): the header amount is the planned amount and is tappable. */
 .envelope-head button.line-assigned-btn.env-flat-amt{flex-shrink:0;font-family:var(--mono);min-height:36px;margin:-6px -6px -6px 0;padding:6px;border-radius:8px;font-size:calc(18px * var(--fs-scale)) !important;font-weight:600 !important;color:var(--ink);text-decoration:underline dotted rgba(120,90,40,.35);text-underline-offset:4px}
 .envelope-head button.line-assigned-btn.env-flat-amt.moss{color:var(--moss)}
@@ -5421,19 +5429,32 @@ body.night .add-category-btn { border-color: rgb(82,199,158); color: rgb(82,199,
 button.sav-mark { color: var(--moss); }
 .sav-mark-slot { cursor: default; }
 .sav-check { width: 20px; height: 20px; display: block; color: var(--moss); }
-.sav-envelope .envelope-line { padding-left: 0; }
+/* Closed (default): the check column takes no width, and the 22px indent matches every other envelope's lines,
+   so names and amounts share those edges. Open: the column grows to 44px and the indent goes away, which shifts
+   the names right by the same 22px (22 + 0 → 0 + 44) without moving the amount's right edge or the header. */
+.sav-envelope .envelope-line { padding-left: 22px; transition: padding-left .2s ease; }
+.sav-envelope.sav-count-open .envelope-line { padding-left: 0; }
 .sav-envelope .envelope-line-head { align-items: center; gap: 0; }
-.sav-envelope .add-line { margin-left: 44px; }
-/* The check column keeps its width either way, so names and amounts do not move. Collapsed checks are not shown. */
-.sav-envelope .sav-mark, .sav-envelope .sav-mark-slot { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .18s ease, visibility 0s linear .18s; }
-.sav-envelope.sav-count-open .sav-mark, .sav-envelope.sav-count-open .sav-mark-slot { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .18s ease, visibility 0s linear 0s; }
+.sav-envelope .add-line { margin-left: 22px; transition: margin-left .2s ease; }
+.sav-envelope.sav-count-open .add-line { margin-left: 44px; }
+.sav-envelope .sav-mark, .sav-envelope .sav-mark-slot {
+  flex: 0 0 0px; width: 0; min-width: 0; max-width: 0; overflow: hidden;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: flex-basis .2s ease, width .2s ease, min-width .2s ease, max-width .2s ease, opacity .18s ease, visibility 0s linear .18s;
+}
+.sav-envelope.sav-count-open .sav-mark, .sav-envelope.sav-count-open .sav-mark-slot {
+  flex-basis: 44px; width: 44px; min-width: 44px; max-width: 44px;
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: flex-basis .2s ease, width .2s ease, min-width .2s ease, max-width .2s ease, opacity .18s ease, visibility 0s linear 0s;
+}
 .sav-count-toggle { position: relative; flex: 0 0 44px; width: 44px; height: 28px; min-width: 44px; margin: 0; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .sav-count-toggle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .sav-count-chev { display: inline-block; font-size: 18px; line-height: 1; transition: transform .18s ease; }
 .sav-envelope.sav-count-open .sav-count-chev { transform: rotate(90deg); }
 .sav-count-toggle:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sav-envelope .sav-mark, .sav-envelope .sav-mark-slot, .sav-count-chev { transition: none; }
+  .sav-envelope .sav-mark, .sav-envelope .sav-mark-slot, .sav-count-chev,
+  .sav-envelope .envelope-line, .sav-envelope .add-line { transition: none; }
 }
 .sav-pay-link { display: block; width: calc(100% - 8px); margin: 8px 4px 4px; min-height: 44px; padding: 8px 10px; border: 1px dashed var(--moss); border-radius: 12px; background: transparent; color: var(--moss); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .dash-sr-hit { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
