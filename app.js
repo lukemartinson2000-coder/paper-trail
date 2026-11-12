@@ -4706,10 +4706,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     });
   }
   function renderSpend(month, totals) {
+    /* One add control on this tab: the floating +. The old header "Add" was the same action. */
     var html =
-      '<div class="nav-row"><h2>Transactions</h2>' +
-      '<button class="text-btn" type="button" data-act="add-spend"' +
-      (month.categories.length ? "" : " disabled") + ">Add</button></div>" +
+      '<div class="nav-row"><h2>Transactions</h2></div>' +
       '<div class="row"><span>Spent this month</span><span class="mono">' + money(totals.spent) + "</span></div>" +
       (totals.refunds > 0 ? '<div class="row dense"><span class="caption">Refunds netted out</span><span class="mono caption">' + money(totals.refunds) + "</span></div>" : "") +
       '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
@@ -13758,10 +13757,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * behave exactly as before. */
   var edUi = null;
   function openEdAdd(month) {
-    openSpendSheet(null, month);
-    /* The long sheet is only a draft setup. Don't paint it, or Add flashes $0.00 before the card. */
-    var modal = document.getElementById("modal");
-    if (modal) modal.hidden = true;
+    /* Build the draft only. Painting the long sheet first focused a field and jumped the scroll. */
+    fillSpendDraft(null);
     spendDraft.categoryTouched = true;
     edUi = { pad: true, picker: false, q: "", amt: "", err: "" };
     renderEdAdd(month);
@@ -13784,6 +13781,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function edCentsValue(digits) { return centsFromDigits(digits); }
   function edCentsDigits(n) { var c = Math.round((Number(n) || 0) * 100); return c > 0 ? String(c) : ""; }
   function edAmtLen() { return Math.max(3, String(edUi && edUi.amt || "").length); }
+  function edPadHtml() {
+    return '<div class="ed-pad" role="group" aria-label="Number pad"' + (edUi && edUi.pad ? "" : ' aria-hidden="true"') + ">" +
+      ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
+      '<button type="button" class="ed-done ed-next" data-ed="next">Next</button></div>';
+  }
+  function edPickerRowsHtml(month) {
+    var q = (edUi.q || "").toLowerCase(), sel = {}, h = "", lastCat = null;
+    (spendDraft.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
+    edLines(month).forEach(function (x) {
+      if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
+      var xf = isFlat(x.cat);
+      if (x.cat !== lastCat && !xf) h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>";
+      lastCat = x.cat;
+      var on = !!sel[x.line.id];
+      h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
+        "<span>" + esc(x.line.name) + '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></button>' +
+        '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
+    });
+    return h;
+  }
+  function edPickerHtml(month) {
+    var nSel = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length;
+    return '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget item</h3></div>' +
+      '<p class="caption ed-picker-hint">Check a budget item. Check more than one to split.</p>' +
+      (edUi.capNote ? '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>" : "") +
+      '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q || "") + '">' +
+      '<div class="ed-picker-list">' + edPickerRowsHtml(month) + "</div>" +
+      '<div class="ed-picker-foot"><button type="button" class="primary ed-picker-close" data-ed="picker-done">' + (nSel > 1 ? "Done · " + nSel + " items" : "Done") + "</button></div></div>";
+  }
   function renderEdAdd(month) {
     month = month || ensureMonth(state.year, state.month);
     var d = spendDraft, inc = d.type === "income";
@@ -13793,8 +13819,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!edUi.noteOpen && d.note && String(d.note).replace(/^\s+|\s+$/g, "")) edUi.noteOpen = true;
     var noteOpen = !!edUi.noteOpen && !edUi.noteAnim;
     var amtShown = edAmountRaw();
-    var h = '<form class="sheet ed-add' + (enter ? " ed-enter" : "") + '" data-act="save-spend-sheet" novalidate>' +
-      /* The frame keeps its height; only the middle scrolls. Amount sits in the card, not a hero. */
+    /* Date, Amount, Merchant, then the budget item, then the note. The pad stays in the tree (hidden when off)
+       so showing it doesn't rebuild the sheet. Save is last, so it stays put when the pad collapses. */
+    var h = '<form class="sheet ed-add' + (enter ? " ed-enter" : "") + (edUi.pad ? "" : " ed-pad-off") + '" data-act="save-spend-sheet" novalidate>' +
       '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3>" +
       (d.id ? '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' + esc(d.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>' : "") +
       "</div></div>" +
@@ -13805,53 +13832,36 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="ed-card">' +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" aria-label="Date" class="' + (dateVal ? "" : "ed-date-empty") + '" value="' + esc(dateVal) + '"></label>' +
       '<div class="ed-row ed-amt-row"><span class="lbl">Amount</span><button type="button" class="ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="' + esc(amtShown ? "Amount, " + amtShown : "Amount") + '"><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + '">' + edAmountText() + "</span></button></div>" +
-      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" aria-label="' + (inc ? "From" : "Merchant") + '" value="' + esc(d.payee || "") + '"></label></div>' +
-      '<div class="ed-note' + (noteOpen ? " is-open" : "") + '"><button type="button" class="ed-add-note" data-ed="note-open" aria-expanded="' + (edUi.noteOpen ? "true" : "false") + '" aria-controls="ed-note-box">Add note</button>' +
-      '<div class="ed-note-box" id="ed-note-box"' + (edUi.noteOpen ? "" : ' aria-hidden="true"') + '><label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Note" tabindex="' + (edUi.noteOpen ? "0" : "-1") + '" value="' + esc(d.note || "") + '"></label></div></div>' +
-      (inc || d.id ? "" : edMerchHtml());
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" aria-label="' + (inc ? "From" : "Merchant") + '" value="' + esc(d.payee || "") + '"></label></div>';
     if (inc) {
       h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
         (month.incomes || []).map(function (i) { return '<option value="' + esc(i.id) + '"' + (String(d.incomeId) === String(i.id) ? " selected" : "") + ">" + esc(i.name || "Income") + "</option>"; }).join("") + "</select></label>";
     } else {
       h += edItemsHtml(month);
     }
+    h += '<div class="ed-note' + (noteOpen ? " is-open" : "") + '"><button type="button" class="ed-add-note" data-ed="note-open" aria-expanded="' + (edUi.noteOpen ? "true" : "false") + '" aria-controls="ed-note-box"' + (edUi.noteOpen ? ' tabindex="-1" aria-hidden="true"' : "") + '>Add note</button>' +
+      '<div class="ed-note-box" id="ed-note-box"' + (edUi.noteOpen ? "" : ' aria-hidden="true"') + '><label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Note" tabindex="' + (edUi.noteOpen ? "0" : "-1") + '" value="' + esc(d.note || "") + '"></label></div></div>' +
+      (inc || d.id ? "" : edMerchHtml());
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
-    h += '</div><div class="ed-actions"><button type="submit" class="primary ed-save">Save</button></div>';
-    if (edUi.pad) {
-      h += '<div class="ed-pad" role="group" aria-label="Number pad">' +
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"].map(function (k) { return '<button type="button" data-ed="key" data-k="' + k + '">' + k + "</button>"; }).join("") +
-        '<button type="button" class="ed-done ed-next" data-ed="next">Next</button></div>';
-    }
-    if (edUi.picker && !inc) {
-      var q = edUi.q.toLowerCase(), sel = {};
-      (d.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
-      h += '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>' + (edUi.multi ? "Split across items" : "Budget item") + '</h3></div>' +
-        '<p class="caption ed-picker-hint">' + (edUi.multi ? "Tick 2 to " + ED_SPLIT_MAX + " items, then tap Split. You’ll type each amount next." : "Tap an item to choose it, or tick 2 to " + ED_SPLIT_MAX + " boxes to split.") + "</p>" +
-        (edUi.capNote ? '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>" : "") +
-        '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q) + '">';
-      var lastCat = null;
-      edLines(month).forEach(function (x) {
-        if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
-        var xf = isFlat(x.cat);
-        if (x.cat !== lastCat && !xf) h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>";
-        lastCat = x.cat;
-        var on = edUi.multi && !!sel[x.line.id];
-        h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
-          "<span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>" +
-          '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + on + '" aria-label="Split with ' + esc(x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
-      });
-      var nSel = edUi.multi ? (d.legs || []).filter(function (l) { return l.lineId; }).length : 0;
-      h += '<div class="ed-picker-foot"><button type="button" class="primary ed-picker-close" data-ed="picker-done">' + (nSel > 1 ? "Split · " + nSel + " items" : "Close") + "</button></div>";
-      h += "</div>";
-    }
+    h += "</div>" + edPadHtml() +
+      '<div class="ed-actions"><button type="submit" class="primary ed-save">Save</button></div>';
+    if (edUi.picker && !inc) h += edPickerHtml(month);
     h += "</form>";
     var modal = document.getElementById("modal");
     /* Only category / picker rebuilds restore position. Keypad rebuilds still let the merchant row reveal. */
     var keep = (edScrollSnap || edHoldScroll) ? (edScrollSnap || (modal.querySelector(".sheet.ed-add") ? edCaptureScroll() : null)) : null;
+    var prevSheet = modal.querySelector(".sheet.ed-add");
+    var prevBox = prevSheet && !enter ? { h: prevSheet.style.height, max: prevSheet.style.maxHeight, tf: prevSheet.style.transform, lock: prevSheet.dataset.lockH || "" } : null;
     edScrollSnap = null;
     edHoldScroll = false;
     modal.hidden = false;
     modal.innerHTML = h;
+    if (prevBox) {
+      var kept = modal.querySelector(".sheet.ed-add");
+      if (kept && prevBox.lock) { kept.dataset.lockH = prevBox.lock; if (edUi) edUi.lockH = Number(prevBox.lock); }
+      if (kept && prevBox.h) { kept.style.height = prevBox.h; kept.style.maxHeight = prevBox.max || prevBox.h; }
+      if (kept && prevBox.tf) kept.style.transform = prevBox.tf;
+    }
     document.body.classList.add("ed-add-open");
     document.body.classList.add("tx-editor-open");
     /* Rebuilding the sheet used to focus ✕ at the top. That focus scrolls on the next frame and jumps the sheet up. */
@@ -13862,10 +13872,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var entered = modal.querySelector(".sheet.ed-add");
       var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (!entered || reduceMotion) { if (entered) entered.classList.remove("ed-enter"); }
-      else entered.addEventListener("animationend", function () {
-        entered.classList.remove("ed-enter");
-        edFit();
-      });
+      else {
+        var dropEnter = function () {
+          if (!entered.classList.contains("ed-enter")) return;
+          entered.classList.remove("ed-enter");
+          edFit();
+        };
+        entered.addEventListener("animationend", dropEnter);
+        setTimeout(dropEnter, 420);
+      }
     }
     if (edUi.noteAnim) {
       var noteHost = modal.querySelector(".ed-note");
@@ -13936,12 +13951,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function edKeepField(el) {
     var sc = el && el.closest ? el.closest(".ed-scroll") : null;
     if (!sc) return;
-    var row = el.closest(".ed-row, .field, .ed-items") || el;
+    var row = el.closest(".ed-row, .field, .ed-items, .ed-itemsec, .ed-note") || el;
     var sr = sc.getBoundingClientRect(), er = row.getBoundingClientRect();
     var delta = 0;
     if (er.bottom > sr.bottom - 8) delta = er.bottom - (sr.bottom - 8);
     else if (er.top < sr.top + 8) delta = er.top - (sr.top + 8);
     if (Math.abs(delta) > 1) sc.scrollTop += delta;
+  }
+  /* After the merchant is typed, keep that field and the budget item on screen together when they fit. */
+  function edRevealBudgetItem() {
+    var item = document.querySelector("#modal .sheet.ed-add .ed-items, #modal .sheet.ed-add .ed-split-main") || document.querySelector('#modal .sheet.ed-add [data-ed-in="incomeId"]');
+    if (!item) return;
+    edKeepField(item);
+    var pay = document.querySelector('#modal .sheet.ed-add [data-ed-in="payee"]');
+    var payRow = pay && (pay.closest(".ed-row") || pay);
+    var sc = item.closest(".ed-scroll");
+    if (!payRow || !sc) return;
+    var sr = sc.getBoundingClientRect(), pr = payRow.getBoundingClientRect(), ir = item.getBoundingClientRect();
+    if (pr.top < sr.top + 4) {
+      var delta = pr.top - (sr.top + 4);
+      if (ir.bottom + delta <= sr.bottom - 4) sc.scrollTop += delta;
+    }
   }
   var edScrollSnap = null, edScrollTimer = null, edHoldScroll = false;
   document.addEventListener("pointerdown", function (e) {
@@ -13953,27 +13983,36 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
   function edItemsHtml(month) {
     var d = spendDraft;
-      var picked = (d.legs || []).filter(function (l) { return l.lineId; });
-      /* A suggestion from this merchant's last entry shows as a small tag inside the row (no extra box, so the
-       * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
-      var sugg = d.mappedFromHistory && picked.length === 1;
-      var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
-      var h = '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker"' + (sugg ? ' aria-label="' + esc(picked.map(function (l) { var f = findLine(month, l.lineId); return f && f.line ? f.line.name : "Item"; }).join(", ") + ". " + suggWhy) + '"' : "") + ">" +
-        (picked.length ? '<span class="ed-items-name">' + picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") + "</span>" : '<span class="caption ed-items-name">Choose budget item</span>') +
-        (sugg ? '<span class="ed-sugg-tag" data-role="env-suggest" title="' + esc(suggWhy) + '">Suggested<span class="sr-only"> ' + esc(suggWhy.replace(/^Suggested /, "")) + "</span></span>" : "") +
-        '<span class="chev">›</span></button>' +
-        (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
-      if (picked.length > 1) {
-        /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
-         * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
-        h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
-          var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
-          var rem = roundCents(remainingForLine(month, l.lineId));
-          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
-            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
-            '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
-        }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
-      }
+    var picked = (d.legs || []).filter(function (l) { return l.lineId; });
+    /* A suggestion from this merchant's last entry shows as a small tag inside the row (no extra box, so the
+     * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
+    var sugg = d.mappedFromHistory && picked.length === 1;
+    var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
+    if (!picked.length) {
+      return '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker"><span class="caption ed-items-name">Choose budget item</span><span class="chev">›</span></button></div>';
+    }
+    /* One shared card. Each row: quiet X on the left, name, a light Remaining subtitle, and the
+       allocated amount on the right. Add Split sits inside the card. Two or more keep Rest and Split evenly. */
+    var h = '<div class="ed-itemsec ed-budget-card"><p class="sheet-label">' + (picked.length > 1 ? "Budget items" : "Budget item") + "</p>";
+    h += '<div class="ed-filled">';
+    picked.forEach(function (l, i) {
+      var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
+      var rem = roundCents(remainingForLine(month, l.lineId, d.id || ""));
+      h += '<div class="ed-split-line"><button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">✕</button>' +
+        '<button type="button" class="ed-split-main" data-ed="picker"' +
+        (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
+        '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
+        '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining:</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
+        '<span class="ed-split-amt"><input type="text" inputmode="numeric" autocomplete="off" class="ed-row-amt mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + esc(formatMoney(Number(l.amount) || 0, 2)) + '">' +
+        (picked.length > 1 ? '<button type="button" class="ed-rest" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button>' : "") +
+        "</span></div>";
+    });
+    h += "</div>";
+    if (picked.length > 1) {
+      h += '<div class="ed-alloc-tools"><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button>' +
+        '<p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div>";
+    }
+    if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
   }
   /* Recent merchants under the Merchant box (new expenses only), narrowed as you type. */
@@ -13981,7 +14020,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = spendDraft, typed = String(d.payee || "").trim().toLowerCase();
     var list = filteredPayeeChips(false, d.payee).filter(function (it) { return String(it.payee).trim().toLowerCase() !== typed; });
     return '<div class="ed-merch" data-role="ed-merch"' + (list.length ? "" : " hidden") + '><p class="spend-accessory-label">Recent</p><div class="merchant-chips" role="list">' +
-      list.map(function (it) { return '<button type="button" class="merchant-chip" role="listitem" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>"; }).join("") + "</div></div>";
+      list.map(function (it) { return '<button type="button" class="merchant-chip" tabindex="-1" role="listitem" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>"; }).join("") + "</div></div>";
   }
   /* Suggest the envelope this merchant went to last time, unless the user already picked one themselves. */
   function edSuggest(month) {
@@ -14013,13 +14052,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
-  function edToggleLeg(parts) {
-    var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
-    if (legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; return; }
-    legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
-    if (legs.length === 2) legs[0].amount = 0;
-    spendDraft.legs = legs;
-  }
   function edAllocStatus() {
     var total = roundCents(Number(spendDraft.amount) || 0), sum = roundCents(edAllocLegs().reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), left = roundCents(total - sum);
     var cls = !(total > 0) ? "" : left === 0 ? "ok" : left < 0 ? "over" : "left";
@@ -14032,52 +14064,214 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * keyboard) with the Amount header pinned, so Save scrolls into reach. */
   /* One frame for the sheet: lock the height taken on open so the pad and the keyboard
    * don't resize it. A keyboard only lifts the frame (transform) and caps it to the visible area. */
+  var edFitting = false;
   function edFit() {
+    if (edFitting) return;
     var sh = document.querySelector("#modal .sheet.ed-add");
     if (!sh) return;
+    edFitting = true;
+    try {
+      var vv = window.visualViewport;
+      var visTop = vv ? vv.offsetTop : 0;
+      var visBottom = visTop + (vv ? vv.height : window.innerHeight);
+      var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, bottom: visBottom };
+      var top = Math.max(host.top, visTop);
+      var bottom = Math.min(host.bottom, visBottom);
+      var room = Math.max(240, Math.round(bottom - top - 8));
+      if (!sh.dataset.lockH && edUi && edUi.lockH) sh.dataset.lockH = String(edUi.lockH);
+      if (!sh.dataset.lockH) {
+        var prevH = sh.style.height, prevMax = sh.style.maxHeight;
+        sh.style.height = "auto";
+        sh.style.maxHeight = room + "px";
+        sh.dataset.lockH = String(Math.round(Math.min(sh.offsetHeight || room, room)));
+        sh.style.height = prevH;
+        sh.style.maxHeight = prevMax;
+      }
+      if (edUi && sh.dataset.lockH) edUi.lockH = Number(sh.dataset.lockH);
+      var h = Math.min(Number(sh.dataset.lockH) || room, room);
+      if (sh.style.height !== h + "px") { sh.style.height = h + "px"; sh.style.maxHeight = h + "px"; }
+      sh.style.marginBottom = "";
+      sh.style.minHeight = "";
+      var ae = document.activeElement;
+      var typing = !!(ae && sh.contains(ae) && ae.matches && ae.matches("input, select, textarea"));
+      document.body.classList.toggle("ed-typing", typing);
+      /* A text field or a short visible area can't share the screen with the number pad. */
+      if (edUi && edUi.pad && (typing || room < 560) && !sh.classList.contains("ed-out")) edCollapsePad();
+      if (window.scrollY) { try { window.scrollTo(0, 0); } catch (e) {} }
+      if (!sh.classList.contains("ed-enter") && !sh.classList.contains("ed-out")) {
+        var lift = Math.max(0, Math.round(host.bottom - visBottom));
+        var ty = lift ? "translateY(-" + lift + "px)" : "";
+        if ((sh.style.transform || "") !== ty) sh.style.transform = ty;
+      }
+      if (typing) {
+        edKeepField(ae);
+        if (ae.getAttribute && ae.getAttribute("data-ed-in") === "payee") edRevealBudgetItem();
+        if (sh._edEnd) sh.removeEventListener("transitionend", sh._edEnd);
+        sh._edEnd = function (ev) {
+          if (!ev || ev.target !== sh) return;
+          if (ev.propertyName !== "height" && ev.propertyName !== "transform" && ev.propertyName !== "max-height") return;
+          sh.removeEventListener("transitionend", sh._edEnd);
+          if (document.activeElement === ae) edKeepField(ae);
+        };
+        sh.addEventListener("transitionend", sh._edEnd);
+      }
+    } finally { edFitting = false; }
+  }
+  function edCollapsePad() {
+    if (!edUi) return;
+    var was = edUi.pad;
+    edUi.pad = false;
+    var f = document.querySelector("#modal .sheet.ed-add");
+    if (!f) return;
+    f.classList.add("ed-pad-off");
+    var pad = f.querySelector(".ed-pad");
+    if (pad) pad.setAttribute("aria-hidden", "true");
+    var amt = f.querySelector(".ed-amt");
+    if (amt) amt.classList.remove("active");
+    var hero = f.querySelector(".ed-hero");
+    if (hero) hero.classList.remove("active");
+    if (!edFitting) edFit();
+    /* After the pad finishes collapsing, fit the frame to what's left so the
+       reserved keypad space doesn't sit empty. The height eases; Save stays at the bottom. */
+    if (!was || !pad) return;
+    var settled = false;
+    var settle = function () {
+      if (settled || !edUi || edUi.pad || !f.isConnected) return;
+      settled = true;
+      delete f.dataset.lockH;
+      edUi.lockH = 0;
+      edFit();
+    };
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) settle();
+    else {
+      var onEnd = function (ev) { if (ev.propertyName === "max-height") { pad.removeEventListener("transitionend", onEnd); settle(); } };
+      pad.addEventListener("transitionend", onEnd);
+      setTimeout(function () { pad.removeEventListener("transitionend", onEnd); settle(); }, 280);
+    }
+  }
+  function edShowPad() {
+    if (!edUi) return;
+    edUi.pad = true;
+    var f = document.querySelector("#modal .sheet.ed-add");
+    if (!f) return;
+    f.classList.remove("ed-pad-off");
+    var pad = f.querySelector(".ed-pad");
+    if (pad) pad.removeAttribute("aria-hidden");
+    var amt = f.querySelector(".ed-amt");
+    if (amt) amt.classList.add("active");
+    var ae = document.activeElement;
+    if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur();
+    document.body.classList.remove("ed-typing");
+    edFit();
+  }
+  function edPaintAmount() {
+    var btn = document.querySelector("#modal .ed-add .ed-amt");
+    if (btn) {
+      var shown = edAmountRaw();
+      var v = btn.querySelector(".ed-amt-v");
+      if (v) { v.textContent = shown; v.classList.toggle("long", edAmtLen() > 10); }
+      btn.setAttribute("aria-label", shown ? "Amount, " + shown : "Amount");
+    }
+    /* One budget item: the row amount is the same number as the top Amount. */
+    var rows = document.querySelectorAll("#modal .ed-add .ed-row-amt");
+    if (rows.length === 1 && document.activeElement !== rows[0]) {
+      var one = edAllocLegs();
+      if (one.length === 1) rows[0].value = formatMoney(one[0].amount || 0, 2);
+    }
+  }
+  function edOpenNote() {
+    if (!edUi) return;
+    edUi.noteOpen = true;
+    edCollapsePad();
+    var noteHost = document.querySelector("#modal .ed-note");
+    if (!noteHost) { renderEdAdd(ensureMonth(state.year, state.month)); return; }
+    var btn = noteHost.querySelector(".ed-add-note");
+    if (btn) { btn.setAttribute("aria-expanded", "true"); btn.tabIndex = -1; btn.setAttribute("aria-hidden", "true"); }
+    var openNote = function () {
+      if (!document.body.contains(noteHost)) return;
+      noteHost.classList.add("is-open");
+      var noteWrap = noteHost.querySelector(".ed-note-box");
+      if (noteWrap) noteWrap.removeAttribute("aria-hidden");
+      var noteIn = noteHost.querySelector("[data-ed-in='note']");
+      if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } edKeepField(noteIn); }
+    };
+    var reduceNote = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceNote) openNote();
+    else requestAnimationFrame(openNote);
+  }
+  function edPaintPicker(month) {
+    var picker = document.querySelector("#modal .ed-picker");
+    if (!picker || !edUi) return false;
+    var list = picker.querySelector(".ed-picker-list");
+    if (list) list.innerHTML = edPickerRowsHtml(month);
+    var hint = picker.querySelector(".ed-picker-hint");
+    if (hint) hint.textContent = "Check a budget item. Check more than one to split.";
+    var nSel = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length;
+    var foot = picker.querySelector(".ed-picker-close");
+    if (foot) foot.textContent = nSel > 1 ? ("Done · " + nSel + " items") : "Done";
+    var cap = picker.querySelector(".ed-cap-note");
+    if (edUi.capNote && !cap) {
+      var search = picker.querySelector(".ed-search");
+      if (search) search.insertAdjacentHTML("beforebegin", '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>");
+    } else if (!edUi.capNote && cap && cap.parentNode) cap.parentNode.removeChild(cap);
+    var title = picker.querySelector(".sheet-top h3");
+    if (title) title.textContent = "Budget item";
+    return true;
+  }
+  function edMountPicker(month) {
+    var f = document.querySelector("#modal .sheet.ed-add");
+    if (!f) { renderEdAdd(month); return; }
+    var html = edPickerHtml(month);
+    var old = f.querySelector(".ed-picker");
+    if (old) old.outerHTML = html;
+    else f.insertAdjacentHTML("beforeend", html);
+    var s = f.querySelector(".ed-search");
+    if (s && edUi.focusSearch) {
+      try { s.focus({ preventScroll: true }); } catch (x) { s.focus(); }
+      try { s.setSelectionRange(s.value.length, s.value.length); } catch (e2) {}
+    }
+  }
+  function edClosePicker(month) {
+    if (edUi) { edUi.picker = false; edUi.capNote = false; edUi.multi = false; }
+    var sec = document.querySelector("#modal .ed-itemsec");
+    if (sec) sec.outerHTML = edItemsHtml(month);
+    var p = document.querySelector("#modal .ed-picker");
+    var drop = function () { if (p && p.parentNode) p.parentNode.removeChild(p); };
+    if (p) {
+      var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduce) drop();
+      else { p.classList.add("ed-picker-out"); p.addEventListener("animationend", drop); setTimeout(drop, 180); }
+    }
+    var row = document.querySelector("#modal .ed-split-main, #modal .ed-items, #modal .ed-add-split");
+    if (row) edKeepField(row);
+    edGrowToContent();
+  }
+  /* A second split can be taller than the frame that was locked around one item.
+     Grow only, with the same height ease, so Add note stays in view and the sheet does not snap. */
+  function edGrowToContent() {
+    var sh = document.querySelector("#modal .sheet.ed-add");
+    if (!sh || sh.classList.contains("ed-enter") || sh.classList.contains("ed-out")) return;
+    if (sh.querySelectorAll(".ed-split-line").length < 2) return;
+    var prevH = sh.style.height, prevMax = sh.style.maxHeight;
+    sh.style.height = "auto";
+    sh.style.maxHeight = "none";
+    var natural = sh.offsetHeight;
+    sh.style.height = prevH;
+    sh.style.maxHeight = prevMax;
+    var cur = parseFloat(prevH) || 0;
+    if (!(natural > cur + 12)) return;
     var vv = window.visualViewport;
     var visTop = vv ? vv.offsetTop : 0;
     var visBottom = visTop + (vv ? vv.height : window.innerHeight);
     var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, bottom: visBottom };
-    var top = Math.max(host.top, visTop);
-    var bottom = Math.min(host.bottom, visBottom);
-    var room = Math.max(240, Math.round(bottom - top - 8));
-    if (!sh.dataset.lockH && edUi && edUi.lockH) sh.dataset.lockH = String(edUi.lockH);
-    if (!sh.dataset.lockH) {
-      sh.style.height = "";
-      sh.style.maxHeight = room + "px";
-      sh.dataset.lockH = String(Math.round(Math.min(sh.getBoundingClientRect().height || room, room)));
+    var room = Math.max(240, Math.round(Math.min(host.bottom, visBottom) - Math.max(host.top, visTop) - 8));
+    var want = Math.min(natural, room);
+    if (want > cur + 8) {
+      sh.dataset.lockH = String(want);
+      if (edUi) edUi.lockH = want;
+      edFit();
     }
-    if (edUi && sh.dataset.lockH) edUi.lockH = Number(sh.dataset.lockH);
-    var h = Math.min(Number(sh.dataset.lockH) || room, room);
-    sh.style.height = h + "px";
-    sh.style.maxHeight = h + "px";
-    sh.style.marginBottom = "";
-    sh.style.minHeight = "";
-    var ae = document.activeElement;
-    var typing = !!(ae && sh.contains(ae) && ae.matches && ae.matches("input, select, textarea"));
-    document.body.classList.toggle("ed-typing", typing);
-    /* A text field or a short visible area can't share the screen with the number pad. */
-    if (edUi && edUi.pad && (typing || room < 560) && !sh.classList.contains("ed-out")) {
-      edCollapsePad();
-      if (typing) edKeepField(ae);
-      return;
-    }
-    if (window.scrollY) { try { window.scrollTo(0, 0); } catch (e) {} }
-    if (!sh.classList.contains("ed-enter") && !sh.classList.contains("ed-out")) {
-      var lift = Math.max(0, Math.round(host.bottom - visBottom));
-      sh.style.transform = lift ? "translateY(-" + lift + "px)" : "";
-    }
-    if (typing) edKeepField(ae);
-  }
-  function edCollapsePad() {
-    if (!edUi) return;
-    edUi.pad = false;
-    var f = document.querySelector("#modal .sheet.ed-add");
-    if (!f) return;
-    var pad = f.querySelector(".ed-pad"); if (pad) pad.parentNode.removeChild(pad);
-    var hero = f.querySelector(".ed-hero"); if (hero) hero.classList.remove("active");
-    edFit();
   }
   /* With the number pad open, a tap on Merchant (or any field) works straight away: it commits the amount,
    * closes the pad with the sheet held in place, and focuses that field. */
@@ -14086,16 +14280,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add input, #modal .sheet.ed-add select, #modal .sheet.ed-add textarea");
     if (!t || t.closest(".ed-pad")) return;
     var key = t.getAttribute("data-ed-in");
-    if (!key) return;
+    if (!key && t.getAttribute("data-ed-leg") == null) return;
     e.preventDefault();
     var sc0 = edScrollEl();
     var st0 = sc0 ? sc0.scrollTop : 0;
-    edSyncAmount(); edUi.pad = false; renderEdAdd(ensureMonth(state.year, state.month));
-    var sc1 = edScrollEl(); if (sc1) sc1.scrollTop = st0;
-    var nx = document.querySelector('#modal .ed-add [data-ed-in="' + key + '"]');
-    if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } edKeepField(nx); }
+    edSyncAmount();
+    edCollapsePad();
+    var sc1 = edScrollEl(); if (sc1 && sc1.scrollTop !== st0) sc1.scrollTop = st0;
+    try { t.focus({ preventScroll: true }); } catch (x) { t.focus(); }
+    edKeepField(t);
+    if (key === "payee") edRevealBudgetItem();
     /* Swallow the click from this same tap so it can't land on whatever now sits under the finger. */
-    var swallow = function (ev) { if (ev.target !== nx) { ev.preventDefault(); ev.stopPropagation(); } document.removeEventListener("click", swallow, true); };
+    var swallow = function (ev) { if (ev.target !== t) { ev.preventDefault(); ev.stopPropagation(); } document.removeEventListener("click", swallow, true); };
     document.addEventListener("click", swallow, true);
     setTimeout(function () { document.removeEventListener("click", swallow, true); }, 600);
   }, true);
@@ -14112,6 +14308,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       edCollapsePad();
       edFit();
       edKeepField(t);
+      if (t.getAttribute("data-ed-in") === "payee") edRevealBudgetItem();
     }
   });
   document.addEventListener("focusout", function (e) {
@@ -14133,35 +14330,66 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     e.preventDefault(); e.stopPropagation();
     var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
     edUi.err = ""; edUi.focusSearch = false;
-    if (a === "picker" || a === "split" || a === "item" || a === "tick" || a === "picker-done" || a === "split-mode") edHoldScroll = true;
+    var staleErr = document.querySelector("#modal .ed-add .ed-err");
+    if (staleErr && staleErr.parentNode) staleErr.parentNode.removeChild(staleErr);
     if (a === "item" || a === "tick") { edUi.manual = true; spendDraft.mappedFromHistory = false; }
-    if (a === "merch") { spendDraft.payee = b.getAttribute("data-payee") || ""; edSuggest(month); }
-    else if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; }
-    else if (a === "pad") { edUi.pad = true; edUi.holdTop = null; var ae = document.activeElement; if (ae && ae.blur && ae.matches && ae.matches("input, select, textarea")) ae.blur(); }
-    else if (a === "done") edUi.pad = false;
-    else if (a === "note-open") { edUi.noteOpen = true; edUi.noteAnim = true; edUi.pad = false; }
-    else if (a === "next") {
-      /* One tap commits the typed amount, closes the number pad and moves on to Merchant (no Done step first). */
-      edSyncAmount(); edUi.pad = false; renderEdAdd(month);
-      var nx = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
-      if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } edKeepField(nx); }
+    if (a === "merch") {
+      spendDraft.payee = b.getAttribute("data-payee") || "";
+      var payIn = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
+      if (payIn) payIn.value = spendDraft.payee;
+      edSuggest(month);
+      edRepaintLive(month);
+      edRevealBudgetItem();
       return;
     }
-    else if (a === "key") {
+    if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; renderEdAdd(month); return; }
+    if (a === "pad") { edShowPad(); return; }
+    if (a === "done") { edCollapsePad(); return; }
+    if (a === "note-open") { edOpenNote(); return; }
+    if (a === "next") {
+      /* One tap commits the typed amount, closes the number pad and moves on to Merchant (no Done step first). */
+      edSyncAmount();
+      edCollapsePad();
+      var nx = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
+      if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } edKeepField(nx); edRevealBudgetItem(); }
+      return;
+    }
+    if (a === "key") {
       var k = b.getAttribute("data-k"), s = edUi.amt;
       if (k === "⌫") s = s.slice(0, -1);
       else if (/^\d+$/.test(k)) { s = (s + k).replace(/^0+/, ""); if (s.length > 9) s = edUi.amt; }
       edUi.amt = s; edSyncAmount();
+      edPaintAmount();
+      return;
     }
-    else if (a === "picker") { edUi.picker = true; edUi.pad = false; edUi.capNote = false; edUi.multi = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length > 1; }
-    else if (a === "split") { edUi.picker = true; edUi.pad = false; edUi.multi = true; edUi.capNote = false; }
-    else if (a === "split-mode") {
+    if (a === "picker" || a === "add-split" || a === "split") {
+      edUi.picker = true; edUi.capNote = false; edUi.multi = true;
+      edCollapsePad();
+      edMountPicker(month);
+      return;
+    }
+    if (a === "split-mode") {
       edUi.multi = !edUi.multi;
       var keep = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       if (!edUi.multi && keep.length > 1) { keep = [keep[0]]; keep[0].amount = spendDraft.amount; spendDraft.legs = keep; }
+      if (!edPaintPicker(month)) renderEdAdd(month);
+      return;
     }
-    else if (a === "picker-done") { edUi.picker = false; edUi.capNote = false; edUi.multi = false; }
-    else if (a === "fill" || a === "even") {
+    if (a === "picker-done") { edClosePicker(month); return; }
+    if (a === "unsplit") {
+      var ui = +b.getAttribute("data-i"), ul = edAllocLegs();
+      if (ul[ui]) ul.splice(ui, 1);
+      if (ul.length === 1) ul[0].amount = spendDraft.amount;
+      spendDraft.mappedFromHistory = false;
+      spendDraft.legs = ul.length ? ul : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+      var usec = document.querySelector("#modal .ed-itemsec");
+      if (usec) usec.outerHTML = edItemsHtml(month);
+      else renderEdAdd(month);
+      var urow = document.querySelector("#modal .ed-split-main, #modal .ed-items");
+      if (urow) edKeepField(urow);
+      return;
+    }
+    if (a === "fill" || a === "even") {
       var al = edAllocLegs(), tot = roundCents(Number(spendDraft.amount) || 0);
       if (a === "fill") {
         var fi = +b.getAttribute("data-i"), others = al.reduce(function (n, l, j) { return n + (j === fi ? 0 : Number(l.amount) || 0); }, 0);
@@ -14170,31 +14398,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var c = Math.round(tot * 100), base = Math.floor(c / al.length);
         al.forEach(function (l, j) { l.amount = (base + (j < c - base * al.length ? 1 : 0)) / 100; });
       }
+      var inputs = document.querySelectorAll("#modal .ed-add [data-ed-leg]");
+      al.forEach(function (l, j) { if (inputs[j]) inputs[j].value = formatMoney(Number(l.amount) || 0, 2); });
+      edAllocPaint();
+      return;
     }
-    else if (a === "tick" && !edUi.multi) {
-      /* First tick starts checkbox mode with just that item ticked; a plain tap is still the one-item quick pick. */
+    if (a === "item" || a === "tick") {
+      /* Checking a box keeps the picker open so another item can be checked. Done applies them. */
       edUi.multi = true;
-      spendDraft.legs = [];
-      edToggleLeg(String(b.getAttribute("data-key")).split(":"));
-    }
-    else if (a === "item" || a === "tick") {
       var parts = String(b.getAttribute("data-key")).split(":"), legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       var has = legs.filter(function (l) { return l.lineId === parts[1]; })[0];
-      /* v37.5.72 (owner): one budget item by default; a tap picks it and closes the picker. Splitting is the deliberate
-       * "Split across items" path, which keeps the picker open for more picks. */
-      if (!edUi.multi) {
-        spendDraft.legs = [{ id: (has && has.id) || nextId(), categoryId: parts[0], lineId: parts[1], amount: spendDraft.amount, refund: 0, note: "" }];
-        edUi.picker = false;
-        renderEdAdd(month);
-        return;
-      }
       edUi.capNote = false;
-      if (!has && legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; renderEdAdd(month); return; }
+      if (!has && legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; if (!edPaintPicker(month)) renderEdAdd(month); return; }
       if (has) legs = legs.filter(function (l) { return l !== has; });
       else legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
       if (legs.length === 1) legs[0].amount = spendDraft.amount;
       else if (!has && legs.length === 2) legs[0].amount = 0; /* Starting a split: nothing allocated yet, so Remaining = the whole amount. */
       spendDraft.legs = legs.length ? legs : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+      if (!edPaintPicker(month)) renderEdAdd(month);
+      return;
     }
     renderEdAdd(month);
   }, true);
@@ -14204,19 +14426,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var k = el.getAttribute("data-ed-in"), li = el.getAttribute("data-ed-leg");
     if (k === "payee") {
       spendDraft.payee = el.value;
-      if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); }
+      if (spendDraft.type !== "income" && !spendDraft.id) { var em = ensureMonth(state.year, state.month); edSuggest(em); edRepaintLive(em); edRevealBudgetItem(); }
     }
     else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
     else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
-    else if (k === "q") { edUi.q = el.value; edUi.focusSearch = true; renderEdAdd(); }
+    else if (k === "q") { edUi.q = el.value; if (!edPaintPicker(ensureMonth(state.year, state.month))) renderEdAdd(); }
     else if (li != null) {
       var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       /* Calculator style like the main amount: digits fill from the cents. */
       var dg = String(el.value).replace(/\D/g, "").replace(/^0+/, "").slice(0, 9);
-      if (legs[+li]) legs[+li].amount = roundCents(centsFromDigits(dg));
-      el.value = dg ? formatMoney(centsFromDigits(dg), 2) : "";
+      var rowAmt = roundCents(centsFromDigits(dg));
+      if (legs[+li]) legs[+li].amount = rowAmt;
+      el.value = formatMoney(rowAmt, 2);
       try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
+      if (legs.length === 1) {
+        spendDraft.amount = rowAmt;
+        if (edUi) edUi.amt = edCentsDigits(rowAmt);
+        edPaintAmount();
+      }
       edAllocPaint();
     }
   }, true);
@@ -14239,7 +14467,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (err) { e.preventDefault(); e.stopImmediatePropagation(); edUi.err = err; renderEdAdd(); return; }
     edUi = null;
   }, true);
-  function openSpendSheet(tx, month) {
+  function fillSpendDraft(tx) {
     if (tx) {
       spendDraft = {
         id: tx.id,
@@ -14293,9 +14521,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         }]
       };
     }
-    renderSpendSheet(month);
   }
-
   function readSpendDraft(form) {
     if (!form || !spendDraft) return;
     spendDraft.payee = form.payee ? form.payee.value : spendDraft.payee;
@@ -14736,10 +14962,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   /* Editing an expense uses the same card as Add (picker → allocation rows, Rest, Split evenly, live line).
    * Refund transactions and income keep the full sheet: the card has no refund-piece inputs yet. */
   function openEditSpend(tx, month) {
-    openSpendSheet(tx, month);
-    if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) return;
-    var modal = document.getElementById("modal");
-    if (modal) modal.hidden = true;
+    fillSpendDraft(tx);
+    if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) {
+      renderSpendSheet(month);
+      return;
+    }
     spendDraft.categoryTouched = true;
     var a = roundCents(Number(spendDraft.amount) || 0);
     edUi = { pad: false, picker: false, q: "", amt: edCentsDigits(a), err: "", edit: true };
@@ -18600,7 +18827,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.101";
+  var APP_VERSION = "37.5.106";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20150,7 +20377,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (!reduce) {
         txForm.classList.remove("ed-enter");
-        txForm.style.transform = "";
         txForm.classList.add("ed-out");
         setTimeout(function () {
           if (!document.body.contains(txForm)) return;

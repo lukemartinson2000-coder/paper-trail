@@ -225,6 +225,7 @@ function near(a, b, eps) {
       const hiddenMarks = [...document.querySelectorAll(".sav-envelope .sav-mark")];
       const head0 = env0.querySelector(".envelope-head").getBoundingClientRect();
       const amt0 = env0.querySelector(".line-assigned-btn").getBoundingClientRect();
+      const name0 = env0.querySelector(".line-name").getBoundingClientRect().left;
       const scroll0 = document.getElementById("screen").scrollTop;
       const folded = {
         expanded: toggle.getAttribute("aria-expanded"),
@@ -245,6 +246,7 @@ function near(a, b, eps) {
         head: Math.abs(head1.top - head0.top) < 0.5 && Math.abs(head1.left - head0.left) < 0.5,
         amtRight: Math.abs(amt1.right - amt0.right) < 0.5,
         nameLeft: Math.abs(env0.querySelector(".line-name").getBoundingClientRect().left - (head0.left + 44)) < 1.5,
+        shifted: env0.querySelector(".line-name").getBoundingClientRect().left > name0 + 8,
         scroll: document.getElementById("screen").scrollTop === scroll0,
         mid: midOpacity,
         open: toggle.getAttribute("aria-expanded"),
@@ -290,7 +292,7 @@ function near(a, b, eps) {
     check(ui.link && ui.link.act === "set-plan" && ui.link.plan === "premium" && ui.link.text === "Include paycheck savings", "free paycheck link uses the premium gate");
     check(/Count retirement contributions and employer contributions from your pay/.test(ui.caption), "paycheck link caption");
     check(ui.folded && ui.folded.expanded === "false" && ui.folded.label === "Show which lines count towards the savings rate" && ui.folded.controls === "sav-count-col" && /Count towards savings rate/.test(ui.folded.header) && ui.folded.help && ui.folded.hidden && ui.folded.checksInDom >= 1, "checks hidden until expand " + JSON.stringify(ui.folded));
-    check(ui.still && ui.still.head && ui.still.amtRight && ui.still.nameLeft && ui.still.scroll && ui.still.mid > 0.05 && ui.still.mid < 0.98 && ui.still.open === "true" && ui.still.openLabel === "Hide which lines count towards the savings rate", "expand fades the checks without moving the rows " + JSON.stringify(ui.still));
+    check(ui.still && ui.still.head && ui.still.amtRight && ui.still.nameLeft && ui.still.shifted && ui.still.scroll && ui.still.mid > 0.05 && ui.still.mid < 0.98 && ui.still.open === "true" && ui.still.openLabel === "Hide which lines count towards the savings rate", "expand shifts names right and fades the checks in " + JSON.stringify(ui.still));
     check(ui.marks.some((m) => m.name === "House fund" && m.pressed === "true" && /Included in savings rate/.test(m.label) && m.check && m.shown && !/\b(In|Out)\b/.test(m.text)), "house fund marker is a check, not in/out");
     check(ui.marks.every((m) => m.shown), "opened checks are shown");
     check(ui.layout && ui.layout.labelBelow && ui.layout.labelLeft && ui.layout.markLeftOfName && ui.layout.sameColumn && ui.layout.noInOut, "count column sits under the savings total, on the left " + JSON.stringify(ui.layout));

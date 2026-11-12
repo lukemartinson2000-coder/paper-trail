@@ -178,10 +178,12 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
       await new Promise((r) => setTimeout(r, 200));
       const midSh = document.querySelector(".sheet.ed-add");
       const mid = { sheet: midSh.scrollTop, top: Math.round(midSh.getBoundingClientRect().top), screen: screen.scrollTop, picker: !!document.querySelector(".ed-picker") };
-      document.querySelector(".ed-picker [data-ed='item']").click();
-      await new Promise((r) => setTimeout(r, 200));
+      document.querySelector(".ed-picker [data-ed='tick']").click();
+      await new Promise((r) => setTimeout(r, 40));
+      document.querySelector("[data-ed='picker-done']").click();
+      await new Promise((r) => setTimeout(r, 220));
       const sh2 = document.querySelector(".sheet.ed-add");
-      const row = sh2.querySelector(".ed-items");
+      const row = sh2.querySelector(".ed-split-main, .ed-items");
       const sr = sh2.getBoundingClientRect(), er = row ? row.getBoundingClientRect() : null;
       const rowVisible = !!(er && er.top >= sr.top - 2 && er.bottom <= sr.bottom + 2 && er.top < window.innerHeight && er.bottom > 0);
       return { before, mid, after: { sheet: sh2.scrollTop, top: Math.round(sh2.getBoundingClientRect().top), screen: document.getElementById("screen").scrollTop, item: (document.querySelector(".ed-items-name") || {}).textContent || "", picker: !!document.querySelector(".ed-picker"), rowVisible } };
