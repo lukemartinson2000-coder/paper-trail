@@ -13796,7 +13796,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       lastCat = x.cat;
       var on = !!sel[x.line.id];
       h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
-        "<span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>" +
+        "<span>" + esc(x.line.name) + '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></button>' +
         '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
     });
     return h;
@@ -14001,7 +14001,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<div class="ed-split-line"><button type="button" class="ed-split-main" data-ed="picker"' +
         (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
         '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
-        '<span class="caption">Remaining ' + esc(formatMoney(rem, 2)) + "</span></button>" +
+        '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
         '<button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">−</button></div>';
       if (picked.length > 1) {
         h += '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">Amount</span></span>' +
@@ -18816,7 +18816,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.103";
+  var APP_VERSION = "37.5.104";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

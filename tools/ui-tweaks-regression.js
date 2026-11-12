@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the 37.5.102 sheet tweaks and the 37.5.103 split flow. Synthetic demo numbers only.
+/* Narrow checks for the 37.5.102 sheet tweaks, the 37.5.103 split flow, and 37.5.104 remaining-amount type. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -141,7 +141,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.103" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.104" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -570,11 +570,16 @@ function versionLockstep() {
         n: ticks.length,
         boxes: ticks.every((t) => t.getAttribute("role") === "checkbox"),
         hint: (document.querySelector(".ed-picker-hint") || {}).textContent || "",
-        top: top0
+        top: top0,
+        remPx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontSize),
+        remWeight: getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontWeight,
+        remColor: getComputedStyle(document.querySelector(".ed-picker .ed-rem")).color,
+        hintColor: getComputedStyle(document.querySelector(".ed-picker-hint")).color
       };
     })()`);
     await snap("08-budget-picker-checks.png");
     if (!out.splitPicker || out.splitPicker.n < 2 || !out.splitPicker.boxes || /split across/i.test(out.splitPicker.hint)) fail.push("picker checks " + JSON.stringify(out.splitPicker));
+    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) < 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
     out.splitCheck = await cdp.eval(`(async () => {
       const sh = document.querySelector("form.sheet.ed-add");
       const a = sh.getBoundingClientRect().top;
@@ -595,15 +600,16 @@ function versionLockstep() {
         name: (sh.querySelector(".ed-items-name") || {}).textContent.trim(),
         add: (sh.querySelector(".ed-add-split") || {}).textContent.trim(),
         minus: (sh.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
-        rem: (sh.querySelector(".ed-split-main .caption") || {}).textContent.trim(),
+        rem: (sh.querySelector(".ed-split-main .ed-rem") || {}).textContent.trim(),
         splitBtn: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
         noteAfter: block.bottom <= note.top + 2,
+        remPx: parseFloat(getComputedStyle(sh.querySelector(".ed-split-main .ed-rem-amt")).fontSize),
         top: sh.getBoundingClientRect().top,
         picker: !!sh.querySelector(".ed-picker")
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx >= 16)) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);

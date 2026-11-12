@@ -5552,6 +5552,13 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-split-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .ed-split-name { font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ed-split-main .caption { color: var(--muted); }
+/* Remaining amounts in the budget-item picker and on filled split rows. Larger and darker than a caption so they read at a glance, while the word "remaining" keeps them distinct from the transaction amount. */
+.ed-rem { display: block; margin: 1px 0 0; color: var(--ink); font: 600 calc(15px * var(--fs-scale))/1.2 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.ed-rem-amt { font-weight: 700; font-size: calc(17px * var(--fs-scale)); font-variant-numeric: tabular-nums; }
+.ed-rem-word { font-weight: 600; font-size: calc(13px * var(--fs-scale)); letter-spacing: 0.01em; }
+.ed-picker .ed-item > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-picker .ed-item .ed-rem { margin: 0; text-align: right; white-space: nowrap; }
+.ed-rem.rust, .ed-rem.rust .ed-rem-amt, .ed-rem.rust .ed-rem-word { color: var(--danger); }
 .ed-split-minus { flex: 0 0 44px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--danger); color: #fff; font: 600 22px/1 var(--ui); cursor: pointer; }
 .ed-split-minus:focus-visible, .ed-add-split:focus-visible, .ed-split-main:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
 .ed-add-split { display: block; width: 100%; margin: 2px 0 12px; padding: 8px 2px; border: 0; background: none; color: var(--moss); font: 600 calc(16px * var(--fs-scale)) var(--ui); text-align: left; cursor: pointer; min-height: 44px; }
