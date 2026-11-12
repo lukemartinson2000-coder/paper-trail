@@ -13988,31 +13988,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
      * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
     var sugg = d.mappedFromHistory && picked.length === 1;
     var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
-    var h = '<div class="ed-itemsec"><p class="sheet-label">' + (picked.length > 1 ? "Budget items" : "Budget item") + "</p>";
     if (!picked.length) {
-      return h + '<button type="button" class="ed-items" data-ed="picker"><span class="caption ed-items-name">Choose budget item</span><span class="chev">›</span></button></div>';
+      return '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker"><span class="caption ed-items-name">Choose budget item</span><span class="chev">›</span></button></div>';
     }
-    /* One filled item is a row with its remaining amount and a minus. Add Split sits under it.
-       Two or more keep the same rows, plus the existing amount / Rest / Split evenly math. */
+    /* One shared card. Each row: quiet X on the left, name, a light Remaining subtitle, and the
+       allocated amount on the right. Add Split sits inside the card. Two or more keep Rest and Split evenly. */
+    var h = '<div class="ed-itemsec ed-budget-card"><p class="sheet-label">' + (picked.length > 1 ? "Budget items" : "Budget item") + "</p>";
     h += '<div class="ed-filled">';
     picked.forEach(function (l, i) {
       var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
       var rem = roundCents(remainingForLine(month, l.lineId, d.id || ""));
-      h += '<div class="ed-split-line"><button type="button" class="ed-split-main" data-ed="picker"' +
+      h += '<div class="ed-split-line"><button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">✕</button>' +
+        '<button type="button" class="ed-split-main" data-ed="picker"' +
         (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
         '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
-        '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
-        '<button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">✕</button></div>';
-      if (picked.length > 1) {
-        h += '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">Amount</span></span>' +
-          '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
-          '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
-      }
+        '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining:</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
+        '<span class="ed-split-amt"><input type="text" inputmode="numeric" autocomplete="off" class="ed-row-amt mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + esc(formatMoney(Number(l.amount) || 0, 2)) + '">' +
+        (picked.length > 1 ? '<button type="button" class="ed-rest" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button>' : "") +
+        "</span></div>";
     });
     h += "</div>";
     if (picked.length > 1) {
-      h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' +
-        '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
+      h += '<div class="ed-alloc-tools"><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button>' +
+        '<p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div>";
     }
     if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
@@ -14169,11 +14167,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edPaintAmount() {
     var btn = document.querySelector("#modal .ed-add .ed-amt");
-    if (!btn) return;
-    var shown = edAmountRaw();
-    var v = btn.querySelector(".ed-amt-v");
-    if (v) { v.textContent = shown; v.classList.toggle("long", edAmtLen() > 10); }
-    btn.setAttribute("aria-label", shown ? "Amount, " + shown : "Amount");
+    if (btn) {
+      var shown = edAmountRaw();
+      var v = btn.querySelector(".ed-amt-v");
+      if (v) { v.textContent = shown; v.classList.toggle("long", edAmtLen() > 10); }
+      btn.setAttribute("aria-label", shown ? "Amount, " + shown : "Amount");
+    }
+    /* One budget item: the row amount is the same number as the top Amount. */
+    var rows = document.querySelectorAll("#modal .ed-add .ed-row-amt");
+    if (rows.length === 1 && document.activeElement !== rows[0]) {
+      var one = edAllocLegs();
+      if (one.length === 1) rows[0].value = formatMoney(one[0].amount || 0, 2);
+    }
   }
   function edOpenNote() {
     if (!edUi) return;
@@ -14275,7 +14280,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var t = e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add input, #modal .sheet.ed-add select, #modal .sheet.ed-add textarea");
     if (!t || t.closest(".ed-pad")) return;
     var key = t.getAttribute("data-ed-in");
-    if (!key) return;
+    if (!key && t.getAttribute("data-ed-leg") == null) return;
     e.preventDefault();
     var sc0 = edScrollEl();
     var st0 = sc0 ? sc0.scrollTop : 0;
@@ -14394,7 +14399,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         al.forEach(function (l, j) { l.amount = (base + (j < c - base * al.length ? 1 : 0)) / 100; });
       }
       var inputs = document.querySelectorAll("#modal .ed-add [data-ed-leg]");
-      al.forEach(function (l, j) { if (inputs[j]) inputs[j].value = Number(l.amount) ? formatMoney(l.amount, 2) : ""; });
+      al.forEach(function (l, j) { if (inputs[j]) inputs[j].value = formatMoney(Number(l.amount) || 0, 2); });
       edAllocPaint();
       return;
     }
@@ -14431,9 +14436,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       /* Calculator style like the main amount: digits fill from the cents. */
       var dg = String(el.value).replace(/\D/g, "").replace(/^0+/, "").slice(0, 9);
-      if (legs[+li]) legs[+li].amount = roundCents(centsFromDigits(dg));
-      el.value = dg ? formatMoney(centsFromDigits(dg), 2) : "";
+      var rowAmt = roundCents(centsFromDigits(dg));
+      if (legs[+li]) legs[+li].amount = rowAmt;
+      el.value = formatMoney(rowAmt, 2);
       try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
+      if (legs.length === 1) {
+        spendDraft.amount = rowAmt;
+        if (edUi) edUi.amt = edCentsDigits(rowAmt);
+        edPaintAmount();
+      }
       edAllocPaint();
     }
   }, true);
@@ -18816,7 +18827,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.105";
+  var APP_VERSION = "37.5.106";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

@@ -5547,22 +5547,34 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-items .chev { flex: none; }
 .ed-add .ed-itemsec .ed-items { margin-bottom: 4px; }
 .ed-add .ed-split-link { display: block; margin: 0 0 14px; }
+/* Filled budget items share one card: quiet X, name, a light Remaining subtitle, allocated amount on the right. */
+.ed-budget-card { border: 1px solid var(--rule); border-radius: 14px; background: var(--card); padding: 14px 22px 8px 12px; margin: 0 0 12px; }
+.ed-budget-card > .sheet-label { margin: 0 4px 4px; }
 .ed-filled { display: flex; flex-direction: column; gap: 0; }
-.ed-split-line { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
-.ed-split-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 48px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.ed-split-name { font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ed-split-line { display: grid; grid-template-columns: 44px minmax(0, 1fr) 112px; align-items: center; column-gap: 6px; width: 100%; margin: 0; padding: 8px 0 10px; box-sizing: border-box; }
+.ed-split-line + .ed-split-line { border-top: 1px solid var(--rule); }
+.ed-split-main { grid-column: 2; grid-row: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 4px 8px 4px 2px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; }
+.ed-split-name { font-weight: 600; font-size: calc(16px * var(--fs-scale)); display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-split-main .caption { color: var(--muted); }
-/* Remaining amounts in the budget-item picker and on filled split rows. Larger and darker than a caption so they read at a glance, while the word "remaining" keeps them distinct from the transaction amount. */
+/* Picker remaining stays the larger figure. On a filled row it is only a subtitle under the name. */
 .ed-rem { display: block; margin: 1px 0 0; color: var(--ink); font: 600 calc(15px * var(--fs-scale))/1.2 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .ed-rem-amt { font-weight: 700; font-size: calc(17px * var(--fs-scale)); font-variant-numeric: tabular-nums; }
 .ed-rem-word { font-weight: 600; font-size: calc(13px * var(--fs-scale)); letter-spacing: 0.01em; }
+.ed-split-main .ed-rem, .ed-split-main .ed-rem .ed-rem-amt, .ed-split-main .ed-rem .ed-rem-word { margin: 0; font-size: calc(13px * var(--fs-scale)); font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.ed-split-main .ed-rem { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-picker .ed-item > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-picker .ed-item .ed-rem { margin: 0; text-align: right; white-space: nowrap; }
 .ed-rem.rust, .ed-rem.rust .ed-rem-amt, .ed-rem.rust .ed-rem-word { color: var(--danger); }
-.ed-split-minus { flex: 0 0 44px; width: 44px; height: 44px; border: 1px solid var(--rule); border-radius: 50%; background: var(--paper); color: var(--ink); font: 500 calc(16px * var(--fs-scale))/1 var(--ui); padding: 0; cursor: pointer; }
-.ed-split-minus:focus-visible, .ed-add-split:focus-visible, .ed-split-main:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
-.ed-add-split { display: block; width: 100%; margin: 2px 0 12px; padding: 8px 2px; border: 0; background: none; color: var(--moss); font: 600 calc(16px * var(--fs-scale)) var(--ui); text-align: left; cursor: pointer; min-height: 44px; }
-.ed-filled + .ed-alloc, .ed-itemsec .ed-alloc { margin-top: 0; }
+.ed-split-minus { grid-column: 1; grid-row: 1; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: 500 calc(18px * var(--fs-scale))/1 var(--ui); padding: 0; cursor: pointer; }
+.ed-split-amt { display: contents; }
+.ed-row-amt { grid-column: 3; grid-row: 1; justify-self: stretch; align-self: center; width: 112px; max-width: 112px; min-width: 0; min-height: 44px; margin: 0; border: 0 !important; border-radius: 8px; background: transparent; color: var(--ink); text-align: right; font: 600 calc(20px * var(--fs-scale))/1 var(--ui); font-size: calc(20px * var(--fs-scale)) !important; font-variant-numeric: tabular-nums; padding: 0 2px 0 8px !important; box-shadow: none; cursor: text; box-sizing: border-box; }
+.ed-rest { grid-column: 3; grid-row: 2; justify-self: end; border: 0; background: none; color: var(--moss); font: 600 calc(13px * var(--fs-scale)) var(--ui); min-height: 32px; padding: 0 2px 2px; cursor: pointer; }
+.ed-alloc-tools { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 2px 4px 0 48px; }
+.ed-budget-card .ed-alloc-even { border: 0; background: none; color: var(--moss); min-height: 36px; padding: 4px 2px; border-radius: 0; font: 600 calc(15px * var(--fs-scale)) var(--ui); }
+.ed-budget-card .ed-alloc-status { color: var(--muted); }
+.ed-budget-card .ed-alloc-status .ed-left { display: block; font-size: calc(13px * var(--fs-scale)); font-weight: 600; margin: 0; }
+.ed-split-minus:focus-visible, .ed-add-split:focus-visible, .ed-split-main:focus-visible, .ed-row-amt:focus-visible, .ed-rest:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+.ed-add-split { display: block; width: 100%; margin: 2px 0 8px; padding: 8px 2px; border: 0; background: none; color: var(--moss); font: 600 calc(16px * var(--fs-scale)) var(--ui); text-align: center; cursor: pointer; min-height: 44px; }
 .ed-add .ed-merch { margin: 8px 0 2px; }
 .ed-add .ed-merch .merchant-chips { flex-wrap: nowrap; overflow-x: auto; }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.105. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.106. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -141,7 +141,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.105" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.106" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -482,6 +482,16 @@ function versionLockstep() {
         minus: !!sh.querySelector(".ed-split-minus"),
         mark: (sh.querySelector(".ed-split-minus") || {}).textContent.trim(),
         removeName: (sh.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
+        rem: (sh.querySelector(".ed-split-main .ed-rem") || {}).textContent.trim(),
+        addInside: !!sh.querySelector(".ed-budget-card .ed-add-split"),
+        xLeft: (() => {
+          const line = sh.querySelector(".ed-split-line");
+          if (!line) return false;
+          const xb = line.querySelector(".ed-split-minus").getBoundingClientRect();
+          const name = line.querySelector(".ed-items-name").getBoundingClientRect();
+          const amt = line.querySelector(".ed-row-amt").getBoundingClientRect();
+          return xb.right <= name.left + 1 && amt.left >= name.right - 2;
+        })(),
         noteOpen: sh.querySelector(".ed-note").classList.contains("is-open"),
         note: noteIn.value,
         x: x ? x.getAttribute("aria-label") : "",
@@ -495,7 +505,7 @@ function versionLockstep() {
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || out.edit.mark !== "✕" || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || out.edit.mark !== "✕" || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
       if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
@@ -563,6 +573,8 @@ function versionLockstep() {
       };
     })()`);
     if (!out.splitEmpty || out.splitEmpty.split || out.splitEmpty.choose !== "Choose budget item" || !out.splitEmpty.noteAfter) fail.push("empty split chrome " + JSON.stringify(out.splitEmpty));
+    await cdp.eval(`["2","0","0","0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click())`);
+    await sleep(80);
     await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
     await sleep(220);
     out.splitPicker = await cdp.eval(`(() => {
@@ -595,57 +607,88 @@ function versionLockstep() {
     await sleep(260);
     out.splitOne = await cdp.eval(`(() => {
       const sh = document.querySelector("form.sheet.ed-add");
+      const card = sh.querySelector(".ed-budget-card");
+      const line = sh.querySelector(".ed-split-line");
       const block = sh.querySelector(".ed-itemsec").getBoundingClientRect();
       const note = sh.querySelector(".ed-note").getBoundingClientRect();
+      const x = line.querySelector(".ed-split-minus").getBoundingClientRect();
+      const name = line.querySelector(".ed-items-name").getBoundingClientRect();
+      const amt = line.querySelector(".ed-row-amt").getBoundingClientRect();
+      const add = sh.querySelector(".ed-add-split");
+      const cardBox = card.getBoundingClientRect();
+      const remEl = line.querySelector(".ed-rem-amt");
+      const amtEl = line.querySelector(".ed-row-amt");
       return {
         lines: sh.querySelectorAll(".ed-split-line").length,
-        name: (sh.querySelector(".ed-items-name") || {}).textContent.trim(),
-        add: (sh.querySelector(".ed-add-split") || {}).textContent.trim(),
-        minus: (sh.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
-        rem: (sh.querySelector(".ed-split-main .ed-rem") || {}).textContent.trim(),
+        name: (line.querySelector(".ed-items-name") || {}).textContent.trim(),
+        add: (add || {}).textContent.trim(),
+        minus: (line.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
+        rem: (line.querySelector(".ed-rem") || {}).textContent.trim(),
         splitBtn: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
         noteAfter: block.bottom <= note.top + 2,
-        remPx: parseFloat(getComputedStyle(sh.querySelector(".ed-split-main .ed-rem-amt")).fontSize),
-        mark: (sh.querySelector(".ed-split-minus") || {}).textContent.trim(),
-        gap: Math.round(sh.querySelector(".ed-split-minus").getBoundingClientRect().left - sh.querySelector(".ed-split-main").getBoundingClientRect().right),
-        pad: parseFloat(getComputedStyle(sh.querySelector(".ed-split-main")).paddingTop),
-        quiet: !/rgb\(\s*(1[2-9]\d|2\d\d)\s*,\s*(\d{1,2})\s*,\s*(\d{1,2})\s*\)/.test(getComputedStyle(sh.querySelector(".ed-split-minus")).backgroundColor),
-        top: sh.getBoundingClientRect().top,
+        remPx: parseFloat(getComputedStyle(remEl).fontSize),
+        amtPx: parseFloat(getComputedStyle(amtEl).fontSize),
+        mark: (line.querySelector(".ed-split-minus") || {}).textContent.trim(),
+        xLeft: x.right <= name.left + 1 && x.left >= cardBox.left - 1,
+        xRight: x.left > cardBox.right - 8,
+        amtRight: amt.left >= name.right - 2 && amt.right <= cardBox.right + 1,
+        addInside: !!(card && add && card.contains(add) && add.getBoundingClientRect().top >= line.getBoundingClientRect().bottom - 2 && add.getBoundingClientRect().bottom <= cardBox.bottom + 1),
+        quiet: getComputedStyle(line.querySelector(".ed-split-minus")).backgroundColor === "rgba(0, 0, 0, 0)" || !/rgb\(\s*(1[2-9]\d|2\d\d)\s*,\s*(\d{1,2})\s*,\s*(\d{1,2})\s*\)/.test(getComputedStyle(line.querySelector(".ed-split-minus")).backgroundColor),
+        rowAmt: amtEl.value,
+        topAmt: (sh.querySelector(".ed-amt-v") || {}).textContent.trim(),
+        oldBoxes: sh.querySelectorAll(".ed-alloc-row").length,
         picker: !!sh.querySelector(".ed-picker")
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx >= 16) || out.splitOne.mark !== "✕" || out.splitOne.gap < 8 || out.splitOne.pad < 12 || !out.splitOne.quiet) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx < out.splitOne.amtPx) || out.splitOne.mark !== "✕" || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
     await sleep(40);
     await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
-    await sleep(260);
+    await sleep(200);
+    await cdp.eval(`document.querySelector("[data-ed='even']").click()`);
+    await sleep(80);
     out.splitTwo = await cdp.eval(`(() => {
       const sh = document.querySelector("form.sheet.ed-add");
+      const card = sh.querySelector(".ed-budget-card");
       const block = sh.querySelector(".ed-itemsec").getBoundingClientRect();
       const note = sh.querySelector(".ed-note").getBoundingClientRect();
+      const add = sh.querySelector(".ed-add-split");
+      const lines = [...sh.querySelectorAll(".ed-split-line")];
       return {
-        lines: sh.querySelectorAll(".ed-split-line").length,
+        lines: lines.length,
         names: [...sh.querySelectorAll(".ed-items-name")].map((el) => el.textContent.trim()),
-        add: (sh.querySelector(".ed-add-split") || {}).textContent.trim(),
+        add: (add || {}).textContent.trim(),
         minus: sh.querySelectorAll(".ed-split-minus").length,
         noteAfter: block.bottom <= note.top + 2,
-        amounts: sh.querySelectorAll("[data-ed-leg]").length
+        amounts: sh.querySelectorAll("[data-ed-leg]").length,
+        values: [...sh.querySelectorAll(".ed-row-amt")].map((el) => el.value),
+        rem: [...sh.querySelectorAll(".ed-split-main .ed-rem")].map((el) => el.textContent.trim()),
+        rest: sh.querySelectorAll(".ed-rest").length,
+        even: (sh.querySelector("[data-ed='even']") || {}).textContent.trim(),
+        addInside: !!(card && add && card.contains(add)),
+        xLeft: lines.every((line) => {
+          const x = line.querySelector(".ed-split-minus").getBoundingClientRect();
+          const name = line.querySelector(".ed-items-name").getBoundingClientRect();
+          const amt = line.querySelector(".ed-row-amt").getBoundingClientRect();
+          return x.right <= name.left + 1 && amt.left >= name.right - 2;
+        }),
+        oldBoxes: sh.querySelectorAll(".ed-alloc-row").length
       };
     })()`);
     await cdp.eval(`(() => {
-      const note = document.querySelector(".ed-note");
+      const card = document.querySelector(".ed-budget-card");
       const sc = document.querySelector(".ed-scroll");
-      if (!note || !sc) return;
+      if (!card || !sc) return;
       const sr = sc.getBoundingClientRect();
-      const nr = note.getBoundingClientRect();
-      if (nr.bottom > sr.bottom - 8) sc.scrollTop += nr.bottom - (sr.bottom - 8);
+      const cr = card.getBoundingClientRect();
+      if (cr.bottom > sr.bottom - 8) sc.scrollTop += cr.bottom - (sr.bottom - 8);
     })()`);
     await sleep(40);
     await snap("10-two-splits.png");
-    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2) fail.push("two splits " + JSON.stringify(out.splitTwo));
+    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$10.00,$10.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 2 || out.splitTwo.even !== "Split evenly" || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
 
     if (SHOTS) {
       await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
