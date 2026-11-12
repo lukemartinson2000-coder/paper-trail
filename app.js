@@ -13794,21 +13794,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var xf = isFlat(x.cat);
       if (x.cat !== lastCat && !xf) h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>";
       lastCat = x.cat;
-      var on = edUi.multi && !!sel[x.line.id];
+      var on = !!sel[x.line.id];
       h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
         "<span>" + esc(x.line.name) + '</span><span class="caption mono ' + (x.rem < 0 ? "rust" : "") + '">' + esc(formatMoney(roundCents(x.rem), 2)) + " remaining</span></button>" +
-        '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="Split with ' + esc(x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
+        '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
     });
     return h;
   }
   function edPickerHtml(month) {
-    var nSel = edUi.multi ? (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length : 0;
-    return '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>' + (edUi.multi ? "Split across items" : "Budget item") + "</h3></div>" +
-      '<p class="caption ed-picker-hint">' + (edUi.multi ? "Tick 2 to " + ED_SPLIT_MAX + " items, then tap Split. You’ll type each amount next." : "Tap an item to choose it, or tick 2 to " + ED_SPLIT_MAX + " boxes to split.") + "</p>" +
+    var nSel = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length;
+    return '<div class="ed-picker" role="dialog" aria-label="Budget items"><div class="sheet-top"><h3>Budget item</h3></div>' +
+      '<p class="caption ed-picker-hint">Check a budget item. Check more than one to split.</p>' +
       (edUi.capNote ? '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>" : "") +
       '<input type="search" class="ed-search" data-ed-in="q" placeholder="Search budget items" value="' + esc(edUi.q || "") + '">' +
       '<div class="ed-picker-list">' + edPickerRowsHtml(month) + "</div>" +
-      '<div class="ed-picker-foot"><button type="button" class="primary ed-picker-close" data-ed="picker-done">' + (nSel > 1 ? "Split · " + nSel + " items" : "Close") + "</button></div></div>";
+      '<div class="ed-picker-foot"><button type="button" class="primary ed-picker-close" data-ed="picker-done">' + (nSel > 1 ? "Done · " + nSel + " items" : "Done") + "</button></div></div>";
   }
   function renderEdAdd(month) {
     month = month || ensureMonth(state.year, state.month);
@@ -13960,7 +13960,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* After the merchant is typed, keep that field and the budget item on screen together when they fit. */
   function edRevealBudgetItem() {
-    var item = document.querySelector("#modal .sheet.ed-add .ed-items") || document.querySelector('#modal .sheet.ed-add [data-ed-in="incomeId"]');
+    var item = document.querySelector("#modal .sheet.ed-add .ed-items, #modal .sheet.ed-add .ed-split-main") || document.querySelector('#modal .sheet.ed-add [data-ed-in="incomeId"]');
     if (!item) return;
     edKeepField(item);
     var pay = document.querySelector('#modal .sheet.ed-add [data-ed-in="payee"]');
@@ -13983,27 +13983,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }, true);
   function edItemsHtml(month) {
     var d = spendDraft;
-      var picked = (d.legs || []).filter(function (l) { return l.lineId; });
-      /* A suggestion from this merchant's last entry shows as a small tag inside the row (no extra box, so the
-       * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
-      var sugg = d.mappedFromHistory && picked.length === 1;
-      var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
-      var h = '<div class="ed-itemsec"><p class="sheet-label">Budget item</p><button type="button" class="ed-items" data-ed="picker"' + (sugg ? ' aria-label="' + esc(picked.map(function (l) { var f = findLine(month, l.lineId); return f && f.line ? f.line.name : "Item"; }).join(", ") + ". " + suggWhy) + '"' : "") + ">" +
-        (picked.length ? '<span class="ed-items-name">' + picked.map(function (l) { var f = findLine(month, l.lineId); return esc(f && f.line ? f.line.name : "Item"); }).join(", ") + "</span>" : '<span class="caption ed-items-name">Choose budget item</span>') +
-        (sugg ? '<span class="ed-sugg-tag" data-role="env-suggest" title="' + esc(suggWhy) + '">Suggested<span class="sr-only"> ' + esc(suggWhy.replace(/^Suggested /, "")) + "</span></span>" : "") +
-        '<span class="chev">›</span></button>' +
-        (picked.length <= 1 ? '<button type="button" class="link-btn ed-split-link" data-ed="split">Split across items</button>' : "");
+    var picked = (d.legs || []).filter(function (l) { return l.lineId; });
+    /* A suggestion from this merchant's last entry shows as a small tag inside the row (no extra box, so the
+     * sheet keeps its height); a manual pick clears mappedFromHistory and the tag goes with it. */
+    var sugg = d.mappedFromHistory && picked.length === 1;
+    var suggWhy = sugg ? "Suggested from your last " + (d.mappedPayee || d.payee || "") + (d.mappedSplit ? " (the biggest part of a split)" : "") + " · tap it to pick another" : "";
+    var h = '<div class="ed-itemsec"><p class="sheet-label">' + (picked.length > 1 ? "Budget items" : "Budget item") + "</p>";
+    if (!picked.length) {
+      return h + '<button type="button" class="ed-items" data-ed="picker"><span class="caption ed-items-name">Choose budget item</span><span class="chev">›</span></button></div>';
+    }
+    /* One filled item is a row with its remaining amount and a minus. Add Split sits under it.
+       Two or more keep the same rows, plus the existing amount / Rest / Split evenly math. */
+    h += '<div class="ed-filled">';
+    picked.forEach(function (l, i) {
+      var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
+      var rem = roundCents(remainingForLine(month, l.lineId, d.id || ""));
+      h += '<div class="ed-split-line"><button type="button" class="ed-split-main" data-ed="picker"' +
+        (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
+        '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
+        '<span class="caption">Remaining ' + esc(formatMoney(rem, 2)) + "</span></button>" +
+        '<button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">−</button></div>';
       if (picked.length > 1) {
-        /* Split allocation lives here on the transaction screen (not in the picker): one row per item, a live
-         * Allocated / Total / Remaining line, and "Rest" / "Split evenly" so nothing needs scrolling. */
-        h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><p class="ed-alloc-head">Split across ' + picked.length + ' items</p><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' + picked.map(function (l, i) {
-          var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
-          var rem = roundCents(remainingForLine(month, l.lineId));
-          return '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">' + esc(nm) + '</span><span class="caption mono' + (rem < 0 ? " rust" : "") + '">' + esc(formatMoney(rem, 2)) + ' remaining</span></span>' +
-            '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
-            '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
-        }).join("") + '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
+        h += '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">Amount</span></span>' +
+          '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
+          '<button type="button" class="ed-alloc-fill" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button></div>';
       }
+    });
+    h += "</div>";
+    if (picked.length > 1) {
+      h += '<div class="ed-split ed-alloc"><div class="ed-alloc-top"><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button></div>' +
+        '<div class="ed-alloc-foot"><p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div></div>";
+    }
+    if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
   }
   /* Recent merchants under the Merchant box (new expenses only), narrowed as you type. */
@@ -14043,13 +14054,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
-  function edToggleLeg(parts) {
-    var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
-    if (legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; return; }
-    legs.push({ id: nextId(), categoryId: parts[0], lineId: parts[1], amount: legs.length ? 0 : spendDraft.amount, refund: 0, note: "" });
-    if (legs.length === 2) legs[0].amount = 0;
-    spendDraft.legs = legs;
-  }
   function edAllocStatus() {
     var total = roundCents(Number(spendDraft.amount) || 0), sum = roundCents(edAllocLegs().reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), left = roundCents(total - sum);
     var cls = !(total > 0) ? "" : left === 0 ? "ok" : left < 0 ? "over" : "left";
@@ -14197,17 +14201,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var list = picker.querySelector(".ed-picker-list");
     if (list) list.innerHTML = edPickerRowsHtml(month);
     var hint = picker.querySelector(".ed-picker-hint");
-    if (hint) hint.textContent = edUi.multi ? ("Tick 2 to " + ED_SPLIT_MAX + " items, then tap Split. You’ll type each amount next.") : ("Tap an item to choose it, or tick 2 to " + ED_SPLIT_MAX + " boxes to split.");
-    var nSel = edUi.multi ? (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length : 0;
+    if (hint) hint.textContent = "Check a budget item. Check more than one to split.";
+    var nSel = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length;
     var foot = picker.querySelector(".ed-picker-close");
-    if (foot) foot.textContent = nSel > 1 ? ("Split · " + nSel + " items") : "Close";
+    if (foot) foot.textContent = nSel > 1 ? ("Done · " + nSel + " items") : "Done";
     var cap = picker.querySelector(".ed-cap-note");
     if (edUi.capNote && !cap) {
       var search = picker.querySelector(".ed-search");
       if (search) search.insertAdjacentHTML("beforebegin", '<p class="caption ed-cap-note" role="status">Up to ' + ED_SPLIT_MAX + " items</p>");
     } else if (!edUi.capNote && cap && cap.parentNode) cap.parentNode.removeChild(cap);
     var title = picker.querySelector(".sheet-top h3");
-    if (title) title.textContent = edUi.multi ? "Split across items" : "Budget item";
+    if (title) title.textContent = "Budget item";
     return true;
   }
   function edMountPicker(month) {
@@ -14234,8 +14238,35 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (reduce) drop();
       else { p.classList.add("ed-picker-out"); p.addEventListener("animationend", drop); setTimeout(drop, 180); }
     }
-    var row = document.querySelector("#modal .ed-items");
+    var row = document.querySelector("#modal .ed-split-main, #modal .ed-items, #modal .ed-add-split");
     if (row) edKeepField(row);
+    edGrowToContent();
+  }
+  /* A second split can be taller than the frame that was locked around one item.
+     Grow only, with the same height ease, so Add note stays in view and the sheet does not snap. */
+  function edGrowToContent() {
+    var sh = document.querySelector("#modal .sheet.ed-add");
+    if (!sh || sh.classList.contains("ed-enter") || sh.classList.contains("ed-out")) return;
+    if (sh.querySelectorAll(".ed-split-line").length < 2) return;
+    var prevH = sh.style.height, prevMax = sh.style.maxHeight;
+    sh.style.height = "auto";
+    sh.style.maxHeight = "none";
+    var natural = sh.offsetHeight;
+    sh.style.height = prevH;
+    sh.style.maxHeight = prevMax;
+    var cur = parseFloat(prevH) || 0;
+    if (!(natural > cur + 12)) return;
+    var vv = window.visualViewport;
+    var visTop = vv ? vv.offsetTop : 0;
+    var visBottom = visTop + (vv ? vv.height : window.innerHeight);
+    var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, bottom: visBottom };
+    var room = Math.max(240, Math.round(Math.min(host.bottom, visBottom) - Math.max(host.top, visTop) - 8));
+    var want = Math.min(natural, room);
+    if (want > cur + 8) {
+      sh.dataset.lockH = String(want);
+      if (edUi) edUi.lockH = want;
+      edFit();
+    }
   }
   /* With the number pad open, a tap on Merchant (or any field) works straight away: it commits the amount,
    * closes the pad with the sheet held in place, and focuses that field. */
@@ -14326,14 +14357,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       edPaintAmount();
       return;
     }
-    if (a === "picker") {
-      edUi.picker = true; edUi.capNote = false;
-      edUi.multi = (spendDraft.legs || []).filter(function (l) { return l.lineId; }).length > 1;
+    if (a === "picker" || a === "add-split" || a === "split") {
+      edUi.picker = true; edUi.capNote = false; edUi.multi = true;
       edCollapsePad();
       edMountPicker(month);
       return;
     }
-    if (a === "split") { edUi.picker = true; edUi.multi = true; edUi.capNote = false; edCollapsePad(); edMountPicker(month); return; }
     if (a === "split-mode") {
       edUi.multi = !edUi.multi;
       var keep = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
@@ -14342,6 +14371,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     if (a === "picker-done") { edClosePicker(month); return; }
+    if (a === "unsplit") {
+      var ui = +b.getAttribute("data-i"), ul = edAllocLegs();
+      if (ul[ui]) ul.splice(ui, 1);
+      if (ul.length === 1) ul[0].amount = spendDraft.amount;
+      spendDraft.mappedFromHistory = false;
+      spendDraft.legs = ul.length ? ul : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+      var usec = document.querySelector("#modal .ed-itemsec");
+      if (usec) usec.outerHTML = edItemsHtml(month);
+      else renderEdAdd(month);
+      var urow = document.querySelector("#modal .ed-split-main, #modal .ed-items");
+      if (urow) edKeepField(urow);
+      return;
+    }
     if (a === "fill" || a === "even") {
       var al = edAllocLegs(), tot = roundCents(Number(spendDraft.amount) || 0);
       if (a === "fill") {
@@ -14356,24 +14398,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       edAllocPaint();
       return;
     }
-    if (a === "tick" && !edUi.multi) {
-      /* First tick starts checkbox mode with just that item ticked; a plain tap is still the one-item quick pick. */
-      edUi.multi = true;
-      spendDraft.legs = [];
-      edToggleLeg(String(b.getAttribute("data-key")).split(":"));
-      if (!edPaintPicker(month)) renderEdAdd(month);
-      return;
-    }
     if (a === "item" || a === "tick") {
+      /* Checking a box keeps the picker open so another item can be checked. Done applies them. */
+      edUi.multi = true;
       var parts = String(b.getAttribute("data-key")).split(":"), legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
       var has = legs.filter(function (l) { return l.lineId === parts[1]; })[0];
-      /* v37.5.72 (owner): one budget item by default; a tap picks it and closes the picker. Splitting is the deliberate
-       * "Split across items" path, which keeps the picker open for more picks. */
-      if (!edUi.multi) {
-        spendDraft.legs = [{ id: (has && has.id) || nextId(), categoryId: parts[0], lineId: parts[1], amount: spendDraft.amount, refund: 0, note: "" }];
-        edClosePicker(month);
-        return;
-      }
       edUi.capNote = false;
       if (!has && legs.length >= ED_SPLIT_MAX) { edUi.capNote = true; if (!edPaintPicker(month)) renderEdAdd(month); return; }
       if (has) legs = legs.filter(function (l) { return l !== has; });
@@ -18787,7 +18816,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.102";
+  var APP_VERSION = "37.5.103";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

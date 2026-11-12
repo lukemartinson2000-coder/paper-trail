@@ -5547,6 +5547,15 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-items .chev { flex: none; }
 .ed-add .ed-itemsec .ed-items { margin-bottom: 4px; }
 .ed-add .ed-split-link { display: block; margin: 0 0 14px; }
+.ed-filled { display: flex; flex-direction: column; gap: 0; }
+.ed-split-line { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.ed-split-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ed-split-name { font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ed-split-main .caption { color: var(--muted); }
+.ed-split-minus { flex: 0 0 44px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--danger); color: #fff; font: 600 22px/1 var(--ui); cursor: pointer; }
+.ed-split-minus:focus-visible, .ed-add-split:focus-visible, .ed-split-main:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+.ed-add-split { display: block; width: 100%; margin: 2px 0 12px; padding: 8px 2px; border: 0; background: none; color: var(--moss); font: 600 calc(16px * var(--fs-scale)) var(--ui); text-align: left; cursor: pointer; min-height: 44px; }
+.ed-filled + .ed-alloc, .ed-itemsec .ed-alloc { margin-top: 0; }
 .ed-add .ed-merch { margin: 8px 0 2px; }
 .ed-add .ed-merch .merchant-chips { flex-wrap: nowrap; overflow-x: auto; }
 

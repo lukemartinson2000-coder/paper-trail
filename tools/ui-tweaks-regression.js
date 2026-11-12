@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the 37.5.102 UI tweaks. Synthetic demo numbers only.
+/* Narrow checks for the 37.5.102 sheet tweaks and the 37.5.103 split flow. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -141,7 +141,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.102" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.103" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -351,6 +351,8 @@ function versionLockstep() {
         noteOpen: sh.querySelector(".ed-note").classList.contains("is-open"),
         noteText: sh.querySelector(".ed-add-note").textContent.trim(),
         itemText: sh.querySelector(".ed-items-name").textContent.trim(),
+        splitLink: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
+        addSplit: !!sh.querySelector(".ed-add-split"),
         save: !!sh.querySelector(".ed-actions .ed-save"),
         del: !!sh.querySelector('[data-act="delete-spend"]'),
         close: !!sh.querySelector('[data-act="close-modal"]'),
@@ -367,6 +369,7 @@ function versionLockstep() {
       if (sh.ph.some((p) => p)) fail.push("placeholder returned " + JSON.stringify(sh.ph));
       if (sh.noteOpen || sh.noteText !== "Add note") fail.push("note not collapsed " + sh.noteText);
       if (sh.itemText !== "Choose budget item") fail.push("budget item " + sh.itemText);
+      if (sh.splitLink || sh.addSplit) fail.push("empty sheet offers a split control");
       if (!sh.save || sh.del || sh.close) fail.push("new sheet actions " + JSON.stringify({ save: sh.save, del: sh.del, close: sh.close }));
       if (sh.openMaxTop > 24 || sh.openMaxH > 80) fail.push("open jumped " + sh.openMaxTop + "/" + sh.openMaxH);
     }
@@ -420,8 +423,10 @@ function versionLockstep() {
       document.querySelector('[data-ed="picker"]').click();
       await new Promise((r) => setTimeout(r, 80));
       const midPicker = !!document.querySelector(".ed-picker");
-      await new Promise((r) => setTimeout(r, 160));
-      document.querySelector(".ed-picker [data-ed='item']").click();
+      const ticks = document.querySelectorAll(".ed-picker [data-ed='tick']").length;
+      document.querySelector(".ed-picker [data-ed='tick']").click();
+      await new Promise((r) => setTimeout(r, 40));
+      document.querySelector("[data-ed='picker-done']").click();
       await new Promise((r) => setTimeout(r, 240));
       stop = true;
       let maxTop = 0, maxH = 0;
@@ -442,13 +447,14 @@ function versionLockstep() {
         tfBefore: tfBefore, tfAfter: getComputedStyle(sh).transform,
         noteTopDelta: Math.round(noteTop - before.top),
         pickerSeen: midPicker,
+        ticks: ticks,
         pickerGone: !document.querySelector(".ed-picker"),
         item: (document.querySelector(".ed-items-name") || {}).textContent || "",
         noteOpen: document.querySelector(".ed-note").classList.contains("is-open")
       };
     })()`);
     if (!out.motion || out.motion.maxTop > 8 || out.motion.maxH > 8 || Math.abs(out.motion.topDelta) > 2) fail.push("note/picker jumped the sheet " + JSON.stringify(out.motion));
-    if (!out.motion.pickerSeen || !out.motion.pickerGone || out.motion.item === "Choose budget item" || !out.motion.noteOpen) fail.push("picker/note did not settle " + JSON.stringify(out.motion));
+    if (!out.motion.pickerSeen || out.motion.ticks < 2 || !out.motion.pickerGone || out.motion.item === "Choose budget item" || !out.motion.noteOpen) fail.push("picker/note did not settle " + JSON.stringify(out.motion));
 
     await cdp.eval(`document.querySelector(".ed-save") && (document.querySelector('[data-act="delete-spend"]') || true)`);
     /* Close by saving is not required here. Leave the new sheet and open an edit from the list. */
@@ -462,14 +468,18 @@ function versionLockstep() {
       await new Promise((r) => setTimeout(r, 250));
       const sh = document.querySelector("form.sheet.ed-add");
       if (!sh) return { error: "no edit sheet", text: document.body.innerText.slice(0, 200) };
-      const item = sh.querySelector(".ed-items").getBoundingClientRect();
-      const note = sh.querySelector(".ed-note-box .ed-row, .ed-note").getBoundingClientRect();
+      const block = sh.querySelector(".ed-itemsec");
+      const item = (block.querySelector(".ed-split-main") || block).getBoundingClientRect();
+      const note = sh.querySelector(".ed-note").getBoundingClientRect();
       const x = sh.querySelector('[data-act="delete-spend"]');
       const save = sh.querySelector(".ed-actions .ed-save");
       const noteIn = sh.querySelector('[data-ed-in="note"]');
       return {
-        itemAbove: item.bottom <= note.top + 2,
+        itemAbove: block.getBoundingClientRect().bottom <= note.top + 2,
         item: sh.querySelector(".ed-items-name").textContent.trim(),
+        addSplit: !!sh.querySelector(".ed-add-split"),
+        splitLink: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
+        minus: !!sh.querySelector(".ed-split-minus"),
         noteOpen: sh.querySelector(".ed-note").classList.contains("is-open"),
         note: noteIn.value,
         x: x ? x.getAttribute("aria-label") : "",
@@ -483,6 +493,7 @@ function versionLockstep() {
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
       if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
@@ -535,6 +546,95 @@ function versionLockstep() {
     }
     await snap("07-keyboard-field-and-save.png");
 
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+    await sleep(350);
+    out.splitEmpty = await cdp.eval(`(() => {
+      const sh = document.querySelector("form.sheet.ed-add");
+      const block = sh.querySelector(".ed-itemsec").getBoundingClientRect();
+      const note = sh.querySelector(".ed-note").getBoundingClientRect();
+      return {
+        split: !!sh.querySelector(".ed-split-link, [data-ed='split'], .ed-add-split"),
+        choose: (sh.querySelector(".ed-items-name") || {}).textContent.trim(),
+        noteAfter: block.bottom <= note.top + 2
+      };
+    })()`);
+    if (!out.splitEmpty || out.splitEmpty.split || out.splitEmpty.choose !== "Choose budget item" || !out.splitEmpty.noteAfter) fail.push("empty split chrome " + JSON.stringify(out.splitEmpty));
+    await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+    await sleep(220);
+    out.splitPicker = await cdp.eval(`(() => {
+      const ticks = [...document.querySelectorAll(".ed-picker [role='checkbox']")];
+      const top0 = document.querySelector("form.sheet.ed-add").getBoundingClientRect().top;
+      return {
+        n: ticks.length,
+        boxes: ticks.every((t) => t.getAttribute("role") === "checkbox"),
+        hint: (document.querySelector(".ed-picker-hint") || {}).textContent || "",
+        top: top0
+      };
+    })()`);
+    await snap("08-budget-picker-checks.png");
+    if (!out.splitPicker || out.splitPicker.n < 2 || !out.splitPicker.boxes || /split across/i.test(out.splitPicker.hint)) fail.push("picker checks " + JSON.stringify(out.splitPicker));
+    out.splitCheck = await cdp.eval(`(async () => {
+      const sh = document.querySelector("form.sheet.ed-add");
+      const a = sh.getBoundingClientRect().top;
+      document.querySelector(".ed-picker [data-ed='tick']").click();
+      await new Promise((r) => setTimeout(r, 60));
+      const b = sh.getBoundingClientRect().top;
+      return { delta: Math.round(Math.abs(b - a)), checked: document.querySelector(".ed-picker [data-ed='tick']").getAttribute("aria-checked"), open: !!document.querySelector(".ed-picker") };
+    })()`);
+    if (!out.splitCheck || out.splitCheck.delta > 3 || out.splitCheck.checked !== "true" || !out.splitCheck.open) fail.push("checking a box " + JSON.stringify(out.splitCheck));
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(260);
+    out.splitOne = await cdp.eval(`(() => {
+      const sh = document.querySelector("form.sheet.ed-add");
+      const block = sh.querySelector(".ed-itemsec").getBoundingClientRect();
+      const note = sh.querySelector(".ed-note").getBoundingClientRect();
+      return {
+        lines: sh.querySelectorAll(".ed-split-line").length,
+        name: (sh.querySelector(".ed-items-name") || {}).textContent.trim(),
+        add: (sh.querySelector(".ed-add-split") || {}).textContent.trim(),
+        minus: (sh.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
+        rem: (sh.querySelector(".ed-split-main .caption") || {}).textContent.trim(),
+        splitBtn: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
+        noteAfter: block.bottom <= note.top + 2,
+        top: sh.getBoundingClientRect().top,
+        picker: !!sh.querySelector(".ed-picker")
+      };
+    })()`);
+    await snap("09-one-item-add-split.png");
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker) fail.push("one item split " + JSON.stringify(out.splitOne));
+    await cdp.eval(`document.querySelector(".ed-add-split").click()`);
+    await sleep(200);
+    await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
+    await sleep(40);
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(260);
+    out.splitTwo = await cdp.eval(`(() => {
+      const sh = document.querySelector("form.sheet.ed-add");
+      const block = sh.querySelector(".ed-itemsec").getBoundingClientRect();
+      const note = sh.querySelector(".ed-note").getBoundingClientRect();
+      return {
+        lines: sh.querySelectorAll(".ed-split-line").length,
+        names: [...sh.querySelectorAll(".ed-items-name")].map((el) => el.textContent.trim()),
+        add: (sh.querySelector(".ed-add-split") || {}).textContent.trim(),
+        minus: sh.querySelectorAll(".ed-split-minus").length,
+        noteAfter: block.bottom <= note.top + 2,
+        amounts: sh.querySelectorAll("[data-ed-leg]").length
+      };
+    })()`);
+    await cdp.eval(`(() => {
+      const note = document.querySelector(".ed-note");
+      const sc = document.querySelector(".ed-scroll");
+      if (!note || !sc) return;
+      const sr = sc.getBoundingClientRect();
+      const nr = note.getBoundingClientRect();
+      if (nr.bottom > sr.bottom - 8) sc.scrollTop += nr.bottom - (sr.bottom - 8);
+    })()`);
+    await sleep(40);
+    await snap("10-two-splits.png");
+    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2) fail.push("two splits " + JSON.stringify(out.splitTwo));
+
     if (SHOTS) {
       await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
       await sleep(1500);
@@ -555,8 +655,10 @@ function versionLockstep() {
       for (let i = 0; i < 5; i++) { await sleep(50); await grab(); }
       await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
       for (let i = 0; i < 4; i++) { await sleep(45); await grab(); }
-      await cdp.eval(`document.querySelector('.ed-picker [data-ed="item"]').click()`);
-      for (let i = 0; i < 4; i++) { await sleep(45); await grab(); }
+      await cdp.eval(`document.querySelector('.ed-picker [data-ed="tick"]').click()`);
+      for (let i = 0; i < 3; i++) { await sleep(45); await grab(); }
+      await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+      for (let i = 0; i < 3; i++) { await sleep(45); await grab(); }
       try {
         const gif = path.join(SHOTS, "07-sheet-motion.gif");
         execFileSync("ffmpeg", ["-y", "-framerate", "10", "-i", path.join(SHOTS, "frames", "f%03d.png"),
