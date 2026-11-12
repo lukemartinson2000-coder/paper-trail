@@ -4574,8 +4574,10 @@
       var spent = spentFor(month, cat.id);
       var shown = envelopeAmount(assigned, spent);
       var amountClass = envelopeMode() === "remaining" && shown >= 0 ? tone(shown) : "ink";
-      html += '<div class="envelope">' +
-        (cat.system === "savings" ? '<p class="sav-count-h">Count towards savings rate ' + helpQ("Want to track how much you’re saving for retirement? Include money set aside for retirement, and leave out funds intended for future spending, like a car or vacation. You choose which items count.") + "</p>" : "") +
+      /* The inclusion column sits under the Savings total, on the left. It stays collapsed until the chevron opens it. A green check means the line counts. */
+      var savGroup = cat.system === "savings";
+      var savOpen = savGroup && savCountOpen;
+      html += '<div class="envelope' + (savGroup ? " sav-envelope" + (savOpen ? " sav-count-open" : "") : "") + '"' + (savGroup ? ' id="sav-count-col"' : "") + '>' +
         '<div class="envelope-head">' +
         '<button class="envelope-main" type="button" data-act="open-envelope" data-hold="edit-envelope" data-id="' + esc(cat.id) + '">' +
         '<div class="name">' + esc(cat.name) + "</div>" +
@@ -4584,13 +4586,15 @@
           ? (savShowMarker(cat, cat.lines[0]) ? savMarkHtml(cat, cat.lines[0]) : "") +
             '<button class="line-assigned-btn env-flat-amt mono ' + amountClass + '" type="button" data-act="edit-line-item" data-focus="assigned" data-id="' + esc(cat.lines[0].id) +
             '" aria-label="' + esc(envelopeMode() + " " + money(shown) + " for " + cat.name) + '">' + money(shown) + "</button></div>"
-          : '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>");
+          : '<span class="mono ' + amountClass + '">' + money(shown) + "</span></div>") +
+        (savGroup ? '<p class="sav-count-h"><button type="button" class="sav-count-toggle" data-act="sav-count-toggle" aria-expanded="' + (savOpen ? "true" : "false") + '" aria-controls="sav-count-col" aria-label="' + esc(savCountLabel(savOpen)) + '"><span class="sav-count-chev" aria-hidden="true">›</span></button>Count towards savings rate ' + helpQ("Want to track how much you’re saving for retirement? Include money set aside for retirement, and leave out funds intended for future spending, like a car or vacation. You choose which items count.") + "</p>" : "");
       (isFlat(cat) ? [] : sortedLines(cat)).forEach(function (line, lineIndex) {
         var lineSpent = spentOnLine(month, line.id);
         var lineShown = envelopeAmount(Number(line.assigned) || 0, lineSpent);
         html += '<div class="envelope-line">';
         html += '<div class="envelope-line-head">';
         if (savShowMarker(cat, line)) html += savMarkHtml(cat, line);
+        else if (savGroup) html += '<span class="sav-mark-slot" aria-hidden="true"></span>';
         html += lineNameButton(line.name, "", 'data-act="edit-line-item" data-id="' + esc(line.id) + '"');
         var cueKind = /^debt$/i.test(cat.name) ? "loan"
           : /^insurance$/i.test(cat.name) ? "insurance"
@@ -4748,6 +4752,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * so it rides in backups. */
   var dashEstOpen = false;
   var dashRetOpen = false; /* Retirement details, session-only */
+  var savCountOpen = false; /* Which Savings lines count. Session-only; the saved choices stay in savLineOn. */
+  function savCountLabel(open) {
+    return open ? "Hide which lines count towards the savings rate" : "Show which lines count towards the savings rate";
+  }
   function dashState() {
     var d = state.dashboard;
     if (!d || typeof d !== "object") d = state.dashboard = {};
@@ -9276,7 +9284,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function savMarkHtml(cat, line) {
     var on = savLineOn(cat, line), name = (line && line.name) || (cat && cat.name) || "Line";
-    return '<button type="button" class="sav-mark' + (on ? " on" : " off") + '" data-act="sav-mark" data-name="' + esc(name) + '" aria-pressed="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Included in savings rate, " : "Excluded from savings rate, ") + name + ". " + (on ? "Activate to exclude." : "Activate to include.")) + '"><span class="sav-dot" aria-hidden="true">' + (on ? "" : "×") + '</span><span class="sav-mark-txt">' + (on ? "In" : "Out") + "</span></button>";
+    var folded = cat && cat.system === "savings" && !savCountOpen;
+    return '<button type="button" class="sav-mark' + (on ? " on" : " off") + '" data-act="sav-mark" data-name="' + esc(name) + '" aria-pressed="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Included in savings rate, " : "Excluded from savings rate, ") + name + ". " + (on ? "Activate to exclude." : "Activate to include.")) + '"' +
+      (folded ? ' aria-hidden="true" tabindex="-1"' : "") + '>' +
+      (on ? '<svg class="sav-check" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 8.2 6.2 11.4 13 4.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : "") +
+      "</button>";
   }
   function savPayReady() { return itTypedInPay() || useStubBasis(); }
   function savPayLinkHtml() {
@@ -18513,7 +18525,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.96";
+  var APP_VERSION = "37.5.98";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -21120,6 +21132,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       openItTrueSetup();
     } else if (act === "sav-details") {
       openSavDetails(actEl.getAttribute("data-sav") === "year" ? "year" : "month", Number(actEl.getAttribute("data-year")) || state.year, Number(actEl.getAttribute("data-month")) || state.month);
+    } else if (act === "sav-count-toggle") {
+      savCountOpen = !savCountOpen;
+      var savEnv = actEl.closest(".sav-envelope");
+      if (savEnv) {
+        savEnv.classList.toggle("sav-count-open", savCountOpen);
+        actEl.setAttribute("aria-expanded", savCountOpen ? "true" : "false");
+        actEl.setAttribute("aria-label", savCountLabel(savCountOpen));
+        Array.prototype.forEach.call(savEnv.querySelectorAll(".sav-mark"), function (m) {
+          if (savCountOpen) { m.removeAttribute("aria-hidden"); m.removeAttribute("tabindex"); }
+          else { m.setAttribute("aria-hidden", "true"); m.setAttribute("tabindex", "-1"); }
+        });
+      }
     } else if (act === "sav-mark") {
       var svName = actEl.getAttribute("data-name") || "";
       if (!state.savLineOn || typeof state.savLineOn !== "object") state.savLineOn = {};
