@@ -14002,7 +14002,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
         '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
         '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
-        '<button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">−</button></div>';
+        '<button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">✕</button></div>';
       if (picked.length > 1) {
         h += '<div class="ed-row ed-alloc-row"><span class="ed-alloc-name"><span class="lbl">Amount</span></span>' +
           '<input type="text" inputmode="numeric" autocomplete="off" class="mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + (Number(l.amount) ? esc(formatMoney(l.amount, 2)) : "") + '">' +
@@ -18816,7 +18816,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.104";
+  var APP_VERSION = "37.5.105";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

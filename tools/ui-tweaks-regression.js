@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the 37.5.102 sheet tweaks, the 37.5.103 split flow, and 37.5.104 remaining-amount type. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.105. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -141,7 +141,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.104" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.105" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -480,6 +480,8 @@ function versionLockstep() {
         addSplit: !!sh.querySelector(".ed-add-split"),
         splitLink: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
         minus: !!sh.querySelector(".ed-split-minus"),
+        mark: (sh.querySelector(".ed-split-minus") || {}).textContent.trim(),
+        removeName: (sh.querySelector(".ed-split-minus") || {}).getAttribute("aria-label") || "",
         noteOpen: sh.querySelector(".ed-note").classList.contains("is-open"),
         note: noteIn.value,
         x: x ? x.getAttribute("aria-label") : "",
@@ -493,7 +495,7 @@ function versionLockstep() {
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || out.edit.mark !== "✕" || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
       if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
@@ -604,12 +606,16 @@ function versionLockstep() {
         splitBtn: !!sh.querySelector(".ed-split-link, [data-ed='split']"),
         noteAfter: block.bottom <= note.top + 2,
         remPx: parseFloat(getComputedStyle(sh.querySelector(".ed-split-main .ed-rem-amt")).fontSize),
+        mark: (sh.querySelector(".ed-split-minus") || {}).textContent.trim(),
+        gap: Math.round(sh.querySelector(".ed-split-minus").getBoundingClientRect().left - sh.querySelector(".ed-split-main").getBoundingClientRect().right),
+        pad: parseFloat(getComputedStyle(sh.querySelector(".ed-split-main")).paddingTop),
+        quiet: !/rgb\(\s*(1[2-9]\d|2\d\d)\s*,\s*(\d{1,2})\s*,\s*(\d{1,2})\s*\)/.test(getComputedStyle(sh.querySelector(".ed-split-minus")).backgroundColor),
         top: sh.getBoundingClientRect().top,
         picker: !!sh.querySelector(".ed-picker")
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx >= 16)) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining /.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx >= 16) || out.splitOne.mark !== "✕" || out.splitOne.gap < 8 || out.splitOne.pad < 12 || !out.splitOne.quiet) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
