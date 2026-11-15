@@ -13832,8 +13832,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<div class="ed-card">' +
       '<label class="ed-row"><span class="lbl">Date</span><input type="date" data-ed-in="date" aria-label="Date" class="' + (dateVal ? "" : "ed-date-empty") + '" value="' + esc(dateVal) + '"></label>' +
       '<div class="ed-row ed-amt-row"><span class="lbl">Amount</span><button type="button" class="ed-amt' + (edUi.pad ? " active" : "") + '" data-ed="pad" aria-label="' + esc(amtShown ? "Amount, " + amtShown : "Amount") + '"><span class="ed-amt-v' + (edAmtLen() > 10 ? " long" : "") + '">' + edAmountText() + "</span></button></div>" +
-      '<div class="ed-payee-wrap"><label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" aria-label="' + (inc ? "From" : "Merchant") + '" value="' + esc(d.payee || "") + '"></label>' +
-      edMerchHtml() + "</div></div>";
+      '<label class="ed-row"><span class="lbl">' + (inc ? "From" : "Merchant") + '</span><input type="text" data-ed-in="payee" autocomplete="off" aria-label="' + (inc ? "From" : "Merchant") + '" value="' + esc(d.payee || "") + '"></label></div>';
     if (inc) {
       h += '<label class="field">Income item<select data-ed-in="incomeId"><option value="">Next paycheck (auto)</option>' +
         (month.incomes || []).map(function (i) { return '<option value="' + esc(i.id) + '"' + (String(d.incomeId) === String(i.id) ? " selected" : "") + ">" + esc(i.name || "Income") + "</option>"; }).join("") + "</select></label>";
@@ -13843,7 +13842,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     h += '<div class="ed-note' + (noteOpen ? " is-open" : "") + '"><button type="button" class="ed-add-note" data-ed="note-open" aria-expanded="' + (edUi.noteOpen ? "true" : "false") + '" aria-controls="ed-note-box"' + (edUi.noteOpen ? ' tabindex="-1" aria-hidden="true"' : "") + '>Add note</button>' +
       '<div class="ed-note-box" id="ed-note-box"' + (edUi.noteOpen ? "" : ' aria-hidden="true"') + '><label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Note" tabindex="' + (edUi.noteOpen ? "0" : "-1") + '" value="' + esc(d.note || "") + '"></label></div></div>';
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
-    h += "</div>" + edPadHtml() +
+    h += "</div>" + edMerchHtml() + edPadHtml() +
       '<div class="ed-actions"><button type="submit" class="primary ed-save">Save</button></div>';
     if (edUi.picker && !inc) h += edPickerHtml(month);
     h += "</form>";
@@ -13991,14 +13990,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!picked.length) {
       return '<div class="ed-itemsec"><button type="button" class="ed-items" data-ed="picker"><span class="lbl">Budget item</span><span class="ed-items-name">Choose budget item</span><span class="chev">›</span></button></div>';
     }
-    /* One slim card, no extra header. Each row matches the Date row: name, Remaining under it, amount on the right.
-       Add Split is a text link. Two or more keep Rest and Split evenly. */
-    var h = '<div class="ed-itemsec ed-budget-card">';
+    /* EveryDollar card: heading, circle-minus, accent name, smaller Remaining, accent amount, centered Add Split. */
+    var h = '<div class="ed-itemsec ed-budget-card"><p class="ed-budget-h">Budget Item(s)</p>';
     h += '<div class="ed-filled">';
     picked.forEach(function (l, i) {
       var f = findLine(month, l.lineId), nm = f && f.line ? f.line.name : "Item";
       var rem = roundCents(remainingForLine(month, l.lineId, d.id || ""));
-      h += '<div class="ed-split-line"><button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '">✕</button>' +
+      h += '<div class="ed-split-line"><button type="button" class="ed-split-minus" data-ed="unsplit" data-i="' + i + '" aria-label="' + esc("Remove " + nm) + '"><span class="ed-minus-ring" aria-hidden="true"></span></button>' +
         '<button type="button" class="ed-split-main" data-ed="picker"' +
         (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
         '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
@@ -14015,9 +14013,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
   }
-  /* A few previous merchant names under the field while typing. Prefix matches, then contains.
-   * Own transactions (and import seeds already merged by suggestedPayees), de-duplicated, frequent then recent.
-   * The list is taken out of flow so the sheet does not jump. An exact typed name is not repeated. */
+  /* Up to three previous merchants in a bar above Save (or the number pad). Prefix, then contains.
+   * Own transactions and import seeds, de-duplicated, frequent then recent. An exact typed name is not repeated. */
   function edPayeeQueryList() {
     var d = spendDraft;
     if (!d) return [];
@@ -14033,13 +14030,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if ((a.count || 0) !== (b.count || 0)) return (b.count || 0) - (a.count || 0);
       if (a.lastDate !== b.lastDate) return a.lastDate < b.lastDate ? 1 : -1;
       return as.localeCompare(bs);
-    }).slice(0, 5);
+    }).slice(0, 3);
   }
   function edMerchHtml() {
     var list = edPayeeQueryList();
-    return '<div class="ed-suggest" data-role="ed-merch" role="listbox" aria-label="Previous merchants"' + (list.length ? "" : " hidden") + ">" +
+    return '<div class="ed-quick" data-role="ed-merch" role="listbox" aria-label="Previous merchants"' + (list.length ? "" : " hidden") + ">" +
       list.map(function (it) {
-        return '<button type="button" class="ed-suggest-btn" tabindex="-1" role="option" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>";
+        return '<button type="button" class="ed-quick-btn" tabindex="-1" role="option" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>";
       }).join("") + "</div>";
   }
   /* Suggest the envelope this merchant went to last time, unless the user already picked one themselves. */
@@ -14056,24 +14053,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     d.mappedFromHistory = true; d.mappedPayee = found.payee; d.mappedSplit = !!found.split;
     return true;
   }
-  /* Repaint just the merchant chips and the budget item while typing, so the field keeps focus (no keyboard jump). */
-  function edPlaceSuggest() {
-    var list = document.querySelector("#modal .sheet.ed-add .ed-suggest");
-    if (!list) return;
-    if (list.hasAttribute("hidden")) return;
-    var wrap = list.closest(".ed-payee-wrap");
-    if (!wrap) return;
-    var r = wrap.getBoundingClientRect();
-    var room = Math.max(72, window.innerHeight - r.bottom - 8);
-    list.style.position = "fixed";
-    list.style.left = Math.round(r.left) + "px";
-    list.style.top = Math.round(r.bottom) + "px";
-    list.style.width = Math.round(r.width) + "px";
-    list.style.right = "auto";
-    list.style.zIndex = "40";
-    list.style.maxHeight = Math.min(220, Math.round(room)) + "px";
-    list.style.overflowY = "auto";
-  }
+  /* Repaint the merchant bar and the budget item while typing, so the field keeps focus. */
   function edRepaintLive(month) {
     var f = document.querySelector("#modal .sheet.ed-add");
     if (!f || !spendDraft) return;
@@ -14083,7 +14063,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var sec = f.querySelector(".ed-itemsec");
       if (sec) sec.outerHTML = edItemsHtml(month);
     }
-    edPlaceSuggest();
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
@@ -14138,7 +14117,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var ty = lift ? "translateY(-" + lift + "px)" : "";
         if ((sh.style.transform || "") !== ty) sh.style.transform = ty;
       }
-      edPlaceSuggest();
       if (typing) {
         edKeepField(ae);
         if (ae.getAttribute && ae.getAttribute("data-ed-in") === "payee") edRevealBudgetItem();
@@ -14354,11 +14332,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     window.visualViewport.addEventListener("resize", edFit);
     window.visualViewport.addEventListener("scroll", edFit);
   }
-  document.addEventListener("scroll", function (e) {
-    var t = e.target;
-    if (!t || !t.closest || !t.closest("#modal .sheet.ed-add")) return;
-    edPlaceSuggest();
-  }, true);
   function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
   function edSyncAmount() {
     spendDraft.amount = roundCents(edCentsValue(edUi.amt));
@@ -18873,7 +18846,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.107";
+  var APP_VERSION = "37.5.108";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.107. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.108. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -108,7 +108,11 @@ const SEED = `
         { id: "t6", payee: "Transit", date: "2026-11-12", amount: 2.75, categoryId: "food", lineId: "restaurants", note: "" },
         { id: "t7", payee: "Truck stop", date: "2026-11-06", amount: 40, categoryId: "home", lineId: "rent", note: "" },
         { id: "t8", payee: "Target", date: "2026-11-09", amount: 26, categoryId: "sav", lineId: "house", note: "" },
-        { id: "t9", payee: "Central Transit", date: "2026-11-04", amount: 12, categoryId: "food", lineId: "restaurants", note: "" }
+        { id: "t9", payee: "Central Transit", date: "2026-11-04", amount: 12, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t10", payee: "Tesco", date: "2026-11-07", amount: 14, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t11", payee: "Tesco", date: "2026-11-13", amount: 16, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t12", payee: "Temple Books", date: "2026-11-11", amount: 11, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t13", payee: "Teacher Supply", date: "2026-11-08", amount: 22, categoryId: "home", lineId: "rent", note: "" }
       ]
     }},
     worth: { years: [y], notes: {}, lines: [
@@ -149,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.107" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.108" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -513,7 +517,7 @@ function versionLockstep() {
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || out.edit.mark !== "✕" || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
       if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
@@ -644,8 +648,14 @@ function versionLockstep() {
         remWrap: getComputedStyle(line.querySelector(".ed-rem")).whiteSpace,
         remCut: getComputedStyle(line.querySelector(".ed-rem")).textOverflow,
         addH: Math.round(add.getBoundingClientRect().height),
-        header: !!sh.querySelector(".ed-budget-card > .sheet-label"),
-        mark: (line.querySelector(".ed-split-minus") || {}).textContent.trim(),
+        addAlign: getComputedStyle(add).textAlign,
+        heading: (sh.querySelector(".ed-budget-h") || {}).textContent.trim(),
+        ring: !!line.querySelector(".ed-minus-ring"),
+        hit: Math.round(Math.min(x.width, x.height)),
+        nameColor: getComputedStyle(line.querySelector(".ed-split-name")).color,
+        remColor: getComputedStyle(remEl).color,
+        amtColor: getComputedStyle(amtEl).color,
+        checkNo: /check\s*#/i.test(sh.innerText),
         xLeft: x.right <= name.left + 1 && x.left >= cardBox.left - 1,
         xRight: x.left > cardBox.right - 8,
         amtRight: amt.left >= name.right - 2 && amt.right <= cardBox.right + 1,
@@ -658,7 +668,7 @@ function versionLockstep() {
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || Math.abs(out.splitOne.namePx - out.splitOne.remPx) > 0.6 || Number(out.splitOne.remWeight) >= 600 || Math.abs(out.splitOne.amtPx - out.splitOne.payeePx) > 1.1 || out.splitOne.remWrap === "nowrap" || out.splitOne.remCut === "ellipsis" || out.splitOne.addH > 36 || out.splitOne.header || out.splitOne.mark !== "✕" || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.namePx >= out.splitOne.remPx + 3) || Number(out.splitOne.remWeight) >= 600 || out.splitOne.nameColor === out.splitOne.remColor || out.splitOne.amtColor !== out.splitOne.nameColor || out.splitOne.heading !== "Budget Item(s)" || !out.splitOne.ring || out.splitOne.hit < 44 || out.splitOne.addAlign !== "center" || out.splitOne.addH > 48 || out.splitOne.checkNo || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
@@ -729,23 +739,30 @@ function versionLockstep() {
       pay.value = "Tr";
       pay.dispatchEvent(new Event("input", { bubbles: true }));
       await new Promise((r) => setTimeout(r, 40));
-      const names = [...document.querySelectorAll(".ed-suggest-btn")].map((b) => b.textContent.trim());
+      const names = [...document.querySelectorAll(".ed-quick-btn")].map((b) => b.textContent.trim());
       const after = document.querySelector(".ed-items").getBoundingClientRect().top;
-      const list = document.querySelector(".ed-suggest");
-      const lr = list.getBoundingClientRect();
+      const bar = document.querySelector(".ed-quick");
+      const buttons = [...document.querySelectorAll(".ed-quick-btn")];
+      const rects = buttons.map((b) => b.getBoundingClientRect());
+      const save = document.querySelector(".ed-save").getBoundingClientRect();
       const pr = pay.getBoundingClientRect();
+      const br = bar.getBoundingClientRect();
       return {
         names,
         n: names.length,
         jump: Math.round(Math.abs(after - before) * 10) / 10,
-        under: lr.top >= pr.bottom - 4 && lr.top <= pr.bottom + 28,
+        row: rects.length > 1 && rects.every((r) => Math.abs(r.top - rects[0].top) < 2),
+        equal: rects.length > 1 && rects.every((r) => Math.abs(r.width - rects[0].width) < 6),
+        ellipsis: getComputedStyle(buttons[0]).textOverflow === "ellipsis",
+        aboveSave: br.bottom <= save.top + 2 && br.top > pr.bottom + 24,
+        dropdown: !!document.querySelector(".ed-suggest"),
         chips: document.querySelectorAll(".merchant-chip").length
       };
     })()`);
-    const wantMerch = ["Trader Joe's", "Transit", "Truck stop", "Central Transit"];
-    if (!out.merchList || out.merchList.names.join("|") !== wantMerch.join("|") || out.merchList.n < 3 || out.merchList.n > 5 || out.merchList.jump > 2 || !out.merchList.under || out.merchList.chips) fail.push("merchant suggestions " + JSON.stringify(out.merchList));
+    const wantMerch = ["Trader Joe's", "Transit", "Truck stop"];
+    if (!out.merchList || out.merchList.names.join("|") !== wantMerch.join("|") || out.merchList.n !== 3 || out.merchList.jump > 2 || !out.merchList.row || !out.merchList.equal || !out.merchList.ellipsis || !out.merchList.aboveSave || out.merchList.dropdown || out.merchList.chips) fail.push("merchant suggestions " + JSON.stringify(out.merchList));
     out.merchPick = await cdp.eval(`(async () => {
-      const btn = [...document.querySelectorAll(".ed-suggest-btn")].find((b) => b.textContent.trim() === "Trader Joe's");
+      const btn = [...document.querySelectorAll(".ed-quick-btn")].find((b) => b.textContent.trim() === "Trader Joe's");
       btn.click();
       await new Promise((r) => setTimeout(r, 80));
       const sh = document.querySelector("form.sheet.ed-add");
@@ -755,7 +772,7 @@ function versionLockstep() {
         name: name.trim(),
         rowAmt: (sh.querySelector(".ed-row-amt") || {}).value || "",
         topAmt: (sh.querySelector(".ed-amt-v") || {}).textContent.trim(),
-        list: sh.querySelectorAll(".ed-suggest-btn").length,
+        list: sh.querySelectorAll(".ed-quick-btn").length,
         sugg: !!sh.querySelector("[data-role='env-suggest']")
       };
     })()`);
@@ -775,13 +792,24 @@ function versionLockstep() {
       pay.value = "Ta";
       pay.dispatchEvent(new Event("input", { bubbles: true }));
       await new Promise((r) => setTimeout(r, 40));
-      const btn = [...document.querySelectorAll(".ed-suggest-btn")].find((b) => b.textContent.trim() === "Target");
+      const btn = [...document.querySelectorAll(".ed-quick-btn")].find((b) => b.textContent.trim() === "Target");
       if (btn) btn.click();
       await new Promise((r) => setTimeout(r, 60));
       const name = (document.querySelector(".ed-split-name") || {}).textContent || "";
       return { tapped: !!btn, name: name.trim(), payee: document.querySelector('[data-ed-in="payee"]').value };
     })()`);
     if (!out.merchKeep || !out.merchKeep.tapped || out.merchKeep.payee !== "Target" || out.merchKeep.name.indexOf("Rent") !== 0) fail.push("merchant did not keep the picked item " + JSON.stringify(out.merchKeep));
+    await closeEd();
+    await openAddSheet();
+    out.merchTe = await cdp.eval(`(async () => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.value = "Te";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      return [...document.querySelectorAll(".ed-quick-btn")].map((b) => b.textContent.trim());
+    })()`);
+    if (!out.merchTe || out.merchTe.join("|") !== ["Tesco", "Temple Books", "Teacher Supply"].join("|")) fail.push("Te suggestions " + JSON.stringify(out.merchTe));
 
     if (SHOTS) {
       await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
@@ -825,23 +853,14 @@ function versionLockstep() {
         const pay = document.querySelector('[data-ed-in="payee"]');
         pay.focus();
         pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-        pay.value = "Tr";
+        pay.value = "Te";
         pay.dispatchEvent(new Event("input", { bubbles: true }));
       })()`);
       await sleep(280);
-      await snap("a-merchant-typing-tr.png");
-      await cdp.eval(`(() => { const b = [...document.querySelectorAll(".ed-suggest-btn")].find((el) => el.textContent.trim() === "Trader Joe's"); b.click(); })()`);
+      await snap("a-merchant-typing-te.png");
+      await cdp.eval(`(() => { const b = [...document.querySelectorAll(".ed-quick-btn")].find((el) => el.textContent.trim() === "Tesco"); b.click(); })()`);
       await sleep(220);
       await snap("b-merchant-category.png");
-      await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
-      await sleep(200);
-      await snap("e-budget-picker.png");
-      await closeEd();
-      await cdp.eval(`document.querySelector('[data-tab="spend"]').click()`);
-      await sleep(250);
-      await cdp.eval(`document.querySelector('[data-act="edit-spend"][data-id="t1"]').click()`);
-      await sleep(280);
-      await snap("c-edit-one-item.png");
       await closeEd();
       await openAddSheet();
       await cdp.eval(`(async () => {
@@ -859,7 +878,7 @@ function versionLockstep() {
         document.querySelector("[data-ed='even']").click();
       })()`);
       await sleep(240);
-      await snap("d-two-item-split.png");
+      await snap("c-two-item-split.png");
     }
 
     out.fail = fail;
