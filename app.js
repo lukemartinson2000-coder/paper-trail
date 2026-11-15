@@ -13860,8 +13860,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     h += '<div class="ed-note' + (noteOpen ? " is-open" : "") + '"><button type="button" class="ed-add-note" data-ed="note-open" aria-expanded="' + (edUi.noteOpen ? "true" : "false") + '" aria-controls="ed-note-box"' + (edUi.noteOpen ? ' tabindex="-1" aria-hidden="true"' : "") + '>Add note</button>' +
       '<div class="ed-note-box" id="ed-note-box"' + (edUi.noteOpen ? "" : ' aria-hidden="true"') + '><label class="ed-row"><span class="lbl">Note</span><input type="text" name="note" data-ed-in="note" maxlength="200" autocomplete="off" aria-label="Note" tabindex="' + (edUi.noteOpen ? "0" : "-1") + '" value="' + esc(d.note || "") + '"></label></div></div>';
     if (edUi.err) h += '<p class="sheet-field-error ed-err" role="alert">' + esc(edUi.err) + "</p>";
+    var gap = edSplitGap();
     h += "</div>" + edMerchHtml() + edPadHtml() +
-      '<div class="ed-actions"><button type="submit" class="primary ed-save">Save</button></div>';
+      '<div class="ed-actions"><button type="submit" class="primary ed-save' + (gap ? " is-muted" : "") + '"' + (gap ? " disabled" : "") + ' aria-label="' + esc(gap ? gap.aria : "Save") + '">' + esc(gap ? gap.label : "Save") + "</button></div>";
     if (edUi.picker && !inc) h += edPickerHtml(month);
     h += "</form>";
     var modal = document.getElementById("modal");
@@ -14022,10 +14023,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         '<span class="ed-split-amt"><input type="text" inputmode="numeric" autocomplete="off" class="ed-row-amt mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + esc(formatMoney(Number(l.amount) || 0, 2)) + '"></span></div>';
     });
     h += "</div>";
-    if (picked.length > 1) {
-      var mismatch = edSplitMismatch();
-      h += '<p class="ed-split-msg" id="ed-split-msg" role="status"' + (mismatch ? "" : " hidden") + ">" + esc(mismatch) + "</p>";
-    }
     if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
   }
@@ -14064,13 +14061,29 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
-  function edSplitMismatch() {
+  /* Null when the split matches, otherwise the unallocated or over amount for the Save button. */
+  function edSplitGap() {
     var legs = edAllocLegs();
-    if (!spendDraft || legs.length < 2) return "";
+    if (!spendDraft || legs.length < 2) return null;
     var total = roundCents(Number(spendDraft.amount) || 0);
     var sum = roundCents(legs.reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0));
-    if (cents(sum) === cents(total)) return "";
-    return "Split amounts must add up to " + formatMoney(total, 2) + ".";
+    var left = roundCents(total - sum);
+    if (cents(left) === 0) return null;
+    if (left > 0) {
+      var rem = formatMoney(left, 2) + " remaining";
+      return { label: rem, aria: rem + ". Finish the split before saving." };
+    }
+    var over = formatMoney(-left, 2) + " over";
+    return { label: over, aria: over + ". The split is more than the amount." };
+  }
+  function edPaintSave() {
+    var btn = document.querySelector("#modal .sheet.ed-add .ed-save");
+    if (!btn) return;
+    var gap = edSplitGap();
+    btn.textContent = gap ? gap.label : "Save";
+    btn.disabled = !!gap;
+    btn.classList.toggle("is-muted", !!gap);
+    btn.setAttribute("aria-label", gap ? gap.aria : "Save");
   }
   /* v37.5.74 (tester bug): typing the merchant on iPhone left the number pad up under the iOS keyboard, so the
    * amount was cut off at the top and the pad, Save and keyboard overlapped. Any typed field in the Add sheet now
@@ -14260,6 +14273,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var row = document.querySelector("#modal .ed-split-main, #modal .ed-items, #modal .ed-add-split");
     if (row) edKeepField(row);
     edGrowToContent();
+    edPaintSave();
   }
   /* A second split can be taller than the frame that was locked around one item.
      Grow only, with the same height ease, so Add note stays in view and the sheet does not snap. */
@@ -14332,13 +14346,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     window.visualViewport.addEventListener("resize", edFit);
     window.visualViewport.addEventListener("scroll", edFit);
   }
-  function edAllocPaint() {
-    var el = document.getElementById("ed-split-msg");
-    if (!el) return;
-    var msg = edSplitMismatch();
-    el.hidden = !msg;
-    el.textContent = msg;
-  }
+  function edAllocPaint() { edPaintSave(); }
   function edSyncAmount() {
     spendDraft.amount = roundCents(edCentsValue(edUi.amt));
     var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
@@ -14378,6 +14386,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else if (/^\d+$/.test(k)) { s = (s + k).replace(/^0+/, ""); if (s.length > 9) s = edUi.amt; }
       edUi.amt = s; edSyncAmount();
       edPaintAmount();
+      edPaintSave();
       return;
     }
     if (a === "picker" || a === "add-split" || a === "split") {
@@ -14406,6 +14415,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       else renderEdAdd(month);
       var urow = document.querySelector("#modal .ed-split-main, #modal .ed-items");
       if (urow) edKeepField(urow);
+      edPaintSave();
       return;
     }
     if (a === "fill" || a === "even") {
@@ -14482,7 +14492,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var err = "";
     if (!(amt > 0)) err = "Enter an amount.";
     else if (spendDraft.type !== "income" && !legs.length) err = "Choose a budget item.";
-    else if (spendDraft.type !== "income" && legs.length > 1 && cents(legs.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0)) !== cents(amt)) err = "Split amounts must add up to " + formatMoney(amt, 2) + ".";
+    else if (spendDraft.type !== "income" && edSplitGap()) err = "Split amounts must add up to " + formatMoney(amt, 2) + ".";
     if (err) { e.preventDefault(); e.stopImmediatePropagation(); edUi.err = err; renderEdAdd(); return; }
     edUi = null;
   }, true);
@@ -18846,7 +18856,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.109";
+  var APP_VERSION = "37.5.110";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

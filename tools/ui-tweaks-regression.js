@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.109. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.110. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -153,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.109" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.110" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -693,8 +693,12 @@ function versionLockstep() {
         rem: [...sh.querySelectorAll(".ed-split-main .ed-rem")].map((el) => el.textContent.trim()),
         rest: sh.querySelectorAll(".ed-rest").length,
         even: sh.querySelectorAll("[data-ed='even']").length,
-        msg: (sh.querySelector(".ed-split-msg") || {}).textContent.trim(),
+        msg: sh.querySelectorAll(".ed-split-msg").length,
         status: sh.querySelectorAll(".ed-alloc-status").length,
+        save: (sh.querySelector(".ed-save") || {}).textContent.trim(),
+        saveDisabled: !!(sh.querySelector(".ed-save") || {}).disabled,
+        saveAria: (sh.querySelector(".ed-save") || {}).getAttribute("aria-label") || "",
+        saveRadius: parseFloat(getComputedStyle(sh.querySelector(".ed-save")).borderRadius),
         addInside: !!(card && add && card.contains(add)),
         xLeft: lines.every((line) => {
           const x = line.querySelector(".ed-split-minus").getBoundingClientRect();
@@ -715,7 +719,7 @@ function versionLockstep() {
     })()`);
     await sleep(40);
     await snap("10-two-splits.png");
-    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$0.00,$0.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 0 || out.splitTwo.even !== 0 || out.splitTwo.status !== 0 || !/must add up/.test(out.splitTwo.msg || "") || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
+    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$0.00,$0.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 0 || out.splitTwo.even !== 0 || out.splitTwo.status !== 0 || out.splitTwo.msg !== 0 || out.splitTwo.save !== "$20.00 remaining" || !out.splitTwo.saveDisabled || out.splitTwo.saveAria.indexOf("$20.00 remaining") !== 0 || !(out.splitTwo.saveRadius >= 20) || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
 
     async function closeEd() {
       await cdp.eval(`(() => { const m = document.getElementById("modal"); m.hidden = true; m.innerHTML = ""; document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); })()`);
@@ -863,24 +867,6 @@ function versionLockstep() {
       await closeEd();
       await openAddSheet();
       await cdp.eval(`(async () => {
-        ["1", "1", "9", "7"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
-        const pay = document.querySelector('[data-ed-in="payee"]');
-        pay.focus();
-        pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-        pay.value = "Te";
-        pay.dispatchEvent(new Event("input", { bubbles: true }));
-      })()`);
-      await sleep(280);
-      await snap("a-merchant-typing-te.png");
-      await cdp.eval(`(() => { const b = [...document.querySelectorAll(".ed-quick-btn")].find((el) => el.textContent.trim() === "Tesco"); b.click(); })()`);
-      await sleep(220);
-      await snap("b-merchant-unchosen.png");
-      await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
-      await sleep(200);
-      await snap("c-picker-last-used.png");
-      await closeEd();
-      await openAddSheet();
-      await cdp.eval(`(async () => {
         ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
         document.querySelector('[data-ed="picker"]').click();
         await new Promise((r) => setTimeout(r, 120));
@@ -891,15 +877,18 @@ function versionLockstep() {
         second.click();
         await new Promise((r) => setTimeout(r, 40));
         document.querySelector("[data-ed='picker-done']").click();
-        await new Promise((r) => setTimeout(r, 160));
+      })()`);
+      await sleep(240);
+      await snap("b-save-remaining.png");
+      await cdp.eval(`(() => {
         const inputs = [...document.querySelectorAll(".ed-row-amt")];
         ["1000", "1000"].forEach((digits, i) => {
           inputs[i].value = digits;
           inputs[i].dispatchEvent(new Event("input", { bubbles: true }));
         });
       })()`);
-      await sleep(200);
-      await snap("d-two-item-split.png");
+      await sleep(160);
+      await snap("a-save-balanced.png");
     }
 
     out.fail = fail;
