@@ -804,6 +804,22 @@ input[type="number"] { -moz-appearance: textfield; }
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
+.sheet-month-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sheet-month-spent {
+  flex: none;
+  font-family: var(--mono);
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
 
 .sheet-tx {
   display: flex;

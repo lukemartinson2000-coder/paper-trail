@@ -1126,7 +1126,9 @@
 
   function lineSpendList(month, lineId) {
     var txs = lineSpends(month, lineId);
-    var html = '<p class="sheet-label">This month</p>';
+    var spent = 0;
+    try { spent = spentOnLine(month, lineId); } catch (e) {}
+    var html = '<p class="sheet-label sheet-month-head"><span>This month</span><span class="sheet-month-spent">' + money(spent) + "</span></p>";
     if (!txs.length) {
       return html + '<p class="empty">No spending on this line yet.</p>';
     }
@@ -13657,6 +13659,75 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return { categoryId: here.categoryId, lineId: here.lineId, lineName: here.lineName, payee: String(best.tx.payee).trim(), split: legs.length > 1 };
   }
 
+  /* Auto-pick a budget item only when this merchant's expense history is clear.
+   * One past transaction: use that item. Two or more: use an item only when it
+   * covers at least 80% of those transactions. A split counts toward each item. */
+  function merchantAutoItem(month, payee) {
+    var k = String(payee || "").replace(/^\s+|\s+$/g, "").toLowerCase();
+    if (!k || !month) return null;
+    var txCount = 0, byLine = {}, meta = {};
+    Object.keys(state.months || {}).forEach(function (key) {
+      var m = state.months[key];
+      (m && m.transactions || []).forEach(function (tx) {
+        if (isIncomeTx(tx) || tx.refundKind === "standalone") return;
+        if (String(tx.payee || "").replace(/^\s+|\s+$/g, "").toLowerCase() !== k) return;
+        var seen = {};
+        var any = false;
+        txLegs(tx).forEach(function (leg) {
+          if (!leg || !leg.lineId) return;
+          var found = findLine(m, leg.lineId);
+          if (!found || !found.line) return;
+          var nk = String(found.cat.name || "").toLowerCase() + "\n" + String(found.line.name || "").toLowerCase();
+          if (seen[nk]) return;
+          seen[nk] = true;
+          any = true;
+          byLine[nk] = (byLine[nk] || 0) + 1;
+          meta[nk] = { cat: found.cat.name, line: found.line.name };
+        });
+        if (any) txCount += 1;
+      });
+    });
+    if (!txCount) return null;
+    var best = null, bestN = 0, tied = false;
+    Object.keys(byLine).forEach(function (nk) {
+      if (byLine[nk] > bestN) { best = nk; bestN = byLine[nk]; tied = false; }
+      else if (byLine[nk] === bestN) tied = true;
+    });
+    if (!best || tied) return null;
+    if (txCount === 1) {
+      if (Object.keys(byLine).length !== 1) return null;
+    } else if (bestN / txCount < 0.8) return null;
+    return findLineByNames(month, meta[best].cat, meta[best].line);
+  }
+  function edPaintItemSec(month) {
+    var sec = document.querySelector("#modal .sheet.ed-add .ed-itemsec");
+    if (!sec) return;
+    var sc = sec.closest(".ed-scroll");
+    var top = sc ? sc.scrollTop : 0;
+    sec.outerHTML = edItemsHtml(month);
+    if (sc) sc.scrollTop = top;
+  }
+  function edApplyAuto(month) {
+    if (!spendDraft || !edUi || spendDraft.type === "income" || spendDraft.id || edUi.manual) return;
+    var picked = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
+    if (picked.length > 1) return;
+    var hit = merchantAutoItem(month, spendDraft.payee);
+    var cur = picked[0];
+    if (!hit) {
+      if (cur && spendDraft.autoCat) {
+        spendDraft.legs = [{ id: cur.id || nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
+        spendDraft.autoCat = false;
+        edPaintItemSec(month);
+      }
+      return;
+    }
+    if (cur && String(cur.lineId) === String(hit.lineId)) return;
+    if (cur && cur.lineId && !spendDraft.autoCat) return;
+    spendDraft.legs = [{ id: (cur && cur.id) || nextId(), categoryId: hit.categoryId, lineId: hit.lineId, amount: Number(spendDraft.amount) || 0, refund: 0, note: "" }];
+    spendDraft.autoCat = true;
+    edPaintItemSec(month);
+    edPaintSave();
+  }
   function applyMerchantEnvelope(month, payee) {
     if (!spendDraft || spendDraft.id || spendDraft.categoryTouched || spendDraft.type === "income") return false;
     if (!envelopeSuggestOn()) return false;
@@ -13992,7 +14063,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         return '<button type="button" class="ed-quick-btn" tabindex="-1" role="option" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>";
       }).join("") + "</div>";
   }
-  /* Repaint only the merchant bar. Typing a name never chooses a budget item. */
+  /* Repaint only the merchant bar. An exact past merchant can fill the budget item in place. */
   function edRepaintMerch() {
     var f = document.querySelector("#modal .sheet.ed-add");
     if (!f || !spendDraft) return;
@@ -14221,9 +14292,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
   });
   document.addEventListener("focusout", function (e) {
-    if (e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add")) {
-      if (window.scrollY) { try { window.scrollTo(0, 0); } catch (err) {} }
-    }
+    var t = e.target;
+    if (!t || !t.closest || !t.closest("#modal .sheet.ed-add")) return;
+    if (window.scrollY) { try { window.scrollTo(0, 0); } catch (err) {} }
+    if (t.getAttribute && t.getAttribute("data-ed-in") === "payee") edApplyAuto(ensureMonth(state.year, state.month));
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", edFit);
@@ -14255,6 +14327,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var payIn = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
       if (payIn) payIn.value = spendDraft.payee;
       edRepaintMerch();
+      edApplyAuto(month);
       return;
     }
     if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; renderEdAdd(month); return; }
@@ -14296,6 +14369,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (ul[ui]) ul.splice(ui, 1);
       if (ul.length === 1) ul[0].amount = spendDraft.amount;
       spendDraft.mappedFromHistory = false;
+      spendDraft.autoCat = false;
       if (!ul.length) edUi.manual = false;
       spendDraft.legs = ul.length ? ul : [{ id: nextId(), categoryId: "", lineId: "", amount: 0, refund: 0, note: "" }];
       var usec = document.querySelector("#modal .ed-itemsec");
@@ -14342,6 +14416,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (k === "payee") {
       spendDraft.payee = el.value;
       edRepaintMerch();
+      edApplyAuto(ensureMonth(state.year, state.month));
     }
     else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
     else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
@@ -18747,7 +18822,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.118";
+  var APP_VERSION = "37.5.120";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
