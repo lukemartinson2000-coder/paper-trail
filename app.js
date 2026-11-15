@@ -13865,8 +13865,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     /* Date, Amount, Merchant, then the budget item, then the note. The pad stays in the tree (hidden when off)
        so showing it doesn't rebuild the sheet. Save is last, so it stays put when the pad collapses. */
     var h = '<form class="sheet ed-add' + (enter ? " ed-enter" : "") + (edUi.pad ? "" : " ed-pad-off") + '" data-act="save-spend-sheet" novalidate>' +
-      '<div class="ed-head"><div class="sheet-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3>" +
+      '<div class="ed-head"><div class="sheet-top ed-top"><h3>' + (d.id ? "Edit Transaction" : "Add Transaction") + "</h3>" +
       (d.id ? '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' + esc(d.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>' : "") +
+      '<button type="button" class="ed-close" data-ed="close" aria-label="Close">✕</button>' +
       "</div></div>" +
       '<div class="ed-scroll">' +
       (d.id ? "" : '<div class="ed-switch" role="tablist" aria-label="Transaction type">' +
@@ -14241,6 +14242,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     e.preventDefault(); e.stopPropagation();
     var a = b.getAttribute("data-ed"), month = ensureMonth(state.year, state.month);
     edUi.err = ""; edUi.focusSearch = false;
+    if (a === "close") {
+      spendDraft = null;
+      edUi = null;
+      closeModal();
+      return;
+    }
     var staleErr = document.querySelector("#modal .ed-add .ed-err");
     if (staleErr && staleErr.parentNode) staleErr.parentNode.removeChild(staleErr);
     if (a === "item" || a === "tick") { edUi.manual = true; spendDraft.mappedFromHistory = false; }
@@ -18741,7 +18748,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.116";
+  var APP_VERSION = "37.5.117";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
