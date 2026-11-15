@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.119. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.120. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -117,7 +117,10 @@ const SEED = `
         { id: "t11", payee: "Tesco", date: "2026-11-13", amount: 16, categoryId: "food", lineId: "groceries", note: "" },
         { id: "t12", payee: "Temple Books", date: "2026-11-11", amount: 11, categoryId: "food", lineId: "restaurants", note: "" },
         { id: "t13", payee: "Teacher Supply", date: "2026-11-08", amount: 22, categoryId: "home", lineId: "rent", note: "" },
-        { id: "t-over", payee: "Clinic", date: "2026-11-10", amount: 90, categoryId: "life", lineId: "efund", note: "" }
+        { id: "t-over", payee: "Clinic", date: "2026-11-10", amount: 90, categoryId: "life", lineId: "efund", note: "" },
+        { id: "t-solo", payee: "Solo Mart", date: "2026-11-05", amount: 8, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t-mix-g", payee: "Mixed Mart", date: "2026-11-03", amount: 5, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t-mix-r", payee: "Mixed Mart", date: "2026-11-14", amount: 7, categoryId: "food", lineId: "restaurants", note: "" }
       ]
     }},
     worth: { years: [y], notes: {}, lines: [
@@ -158,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.119" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.120" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -800,7 +803,7 @@ function versionLockstep() {
         sugg: !!sh.querySelector("[data-role='env-suggest']")
       };
     })()`);
-    if (!out.merchPick || out.merchPick.payee !== "Trader Joe's" || out.merchPick.choose !== "Choose budget item" || out.merchPick.card || out.merchPick.topAmt !== "$20.00" || out.merchPick.list || out.merchPick.sugg) fail.push("merchant fill " + JSON.stringify(out.merchPick));
+    if (!out.merchPick || out.merchPick.payee !== "Trader Joe's" || out.merchPick.choose !== "Groceries" || !out.merchPick.card || out.merchPick.topAmt !== "$20.00" || out.merchPick.list || out.merchPick.sugg) fail.push("merchant fill " + JSON.stringify(out.merchPick));
     out.lastUsed = await cdp.eval(`(async () => {
       document.querySelector('[data-ed="picker"]').click();
       await new Promise((r) => setTimeout(r, 80));
@@ -1246,6 +1249,82 @@ function versionLockstep() {
     }
     if (!spentOk(out.lineFood) || !/Groceries/.test(out.lineFood.title)) fail.push("food spent " + JSON.stringify(out.lineFood));
     if (!spentOk(out.lineHome) || !/Rent/.test(out.lineHome.title)) fail.push("rent spent " + JSON.stringify(out.lineHome));
+
+    await cdp.eval(`(() => { const m = document.getElementById("modal"); if (m) { m.hidden = true; m.innerHTML = ""; } document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); })()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+    await sleep(250);
+    const tops = () => cdp.eval(`(() => {
+      const t = (sel) => Math.round(document.querySelector(sel).getBoundingClientRect().top);
+      return { date: t('[data-ed-in="date"]'), amount: t(".ed-amt"), merchant: t('[data-ed-in="payee"]'), item: t(".ed-itemsec") };
+    })()`);
+    await cdp.eval(`["2","0","0","0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click())`);
+    await sleep(40);
+    await cdp.eval(`document.querySelector('[data-ed="next"]').click()`);
+    await sleep(200);
+    const beforeAuto = await tops();
+    await cdp.eval(`(() => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.value = "Solo Mart";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      pay.blur();
+    })()`);
+    await sleep(80);
+    out.autoSingle = await cdp.eval(`(() => {
+      const sh = document.querySelector("form.sheet.ed-add");
+      return { item: (sh.querySelector(".ed-split-name") || {}).textContent || "", choose: (sh.querySelector(".ed-items-name") || {}).textContent.trim() };
+    })()`);
+    const afterAuto = await tops();
+    if (SHOTS) await snap("auto-filled.png");
+    out.autoStill = { before: beforeAuto, after: afterAuto };
+    if (SHOTS) await snap("auto-stable.png");
+    const still = beforeAuto && afterAuto && ["date", "amount", "merchant", "item"].every((k) => Math.abs(beforeAuto[k] - afterAuto[k]) <= 1);
+    if (!out.autoSingle || out.autoSingle.item.trim() !== "Groceries" || !still) fail.push("single auto " + JSON.stringify({ auto: out.autoSingle, still: out.autoStill }));
+    await cdp.eval(`document.querySelector(".ed-close").click()`);
+    await sleep(220);
+    await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+    await sleep(250);
+    await cdp.eval(`(() => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.value = "Mixed Mart";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      pay.blur();
+    })()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+    await sleep(120);
+    out.autoMixed = await cdp.eval(`(() => {
+      const first = document.querySelector(".ed-picker .ed-item-row");
+      return {
+        choose: (document.querySelector(".ed-items-name") || {}).textContent.trim(),
+        card: !!document.querySelector(".ed-budget-card"),
+        name: (first && first.querySelector(".ed-item-label") || {}).textContent || "",
+        tag: (first && first.querySelector(".ed-last-used") || {}).textContent || ""
+      };
+    })()`);
+    if (SHOTS) await snap("auto-mixed.png");
+    if (!out.autoMixed || out.autoMixed.choose !== "Choose budget item" || out.autoMixed.card || out.autoMixed.name !== "Restaurants" || out.autoMixed.tag !== "Last used") fail.push("mixed merchant " + JSON.stringify(out.autoMixed));
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector(".ed-close").click()`);
+    await sleep(220);
+    await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+    await sleep(80);
+    await cdp.eval(`(() => { const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item-label") || {}).textContent || "") === "Rent"); row.querySelector("[data-ed='tick']").click(); })()`);
+    await sleep(40);
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(80);
+    await cdp.eval(`(() => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.value = "Trader Joe's";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      pay.blur();
+    })()`);
+    await sleep(80);
+    out.autoKeep = await cdp.eval(`(() => (document.querySelector(".ed-split-name") || {}).textContent || "")()`);
+    if (!out.autoKeep || String(out.autoKeep).trim() !== "Rent") fail.push("kept user pick " + JSON.stringify(out.autoKeep));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
