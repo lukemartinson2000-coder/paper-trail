@@ -5502,7 +5502,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var used = roundCents(slices.reduce(function (n, s) { return n + s.amount; }, 0));
     var gap = roundCents((c.divisor || 0) - used);
     var shortfall = 0;
-    if (c.divisor > 0 && gap > 0) slices.push({ label: "Unallocated", amount: gap, kind: "gap" });
+    if (c.divisor > 0 && gap > 0) slices.push({ label: "Left to budget", amount: gap, kind: "gap" });
     else if (gap < 0) shortfall = roundCents(-gap);
     slices.sort(function (a, b) { return b.amount - a.amount; });
     return {
@@ -5533,7 +5533,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var slices = Object.keys(map).map(function (n) { return { label: n, amount: map[n] }; });
     var used = roundCents(slices.reduce(function (n, s) { return n + s.amount; }, 0));
     var gap = roundCents(div - used);
-    if (gap > 0) slices.push({ label: "Unallocated", amount: gap });
+    if (gap > 0) slices.push({ label: "Left to budget", amount: gap });
     slices.sort(function (a, b) { return b.amount - a.amount; });
     return { months: recs.length, mixed: false, divisor: div, slices: slices, of: recs[0].of, partial: recs.length < 12 };
   }
@@ -18886,7 +18886,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.114";
+  var APP_VERSION = "37.5.115";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -23569,7 +23569,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var rec = state.months[key];
         var pic = allocMonth(rec);
         var can = canonicalSavings(rec ? [rec] : []);
-        return { alloc: pic, canonical: can, same: roundCents(pic.divisor) === roundCents(can.divisor) };
+        return { alloc: pic, canonical: can, year: allocYear(y), same: roundCents(pic.divisor) === roundCents(can.divisor) };
       } finally {
         state.compensation = keepC;
         state.savLineOn = keepS;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.114. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.115. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -153,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.114" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.115" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -946,17 +946,35 @@ function versionLockstep() {
         compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
         documents: stub("2026-11-15", 8000)
       });
+      const leftAmt = (slices) => {
+        const row = (slices || []).find((x) => x.label === "Left to budget");
+        const old = (slices || []).find((x) => x.label === "Unallocated");
+        return { amount: row ? row.amount : 0, shown: !!row, old: !!old };
+      };
+      const full = {
+        year: 2026, month: 11,
+        incomes: [{ id: "pay", name: "Paycheck", amount: 5000 }],
+        categories: [{ id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 5000 }] }],
+        transactions: []
+      };
+      const filled = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: full, payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 5800)
+      });
       const pack = (pic) => ({
         source: pic.alloc.source, divisor: pic.alloc.divisor, same: pic.same, warn: !!pic.alloc.incomeWarn,
         savings: pic.alloc.savings, other: slice(pic, "Other payroll deductions"), taxes: slice(pic, "Taxes"),
-        food: slice(pic, "Food"), checks: pic.alloc.paychecks, of: pic.alloc.of
+        food: slice(pic, "Food"), checks: pic.alloc.paychecks, of: pic.alloc.of,
+        left: leftAmt(pic.alloc.slices), yearLeft: leftAmt(pic.year && pic.year.slices)
       });
-      return { budget: pack(budget), key: pack(key), typedNov: pack(nov), typedFeb: pack(bonus), three: pack(three), guard: pack(guard) };
+      return { budget: pack(budget), key: pack(key), typedNov: pack(nov), typedFeb: pack(bonus), three: pack(three), guard: pack(guard), filled: pack(filled) };
     })()`);
     const mb = out.monthBase;
     const taxRow = (row) => row && (row.taxes > 0 || row.other > 0);
     if (!mb || mb.budget.divisor !== 5000 || !mb.budget.same || taxRow(mb.budget) || mb.budget.warn) fail.push("budget month " + JSON.stringify(mb && mb.budget));
-    if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0) fail.push("stub extras " + JSON.stringify(mb && mb.key));
+    if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0 || !mb.key.left.shown || mb.key.left.amount !== 4500 || mb.key.left.old || !mb.key.yearLeft.shown || mb.key.yearLeft.amount !== 4500 || mb.key.yearLeft.old) fail.push("stub extras " + JSON.stringify(mb && mb.key));
+    if (!mb || mb.filled.divisor !== 5800 || mb.filled.left.shown || mb.filled.left.old || mb.filled.yearLeft.shown || mb.filled.yearLeft.old) fail.push("left to budget hidden at zero " + JSON.stringify(mb && mb.filled));
     if (!mb || mb.typedNov.divisor !== 5000 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
     if (!mb || mb.typedFeb.divisor !== 17000 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
     if (!mb || mb.three.divisor !== 7400 || mb.three.savings !== 2100 || mb.three.other !== 300 || mb.three.checks !== 3 || mb.three.warn) fail.push("three paychecks " + JSON.stringify(mb && mb.three));
