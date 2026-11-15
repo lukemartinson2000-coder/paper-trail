@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.120. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.121. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.120" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.121" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1325,6 +1325,111 @@ function versionLockstep() {
     await sleep(80);
     out.autoKeep = await cdp.eval(`(() => (document.querySelector(".ed-split-name") || {}).textContent || "")()`);
     if (!out.autoKeep || String(out.autoKeep).trim() !== "Rent") fail.push("kept user pick " + JSON.stringify(out.autoKeep));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const m = document.getElementById("modal"); if (m) { m.hidden = true; m.innerHTML = ""; } document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); document.querySelector('[data-tab="budget"]').click(); })()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector(".sav-pay-link").click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="it-true-manual"]').click()`);
+    await sleep(250);
+    function segBox() {
+      return cdp.eval(`(() => {
+        function box(el) {
+          if (!el) return null;
+          const t = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          const border = parseFloat(cs.borderTopWidth) || 0;
+          const pad = parseFloat(cs.paddingTop) || 0;
+          const radius = parseFloat(cs.borderRadius) || 0;
+          const btns = [...el.querySelectorAll("button")];
+          const rs = btns.map((b) => b.getBoundingClientRect());
+          const bcs = btns.map((b) => getComputedStyle(b));
+          const inset = rs.length ? {
+            l: rs[0].left - t.left - border,
+            r: t.right - rs[rs.length - 1].right - border,
+            t: rs[0].top - t.top - border,
+            b: t.bottom - rs[0].bottom - border
+          } : null;
+          const input = el.closest(".it-amt-row") && el.closest(".it-amt-row").querySelector('input[type="text"]');
+          const ir = input ? input.getBoundingClientRect() : null;
+          return {
+            h: Math.round(t.height * 10) / 10,
+            inputH: ir ? Math.round(ir.height * 10) / 10 : null,
+            w: Math.round(t.width * 10) / 10,
+            radius,
+            pad,
+            border,
+            inner: bcs.length ? parseFloat(bcs[0].borderRadius) : null,
+            btnBorder: bcs.length ? parseFloat(bcs[0].borderTopWidth) : null,
+            inset,
+            widths: rs.map((r) => Math.round(r.width * 10) / 10),
+            labels: btns.map((b) => b.textContent),
+            clipped: btns.some((b) => b.scrollWidth > b.clientWidth + 1),
+            on: (btns.find((b) => b.classList.contains("on")) || {}).textContent || ""
+          };
+        }
+        const unit = document.querySelector(".it-amt-row .it-unit-toggle");
+        const tax = document.querySelector(".gp-tax .it-unit-toggle");
+        const row = document.querySelector(".it-amt-row");
+        const tops = (sel) => { const el = document.querySelector(sel); return el ? Math.round(el.getBoundingClientRect().top) : null; };
+        return {
+          step: (document.querySelector(".gp-step") || {}).textContent || "",
+          unit: box(unit),
+          tax: box(tax),
+          rowW: row ? Math.round(row.getBoundingClientRect().width * 10) / 10 : null,
+          help: (document.querySelector(".gp-tax-help") || {}).textContent || "",
+          label: (document.querySelector(".gp-tax-label") || {}).textContent || "",
+          tops: {
+            step: tops(".gp-step"),
+            account: tops("select"),
+            amt: tops(".it-amt-row input"),
+            unit: tops(".it-amt-row .it-unit-toggle"),
+            tax: tops(".gp-tax .it-unit-toggle"),
+            help: tops(".gp-tax-help"),
+            check: tops(".gp-check"),
+            next: tops("[data-act='gp-next']")
+          }
+        };
+      })()`);
+    }
+    function insetOk(seg) {
+      if (!seg || !seg.inset) return false;
+      const n = seg.pad;
+      return ["l", "r", "t", "b"].every((k) => Math.abs(seg.inset[k] - n) <= 1);
+    }
+    function radiusOk(seg) {
+      if (!seg) return false;
+      return Math.abs(seg.inner - (seg.radius - seg.pad - seg.border)) <= 0.6 && seg.btnBorder === 0;
+    }
+    out.payIncome = await segBox();
+    const inc = out.payIncome && out.payIncome.unit;
+    if (!inc || inc.inputH == null || Math.abs(inc.h - inc.inputH) > 1 || !insetOk(inc) || !radiusOk(inc) || inc.clipped || inc.on !== "$ a year") fail.push("income unit toggle " + JSON.stringify(inc));
+    await cdp.eval(`(() => { const s = document.querySelector('[name="salary"]'); s.value = "90000"; })()`);
+    await cdp.eval(`document.querySelector('[data-act="gp-next"]').click()`);
+    await sleep(200);
+    out.payPre = await segBox();
+    if (SHOTS) await snap("pay-pretax.png");
+    const pre = out.payPre;
+    const tax = pre && pre.tax;
+    const unit = pre && pre.unit;
+    const halves = tax && tax.widths.length === 2 && Math.abs(tax.widths[0] - tax.widths[1]) <= 1;
+    const full = tax && pre.rowW && Math.abs(tax.w - pre.rowW) <= 2;
+    if (!pre || !/Retirement/.test(pre.step) || pre.label !== "Tax treatment" || pre.help !== "Comes out before taxes, lowers taxable pay." || !unit || Math.abs(unit.h - unit.inputH) > 1 || !insetOk(unit) || !radiusOk(unit) || unit.clipped || (unit.labels || []).join("|") !== "$ a year|% of yearly gross" || unit.on !== "$ a year" || !tax || tax.clipped || !halves || !full || !insetOk(tax) || !radiusOk(tax) || tax.on !== "Pre-tax") fail.push("retirement pretax " + JSON.stringify(pre));
+    const beforeToggle = pre.tops;
+    await cdp.eval(`document.querySelector('.gp-tax [data-tax="post"]').click()`);
+    await sleep(60);
+    out.payPost = await segBox();
+    if (SHOTS) await snap("pay-aftertax.png");
+    const moved = beforeToggle && out.payPost && out.payPost.tops && Object.keys(beforeToggle).filter((k) => beforeToggle[k] != null && Math.abs(beforeToggle[k] - out.payPost.tops[k]) > 1);
+    if (!out.payPost || out.payPost.help !== "Comes out after taxes (Roth-style)." || out.payPost.tax.on !== "After-tax" || (moved && moved.length)) fail.push("after-tax toggle " + JSON.stringify({ help: out.payPost && out.payPost.help, on: out.payPost && out.payPost.tax && out.payPost.tax.on, moved, before: beforeToggle, after: out.payPost && out.payPost.tops }));
+    await cdp.eval(`(() => { const s = document.querySelector('select[name="retType0"]'); s.value = "hsa"; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+    await sleep(200);
+    out.payHsa = await segBox();
+    if (SHOTS) await snap("pay-hsa.png");
+    const hsa = out.payHsa;
+    const hsaName = await cdp.eval(`(document.querySelector('select[name="retType0"]') || {}).value || ""`);
+    if (hsaName !== "hsa" || !hsa || !hsa.unit || Math.abs(hsa.unit.h - hsa.unit.inputH) > 1 || !insetOk(hsa.unit) || !radiusOk(hsa.unit) || hsa.unit.clipped || hsa.unit.on !== "$ a year" || hsa.tax.on !== "Pre-tax") fail.push("hsa toggle " + JSON.stringify({ hsaName, hsa }));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));

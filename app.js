@@ -11497,11 +11497,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" data-act="gp-unit" data-u="pct" aria-pressed="' + (!!pct) + '"' + (pct ? ' class="on"' : "") + ">" + pctLabel + "</button></span>" +
       '<input type="hidden" name="' + name + '" value="' + (pct ? "pct" : "usd") + '">';
   }
+  function gpTaxHelp(tax) {
+    if (tax === "post") return "Comes out after taxes (Roth-style).";
+    if (tax === "pre") return "Comes out before taxes, lowers taxable pay.";
+    return "Choose pre-tax or after-tax.";
+  }
   function gpTaxHtml(name, tax, aria) {
-    return '<input type="hidden" name="' + name + '" value="' + (tax === "post" ? "post" : tax === "pre" ? "pre" : "") + '">' +
-      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria) + '">' +
-      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (tax === "pre") + '"' + (tax === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
-      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (tax === "post") + '"' + (tax === "post" ? ' class="on"' : "") + ">After-tax</button></span>";
+    var which = tax === "post" ? "post" : tax === "pre" ? "pre" : "";
+    return '<div class="gp-tax"><span class="gp-tax-label">Tax treatment</span>' +
+      '<input type="hidden" name="' + name + '" value="' + which + '">' +
+      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria || "Tax treatment") + '">' +
+      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (which === "pre") + '"' + (which === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
+      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (which === "post") + '"' + (which === "post" ? ' class="on"' : "") + ">After-tax</button></span>" +
+      '<p class="gp-tax-help" aria-live="polite">' + esc(gpTaxHelp(which)) + "</p></div>";
   }
   function gpAmtRow(name, value, pct, unitName, pctLabel, aria) {
     return '<div class="it-amt-row" data-gp-amt="1"><span class="it-amt-unit" aria-hidden="true">' + (pct ? "%" : "$") + "</span>" +
@@ -11688,11 +11696,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     var tax = btn.getAttribute("data-tax") === "post" ? "post" : "pre";
-    var hold = line && line.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
-    if (!hold && line) hold = line.querySelector('input[type="hidden"][name*="Tax"]');
+    var wrap = btn.closest(".gp-tax") || line;
+    var hold = wrap && wrap.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
+    if (!hold && wrap) hold = wrap.querySelector('input[type="hidden"][name*="Tax"]');
     if (hold) hold.value = tax;
     var group = btn.parentNode;
     [].forEach.call(group.querySelectorAll("[data-act=gp-tax]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+    var help = wrap && wrap.querySelector(".gp-tax-help");
+    if (help) help.textContent = gpTaxHelp(tax);
   }
   function gpCommit() {
     var d = gpDraft;
@@ -18822,7 +18833,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.120";
+  var APP_VERSION = "37.5.121";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
