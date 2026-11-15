@@ -13824,9 +13824,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var xf = isFlat(x.cat);
       var on = !!sel[x.line.id];
       return '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + (tag ? " ed-last" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
-        '<span class="ed-item-name"><span class="ed-item-label">' + esc(x.line.name) + "</span>" +
+        '<span class="ed-item-name"><span class="ed-name-line"><span class="ed-item-label">' + esc(x.line.name) + "</span>" +
         (tag ? '<span class="ed-last-used">Last used</span>' : "") +
-        '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></button>' +
+        '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></span></button>' +
         '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
     }
     var lines = edLines(month).filter(matches);
@@ -13891,26 +13891,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (edUi.picker && !inc) h += edPickerHtml(month);
     h += "</form>";
     var modal = document.getElementById("modal");
-    /* Only category / picker rebuilds restore position. Keypad rebuilds still let the merchant row reveal. */
-    var keep = (edScrollSnap || edHoldScroll) ? (edScrollSnap || (modal.querySelector(".sheet.ed-add") ? edCaptureScroll() : null)) : null;
-    var prevSheet = modal.querySelector(".sheet.ed-add");
-    var prevBox = prevSheet && !enter ? { h: prevSheet.style.height, max: prevSheet.style.maxHeight, tf: prevSheet.style.transform, lock: prevSheet.dataset.lockH || "" } : null;
-    edScrollSnap = null;
-    edHoldScroll = false;
     modal.hidden = false;
     modal.innerHTML = h;
-    if (prevBox) {
-      var kept = modal.querySelector(".sheet.ed-add");
-      if (kept && prevBox.lock) { kept.dataset.lockH = prevBox.lock; if (edUi) edUi.lockH = Number(prevBox.lock); }
-      if (kept && prevBox.h) { kept.style.height = prevBox.h; kept.style.maxHeight = prevBox.max || prevBox.h; }
-      if (kept && prevBox.tf) kept.style.transform = prevBox.tf;
-    }
     document.body.classList.add("ed-add-open");
     document.body.classList.add("tx-editor-open");
     /* Rebuilding the sheet used to focus ✕ at the top. That focus scrolls on the next frame and jumps the sheet up. */
     armSheetA11y(modal, { preventScroll: true, skipFocus: true });
     edFit();
-    edRevealMerchant();
     if (enter) {
       var entered = modal.querySelector(".sheet.ed-add");
       var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -13934,7 +13921,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var noteWrap = noteHost.querySelector(".ed-note-box");
         if (noteWrap) noteWrap.removeAttribute("aria-hidden");
         var noteIn = noteHost.querySelector("[data-ed-in='note']");
-        if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } edKeepField(noteIn); }
+        if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } }
       };
       var reduceNote = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (reduceNote) openNote();
@@ -13947,83 +13934,11 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         s.setSelectionRange(s.value.length, s.value.length);
       }
     }
-    if (keep) {
-      edRestoreScroll(keep);
-      requestAnimationFrame(function () { edRestoreScroll(keep); });
-      /* The sheet's height settles a frame after the keypad is removed. */
-      setTimeout(function () { if (document.body.contains(document.querySelector("#modal .sheet.ed-add"))) edRestoreScroll(keep); }, 50);
-    }
   }
   function edScrollEl(sh) {
     sh = sh || document.querySelector("#modal .sheet.ed-add");
     return sh ? (sh.querySelector(".ed-scroll") || sh) : null;
   }
-  function edCaptureScroll() {
-    var screen = document.getElementById("screen");
-    var sh = document.querySelector("#modal .sheet.ed-add");
-    var sc = edScrollEl(sh);
-    var picker = document.querySelector("#modal .ed-picker");
-    return {
-      win: window.scrollY || 0,
-      screen: screen ? screen.scrollTop : 0,
-      sheet: sc ? sc.scrollTop : 0,
-      top: sh ? sh.getBoundingClientRect().top : null,
-      height: sh ? sh.getBoundingClientRect().height : 0,
-      picker: picker ? picker.scrollTop : 0
-    };
-  }
-  function edRestoreScroll(ui) {
-    if (!ui) return;
-    if (window.scrollY) { try { window.scrollTo(0, 0); } catch (e) {} }
-    var screen = document.getElementById("screen");
-    if (screen && screen.scrollTop !== ui.screen) screen.scrollTop = ui.screen || 0;
-    var sh = document.querySelector("#modal .sheet.ed-add");
-    var sc = edScrollEl(sh);
-    if (!sh || !sc) return;
-    var max = Math.max(0, sc.scrollHeight - sc.clientHeight);
-    var want = Math.min(ui.sheet || 0, max);
-    if (sc.scrollTop !== want) sc.scrollTop = want;
-    var picker = sh.querySelector(".ed-picker");
-    if (picker && ui.picker) picker.scrollTop = ui.picker;
-    /* After a category is chosen the pad is gone, so the old offset may not fit. Keep the
-     * budget-item row on screen instead of jumping back to the amount. */
-    var row = !picker && sh.querySelector(".ed-items");
-    if (row) edKeepField(row);
-  }
-  /* Scroll only inside the sheet, so focusing a field never moves the page or the sheet frame. */
-  function edKeepField(el) {
-    var sc = el && el.closest ? el.closest(".ed-scroll") : null;
-    if (!sc) return;
-    var row = el.closest(".ed-row, .field, .ed-items, .ed-itemsec, .ed-note") || el;
-    var sr = sc.getBoundingClientRect(), er = row.getBoundingClientRect();
-    var delta = 0;
-    if (er.bottom > sr.bottom - 8) delta = er.bottom - (sr.bottom - 8);
-    else if (er.top < sr.top + 8) delta = er.top - (sr.top + 8);
-    if (Math.abs(delta) > 1) sc.scrollTop += delta;
-  }
-  /* After the merchant is typed, keep that field and the budget item on screen together when they fit. */
-  function edRevealBudgetItem() {
-    var item = document.querySelector("#modal .sheet.ed-add .ed-items, #modal .sheet.ed-add .ed-split-main") || document.querySelector('#modal .sheet.ed-add [data-ed-in="incomeId"]');
-    if (!item) return;
-    edKeepField(item);
-    var pay = document.querySelector('#modal .sheet.ed-add [data-ed-in="payee"]');
-    var payRow = pay && (pay.closest(".ed-row") || pay);
-    var sc = item.closest(".ed-scroll");
-    if (!payRow || !sc) return;
-    var sr = sc.getBoundingClientRect(), pr = payRow.getBoundingClientRect(), ir = item.getBoundingClientRect();
-    if (pr.top < sr.top + 4) {
-      var delta = pr.top - (sr.top + 4);
-      if (ir.bottom + delta <= sr.bottom - 4) sc.scrollTop += delta;
-    }
-  }
-  var edScrollSnap = null, edScrollTimer = null, edHoldScroll = false;
-  document.addEventListener("pointerdown", function (e) {
-    var b = e.target && e.target.closest && e.target.closest("#modal .ed-picker [data-ed], #modal .ed-add [data-ed='picker']");
-    if (!b) return;
-    edScrollSnap = edCaptureScroll();
-    clearTimeout(edScrollTimer);
-    edScrollTimer = setTimeout(function () { edScrollSnap = null; }, 700);
-  }, true);
   function edItemsHtml(month) {
     var d = spendDraft;
     var picked = (d.legs || []).filter(function (l) { return l.lineId; });
@@ -14072,7 +13987,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function edMerchHtml() {
     var list = edPayeeQueryList();
-    return '<div class="ed-quick" data-role="ed-merch" role="listbox" aria-label="Previous merchants"' + (list.length ? "" : " hidden") + ">" +
+    return '<div class="ed-quick' + (list.length ? "" : " is-empty") + '" data-role="ed-merch" role="listbox" aria-label="Previous merchants">' +
       list.map(function (it) {
         return '<button type="button" class="ed-quick-btn" tabindex="-1" role="option" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>";
       }).join("") + "</div>";
@@ -14114,8 +14029,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * amount was cut off at the top and the pad, Save and keyboard overlapped. Any typed field in the Add sheet now
    * collapses the pad (tap Amount to bring it back), and the sheet is fitted to the visible viewport (above the
    * keyboard) with the Amount header pinned, so Save scrolls into reach. */
-  /* One frame for the sheet: lock the height taken on open so the pad and the keyboard
-   * don't resize it. A keyboard only lifts the frame (transform) and caps it to the visible area. */
+  /* Pin the sheet to the visible viewport. The keyboard changes that box; it does not
+   * translate the sheet or scroll a field under the title. */
   var edFitting = false;
   function edFit() {
     if (edFitting) return;
@@ -14124,49 +14039,28 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     edFitting = true;
     try {
       var vv = window.visualViewport;
-      var visTop = vv ? vv.offsetTop : 0;
-      var visBottom = visTop + (vv ? vv.height : window.innerHeight);
-      var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, bottom: visBottom };
-      var top = Math.max(host.top, visTop);
-      var bottom = Math.min(host.bottom, visBottom);
-      var room = Math.max(240, Math.round(bottom - top - 8));
-      if (!sh.dataset.lockH && edUi && edUi.lockH) sh.dataset.lockH = String(edUi.lockH);
-      if (!sh.dataset.lockH) {
-        var prevH = sh.style.height, prevMax = sh.style.maxHeight;
-        sh.style.height = "auto";
-        sh.style.maxHeight = room + "px";
-        sh.dataset.lockH = String(Math.round(Math.min(sh.offsetHeight || room, room)));
-        sh.style.height = prevH;
-        sh.style.maxHeight = prevMax;
-      }
-      if (edUi && sh.dataset.lockH) edUi.lockH = Number(sh.dataset.lockH);
-      var h = Math.min(Number(sh.dataset.lockH) || room, room);
-      if (sh.style.height !== h + "px") { sh.style.height = h + "px"; sh.style.maxHeight = h + "px"; }
-      sh.style.marginBottom = "";
-      sh.style.minHeight = "";
+      var visH = vv ? vv.height : window.innerHeight;
+      var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, height: visH };
+      var top = 0;
+      var room = Math.round(Math.min(visH, host.height || visH));
+      var h = Math.max(220, room);
+      sh.style.position = "absolute";
+      sh.style.top = top + "px";
+      sh.style.left = "0";
+      sh.style.right = "0";
+      sh.style.bottom = "auto";
+      sh.style.width = "100%";
+      sh.style.height = h + "px";
+      sh.style.maxHeight = h + "px";
+      sh.style.transform = "none";
+      sh.style.marginBottom = "0";
       var ae = document.activeElement;
       var typing = !!(ae && sh.contains(ae) && ae.matches && ae.matches("input, select, textarea"));
       document.body.classList.toggle("ed-typing", typing);
-      /* A text field or a short visible area can't share the screen with the number pad. */
-      if (edUi && edUi.pad && (typing || room < 560) && !sh.classList.contains("ed-out")) edCollapsePad();
+      if (edUi && edUi.pad && (typing || h < 560) && !sh.classList.contains("ed-out")) edCollapsePad();
       if (window.scrollY) { try { window.scrollTo(0, 0); } catch (e) {} }
-      if (!sh.classList.contains("ed-enter") && !sh.classList.contains("ed-out")) {
-        var lift = Math.max(0, Math.round(host.bottom - visBottom));
-        var ty = lift ? "translateY(-" + lift + "px)" : "";
-        if ((sh.style.transform || "") !== ty) sh.style.transform = ty;
-      }
-      if (typing) {
-        edKeepField(ae);
-        if (ae.getAttribute && ae.getAttribute("data-ed-in") === "payee") edRevealBudgetItem();
-        if (sh._edEnd) sh.removeEventListener("transitionend", sh._edEnd);
-        sh._edEnd = function (ev) {
-          if (!ev || ev.target !== sh) return;
-          if (ev.propertyName !== "height" && ev.propertyName !== "transform" && ev.propertyName !== "max-height") return;
-          sh.removeEventListener("transitionend", sh._edEnd);
-          if (document.activeElement === ae) edKeepField(ae);
-        };
-        sh.addEventListener("transitionend", sh._edEnd);
-      }
+      var screen = document.getElementById("screen");
+      if (screen && screen.scrollTop) screen.scrollTop = 0;
     } finally { edFitting = false; }
   }
   function edCollapsePad() {
@@ -14246,7 +14140,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var noteWrap = noteHost.querySelector(".ed-note-box");
       if (noteWrap) noteWrap.removeAttribute("aria-hidden");
       var noteIn = noteHost.querySelector("[data-ed-in='note']");
-      if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } edKeepField(noteIn); }
+      if (noteIn) { noteIn.tabIndex = 0; try { noteIn.focus({ preventScroll: true }); } catch (x) { noteIn.focus(); } }
     };
     var reduceNote = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceNote) openNote();
@@ -14295,36 +14189,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       if (reduce) drop();
       else { p.classList.add("ed-picker-out"); p.addEventListener("animationend", drop); setTimeout(drop, 180); }
     }
-    var row = document.querySelector("#modal .ed-split-main, #modal .ed-items, #modal .ed-add-split");
-    if (row) edKeepField(row);
-    edGrowToContent();
     edPaintSave();
-  }
-  /* A second split can be taller than the frame that was locked around one item.
-     Grow only, with the same height ease, so Add note stays in view and the sheet does not snap. */
-  function edGrowToContent() {
-    var sh = document.querySelector("#modal .sheet.ed-add");
-    if (!sh || sh.classList.contains("ed-enter") || sh.classList.contains("ed-out")) return;
-    if (sh.querySelectorAll(".ed-split-line").length < 2) return;
-    var prevH = sh.style.height, prevMax = sh.style.maxHeight;
-    sh.style.height = "auto";
-    sh.style.maxHeight = "none";
-    var natural = sh.offsetHeight;
-    sh.style.height = prevH;
-    sh.style.maxHeight = prevMax;
-    var cur = parseFloat(prevH) || 0;
-    if (!(natural > cur + 12)) return;
-    var vv = window.visualViewport;
-    var visTop = vv ? vv.offsetTop : 0;
-    var visBottom = visTop + (vv ? vv.height : window.innerHeight);
-    var host = sh.parentNode && sh.parentNode.getBoundingClientRect ? sh.parentNode.getBoundingClientRect() : { top: 0, bottom: visBottom };
-    var room = Math.max(240, Math.round(Math.min(host.bottom, visBottom) - Math.max(host.top, visTop) - 8));
-    var want = Math.min(natural, room);
-    if (want > cur + 8) {
-      sh.dataset.lockH = String(want);
-      if (edUi) edUi.lockH = want;
-      edFit();
-    }
   }
   /* With the number pad open, a tap on Merchant (or any field) works straight away: it commits the amount,
    * closes the pad with the sheet held in place, and focuses that field. */
@@ -14341,31 +14206,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     edCollapsePad();
     var sc1 = edScrollEl(); if (sc1 && sc1.scrollTop !== st0) sc1.scrollTop = st0;
     try { t.focus({ preventScroll: true }); } catch (x) { t.focus(); }
-    edKeepField(t);
-    if (key === "payee") edRevealBudgetItem();
     /* Swallow the click from this same tap so it can't land on whatever now sits under the finger. */
     var swallow = function (ev) { if (ev.target !== t) { ev.preventDefault(); ev.stopPropagation(); } document.removeEventListener("click", swallow, true); };
     document.addEventListener("click", swallow, true);
     setTimeout(function () { document.removeEventListener("click", swallow, true); }, 600);
   }, true);
-  /* Keep the Merchant row above the open pad on short screens so it can be tapped. */
-  function edRevealMerchant() {
-    if (!edUi || !edUi.pad) return;
-    var row = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
-    if (row) edKeepField(row);
-  }
   document.addEventListener("focusin", function (e) {
     var t = e.target;
     if (!t || !t.closest || !t.closest("#modal .sheet.ed-add")) return;
     if (t.matches("input, select, textarea")) {
       edCollapsePad();
       edFit();
-      edKeepField(t);
-      if (t.getAttribute("data-ed-in") === "payee") edRevealBudgetItem();
+      if (window.scrollY) { try { window.scrollTo(0, 0); } catch (err) {} }
     }
   });
   document.addEventListener("focusout", function (e) {
-    if (e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add")) setTimeout(edFit, 0);
+    if (e.target && e.target.closest && e.target.closest("#modal .sheet.ed-add")) {
+      if (window.scrollY) { try { window.scrollTo(0, 0); } catch (err) {} }
+    }
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", edFit);
@@ -14398,11 +14256,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (a === "done") { edCollapsePad(); return; }
     if (a === "note-open") { edOpenNote(); return; }
     if (a === "next") {
-      /* One tap commits the typed amount, closes the number pad and moves on to Merchant (no Done step first). */
+      /* Commit the amount and close the pad in place. Do not focus the next field: that reopens the keyboard and shifts the sheet. */
       edSyncAmount();
+      edPaintAmount();
       edCollapsePad();
-      var nx = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
-      if (nx) { try { nx.focus({ preventScroll: true }); } catch (x) { nx.focus(); } edKeepField(nx); edRevealBudgetItem(); }
       return;
     }
     if (a === "key") {
@@ -14438,8 +14295,6 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var usec = document.querySelector("#modal .ed-itemsec");
       if (usec) usec.outerHTML = edItemsHtml(month);
       else renderEdAdd(month);
-      var urow = document.querySelector("#modal .ed-split-main, #modal .ed-items");
-      if (urow) edKeepField(urow);
       edPaintSave();
       return;
     }
@@ -18886,7 +18741,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.115";
+  var APP_VERSION = "37.5.116";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
