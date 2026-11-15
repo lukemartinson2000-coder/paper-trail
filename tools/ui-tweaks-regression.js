@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.117. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.118. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -158,7 +158,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.117" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.118" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -378,7 +378,7 @@ function versionLockstep() {
           if (!b) return null;
           const r = b.getBoundingClientRect();
           const head = sh.querySelector(".ed-head").getBoundingClientRect();
-          return { label: b.getAttribute("aria-label"), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(head.right - r.right) };
+          return { label: b.getAttribute("aria-label"), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(head.right - r.right), n: sh.querySelectorAll(".ed-top button").length };
         })(),
         title: sh.querySelector("h3").textContent
       };
@@ -395,7 +395,7 @@ function versionLockstep() {
       if (sh.itemText !== "Choose budget item") fail.push("budget item " + sh.itemText);
       if (sh.splitLink || sh.addSplit) fail.push("empty sheet offers a split control");
       if (!sh.save || sh.del || sh.close) fail.push("new sheet actions " + JSON.stringify({ save: sh.save, del: sh.del, close: sh.close }));
-      if (!sh.closeX || sh.closeX.label !== "Close" || sh.closeX.w < 44 || sh.closeX.h < 44 || sh.closeX.right > 16) fail.push("close x " + JSON.stringify(sh.closeX));
+      if (!sh.closeX || sh.closeX.label !== "Close" || sh.closeX.w < 44 || sh.closeX.h < 44 || sh.closeX.right > 16 || sh.closeX.n !== 1) fail.push("close x " + JSON.stringify(sh.closeX));
       if (sh.openMaxTop > 24 || sh.openMaxH > 80) fail.push("open jumped " + sh.openMaxTop + "/" + sh.openMaxH);
     }
     await snap("04-new-transaction.png");
@@ -525,15 +525,16 @@ function versionLockstep() {
         saveInFoot: !!(save && save.closest(".ed-actions")),
         close: !!sh.querySelector('[data-act="close-modal"]'),
         closeX: (sh.querySelector(".ed-close") || {}).getAttribute ? sh.querySelector(".ed-close").getAttribute("aria-label") : "",
+        headerXs: sh.querySelectorAll(".ed-top button").length,
         ph: noteIn.getAttribute("placeholder")
       };
     })()`);
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
-      if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.closeX !== "Close" || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
+      if (out.edit.x || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.closeX !== "Close" || out.edit.headerXs !== 1 || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
     await snap("06-edit-transaction.png");
 
