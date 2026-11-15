@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.113. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.114. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -153,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.113" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.114" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -894,8 +894,89 @@ function versionLockstep() {
       await sleep(200);
       await snap("b-two-item-add-split.png");
       await closeEd();
-      await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
-      await sleep(400);
+    }
+
+    out.monthBase = await cdp.eval(`(() => {
+      const food = { id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 500 }] };
+      const rec = (year, month, income) => ({
+        year: year, month: month,
+        incomes: [{ id: "pay", name: "Paycheck", amount: income }],
+        categories: [food],
+        transactions: []
+      });
+      const deductions = [{ name: "Insurance", amount: 100, preTax: true }];
+      const stub = (date, gross) => [{ payStubConfirmed: true, payStubPending: {
+        payDate: date, gross: gross, net: 5000, employee401k: 500, hsa: 200, otherDeductions: deductions
+      } }];
+      const slice = (pic, label) => {
+        const s = (pic.alloc.slices || []).find((x) => x.label === label);
+        return s ? s.amount : 0;
+      };
+      const typed = {
+        trueManual: true, baseSalary: 120000, paychecksPerYear: 12, zipCode: "80202", filingStatus: "single",
+        bonusMonth: 2, employer401kMatch: 0, employer401kBase: 0, employer401kMatchIsPercent: false, employer401kBaseIsPercent: false,
+        compRows: [
+          { id: "bonus", kind: "bonus", name: "Bonus", method: "percent", value: 10, when: "yearly", on: true },
+          { id: "var", kind: "other", name: "Variable comp", method: "fixed", value: 6000, when: "yearly", on: true }
+        ],
+        preTax: [], postTax: [], trueLines: []
+      };
+      const budget = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0 }
+      });
+      const key = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 5800)
+      });
+      const nov = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly", compensation: typed
+      });
+      const bonus = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 2, rec: rec(2026, 2, 5000), payFrequency: "monthly", compensation: typed
+      });
+      const three = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 1, rec: rec(2026, 1, 5000), payFrequency: "biweekly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 26 },
+        documents: stub("2026-01-01", 3000)
+      });
+      const guard = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 8000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 8000)
+      });
+      const pack = (pic) => ({
+        source: pic.alloc.source, divisor: pic.alloc.divisor, same: pic.same, warn: !!pic.alloc.incomeWarn,
+        savings: pic.alloc.savings, other: slice(pic, "Other payroll deductions"), taxes: slice(pic, "Taxes"),
+        food: slice(pic, "Food"), checks: pic.alloc.paychecks, of: pic.alloc.of
+      });
+      return { budget: pack(budget), key: pack(key), typedNov: pack(nov), typedFeb: pack(bonus), three: pack(three), guard: pack(guard) };
+    })()`);
+    const mb = out.monthBase;
+    const taxRow = (row) => row && (row.taxes > 0 || row.other > 0);
+    if (!mb || mb.budget.divisor !== 5000 || !mb.budget.same || taxRow(mb.budget) || mb.budget.warn) fail.push("budget month " + JSON.stringify(mb && mb.budget));
+    if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0) fail.push("stub extras " + JSON.stringify(mb && mb.key));
+    if (!mb || mb.typedNov.divisor !== 5000 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
+    if (!mb || mb.typedFeb.divisor !== 17000 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
+    if (!mb || mb.three.divisor !== 7400 || mb.three.savings !== 2100 || mb.three.other !== 300 || mb.three.checks !== 3 || mb.three.warn) fail.push("three paychecks " + JSON.stringify(mb && mb.three));
+    if (!mb || mb.guard.divisor !== 8800 || !mb.guard.warn || mb.guard.savings !== 700 || mb.guard.other !== 100) fail.push("double-count guard " + JSON.stringify(mb && mb.guard));
+    if (SHOTS) {
+      await cdp.eval(`PaperTrailPreview.paintExample(${JSON.stringify({
+        year: 2026, month: 11, payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: [{ payStubConfirmed: true, payStubPending: {
+          payDate: "2026-11-15", gross: 5800, net: 5000, employee401k: 500, hsa: 200,
+          otherDeductions: [{ name: "Insurance", amount: 100, preTax: true }]
+        } }],
+        rec: {
+          year: 2026, month: 11,
+          incomes: [{ id: "pay", name: "Paycheck", amount: 5000 }],
+          categories: [{ id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 500 }] }],
+          transactions: []
+        }
+      })})`);
+      await sleep(500);
       await cdp.eval(`(() => {
         const sec = document.getElementById("dash-spendcat");
         const btn = sec && sec.querySelector("[data-dash='fold']");
@@ -910,55 +991,13 @@ function versionLockstep() {
       })()`);
       await sleep(200);
       await snap("savings-rate.png");
+      const exampleCaption = await cdp.eval(`(() => {
+        const sec = document.getElementById("dash-spendcat");
+        return sec ? sec.innerText : "";
+      })()`);
+      out.exampleCaption = !!(exampleCaption && exampleCaption.indexOf("planned income + paycheck deductions") >= 0 && exampleCaption.indexOf("$5,800") >= 0 && exampleCaption.indexOf("may already include") < 0);
+      if (!out.exampleCaption) fail.push("example caption " + exampleCaption);
     }
-
-    out.monthBase = await cdp.eval(`(() => {
-      const rec = {
-        year: 2026, month: 11,
-        incomes: [{ id: "pay", name: "Paycheck", amount: 4000 }],
-        categories: [{ id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 500 }] },
-          { id: "sav", name: "Savings", system: "savings", lines: [{ id: "h", name: "House fund", assigned: 200 }] }],
-        transactions: []
-      };
-      const feb = Object.assign({}, rec, { month: 2 });
-      const typed = {
-        trueManual: true, baseSalary: 120000, paychecksPerYear: 12, zipCode: "80202", filingStatus: "single",
-        bonusMonth: 2,
-        compRows: [
-          { id: "bonus", kind: "bonus", name: "Bonus", method: "percent", value: 10, when: "yearly", on: true },
-          { id: "var", kind: "other", name: "Variable comp", method: "fixed", value: 6000, when: "yearly", on: true }
-        ],
-        preTax: [], postTax: [], trueLines: [], employer401kMatch: 0, employer401kBase: 0
-      };
-      const budget = PaperTrailPreview.allocationProbe({ year: 2026, month: 11, rec: rec, compensation: { trueManual: false, baseSalary: 0 }, clearStubs: true });
-      const nov = PaperTrailPreview.allocationProbe({ year: 2026, month: 11, rec: rec, compensation: typed });
-      const bonus = PaperTrailPreview.allocationProbe({ year: 2026, month: 2, rec: feb, compensation: typed });
-      const stub = PaperTrailPreview.allocationProbe({
-        year: 2026, month: 11, rec: rec,
-        compensation: { trueManual: true, baseSalary: 120000, paychecksPerYear: 12, zipCode: "80202", filingStatus: "single" },
-        documents: [{ payStubConfirmed: true, payStubPending: {
-          payDate: "2026-11-15", gross: 8000, net: 5000, federalTax: 800, stateTax: 200,
-          socialSecurity: 400, medicare: 100, hsa: 150, employee401k: 300, employer401k: 200
-        } }]
-      });
-      const tax = (pic) => (pic.alloc.slices || []).some((s) => s.label === "Taxes" || s.label === "Other payroll deductions");
-      return {
-        budget: { source: budget.alloc.source, divisor: budget.alloc.divisor, same: budget.same, tax: tax(budget) },
-        typedNov: { source: nov.alloc.source, divisor: nov.alloc.divisor, same: nov.same, bonus: nov.canonical.gross },
-        typedFeb: { source: bonus.alloc.source, divisor: bonus.alloc.divisor, same: bonus.same },
-        stub: { source: stub.alloc.source, divisor: stub.alloc.divisor, same: stub.same, taxes: (stub.alloc.slices.find((s) => s.label === "Taxes") || {}).amount || 0 }
-      };
-    })()`);
-    const mb = out.monthBase;
-    if (!mb || mb.budget.source !== "budget" || mb.budget.divisor !== 4000 || !mb.budget.same || mb.budget.tax) fail.push("budget month " + JSON.stringify(mb && mb.budget));
-    if (!mb || mb.typedNov.source !== "typed" || !mb.typedNov.same || mb.typedNov.divisor !== 10000 || mb.typedNov.bonus !== 10000) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
-    if (!mb || mb.typedFeb.source !== "typed" || !mb.typedFeb.same || mb.typedFeb.divisor !== 22000) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
-    if (!mb || mb.stub.source !== "stub" || !mb.stub.same || mb.stub.divisor !== 8200 || mb.stub.taxes !== 1500) fail.push("stub month " + JSON.stringify(mb && mb.stub));
-    out.novDiv = await cdp.eval(`(() => {
-      const p = PaperTrailPreview.allocationMonth(2026, 11);
-      const c = PaperTrailPreview.canonicalSavings(2026, 11, 11);
-      return { divisor: p.divisor, source: p.source, rate: c.rate, savings: c.savings };
-    })()`);
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));

@@ -5140,7 +5140,7 @@ body.night .auth-intro-foot .primary{color:rgb(18,19,21)}
 /* v37.5.70 free-tier graphs */
 .dash-bars{display:flex;flex-direction:column;gap:6px;margin:8px 0 2px}
 .dash-bar-row{display:grid;grid-template-columns:minmax(0,34%) 1fr auto;align-items:center;gap:8px;font-size:calc(13px * var(--fs-scale))}
-.dash-bar-lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.dash-bar-lbl{overflow:hidden;color:var(--ink);line-height:1.25}
 .dash-bar-track{height:8px;border-radius:4px;background:var(--rule);overflow:hidden}
 .dash-bar-fill{display:block;height:100%;border-radius:4px;background:var(--moss)}
 .dash-bar-fill.dim{opacity:.45}
