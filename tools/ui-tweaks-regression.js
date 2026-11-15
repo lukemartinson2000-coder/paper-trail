@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.110. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.111. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -153,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.110" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.111" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -649,6 +649,7 @@ function versionLockstep() {
         remCut: getComputedStyle(line.querySelector(".ed-rem")).textOverflow,
         addH: Math.round(add.getBoundingClientRect().height),
         addAlign: getComputedStyle(add).textAlign,
+        addWeight: getComputedStyle(add).fontWeight,
         heading: (sh.querySelector(".ed-budget-h") || {}).textContent.trim(),
         ring: !!line.querySelector(".ed-minus-ring"),
         hit: Math.round(Math.min(x.width, x.height)),
@@ -668,7 +669,7 @@ function versionLockstep() {
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.namePx >= out.splitOne.remPx + 3) || Number(out.splitOne.remWeight) >= 600 || out.splitOne.nameColor === out.splitOne.remColor || out.splitOne.amtColor !== out.splitOne.nameColor || out.splitOne.heading !== "Budget Item(s)" || !out.splitOne.ring || out.splitOne.hit < 44 || out.splitOne.addAlign !== "center" || out.splitOne.addH > 48 || out.splitOne.checkNo || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.namePx >= out.splitOne.remPx + 3) || Number(out.splitOne.remWeight) >= 600 || out.splitOne.nameColor === out.splitOne.remColor || out.splitOne.amtColor !== out.splitOne.nameColor || out.splitOne.heading !== "Budget Item(s)" || !out.splitOne.ring || out.splitOne.hit < 44 || out.splitOne.addAlign !== "center" || out.splitOne.addH < 52 || out.splitOne.addH > 64 || Number(out.splitOne.addWeight) >= 500 || out.splitOne.checkNo || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
@@ -870,25 +871,28 @@ function versionLockstep() {
         ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
         document.querySelector('[data-ed="picker"]').click();
         await new Promise((r) => setTimeout(r, 120));
-        const first = document.querySelector(".ed-picker [data-ed='tick']");
-        first.click();
-        await new Promise((r) => setTimeout(r, 40));
-        const second = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true");
-        second.click();
+        document.querySelector(".ed-picker [data-ed='tick']").click();
         await new Promise((r) => setTimeout(r, 40));
         document.querySelector("[data-ed='picker-done']").click();
       })()`);
       await sleep(240);
-      await snap("b-save-remaining.png");
-      await cdp.eval(`(() => {
+      await snap("a-one-item-add-split.png");
+      await cdp.eval(`(async () => {
+        document.querySelector(".ed-add-split").click();
+        await new Promise((r) => setTimeout(r, 120));
+        const second = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true");
+        second.click();
+        await new Promise((r) => setTimeout(r, 40));
+        document.querySelector("[data-ed='picker-done']").click();
+        await new Promise((r) => setTimeout(r, 160));
         const inputs = [...document.querySelectorAll(".ed-row-amt")];
         ["1000", "1000"].forEach((digits, i) => {
           inputs[i].value = digits;
           inputs[i].dispatchEvent(new Event("input", { bubbles: true }));
         });
       })()`);
-      await sleep(160);
-      await snap("a-save-balanced.png");
+      await sleep(200);
+      await snap("b-two-item-add-split.png");
     }
 
     out.fail = fail;

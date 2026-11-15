@@ -5557,7 +5557,7 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-quick-btn { flex: 1 1 0; min-width: 0; height: 36px; margin: 0; padding: 0 12px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--moss) 16%, var(--card)); color: var(--moss); font: 500 calc(14px * var(--fs-scale)) var(--ui); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ed-quick-btn:hover, .ed-quick-btn:focus { background: color-mix(in srgb, var(--moss) 26%, var(--card)); outline: none; }
 body.ed-add-open .modal:not(.wrap-open) { bottom: 0; }
-.ed-budget-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--card); padding: 0 8px 2px; margin: 0 0 4px; }
+.ed-budget-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--card); padding: 0 8px; margin: 0 0 4px; overflow: hidden; }
 .ed-budget-h { margin: 0; padding: 8px 4px 0; font: 600 calc(15px * var(--fs-scale)) var(--ui); color: var(--ink); }
 .ed-filled { display: flex; flex-direction: column; gap: 0; }
 .ed-split-line { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; column-gap: 2px; width: 100%; margin: 0; padding: 2px 0; box-sizing: border-box; }
@@ -5593,7 +5593,8 @@ body.ed-add-open .modal:not(.wrap-open) { bottom: 0; }
 .ed-budget-card .ed-alloc-status { color: var(--muted); }
 .ed-budget-card .ed-alloc-status .ed-left { display: block; font-size: calc(13px * var(--fs-scale)); font-weight: 600; margin: 0; }
 .ed-split-minus:focus-visible, .ed-add-split:focus-visible, .ed-split-main:focus-visible, .ed-row-amt:focus-visible, .ed-rest:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
-.ed-budget-card .ed-add-split { display: block; width: 100%; margin: 0; padding: 4px 0 6px; border: 0; background: none; color: var(--moss); font: 600 calc(15px * var(--fs-scale)) var(--ui); text-align: center; cursor: pointer; min-height: 0; }
+.ed-budget-card .ed-add-split { display: flex; align-items: center; justify-content: center; width: calc(100% + 16px); min-height: 54px; margin: 0 -8px; padding: 16px 12px; box-sizing: border-box; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; color: var(--moss); font: 400 calc(16px * var(--fs-scale)) var(--ui); text-align: center; cursor: pointer; }
+.ed-budget-card .ed-add-split:active { background: color-mix(in srgb, var(--moss) 12%, transparent); }
 .ed-add-note { margin: 0 0 4px; padding: 4px 2px; }
 
 /* Seasonal mode: November (looks only). One look for light and night: warm tints are see-through and
