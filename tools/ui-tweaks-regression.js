@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.116. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.118. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -158,7 +158,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.116" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.118" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -373,6 +373,13 @@ function versionLockstep() {
         save: !!sh.querySelector(".ed-actions .ed-save"),
         del: !!sh.querySelector('[data-act="delete-spend"]'),
         close: !!sh.querySelector('[data-act="close-modal"]'),
+        closeX: (() => {
+          const b = sh.querySelector(".ed-close");
+          if (!b) return null;
+          const r = b.getBoundingClientRect();
+          const head = sh.querySelector(".ed-head").getBoundingClientRect();
+          return { label: b.getAttribute("aria-label"), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(head.right - r.right), n: sh.querySelectorAll(".ed-top button").length };
+        })(),
         title: sh.querySelector("h3").textContent
       };
     })()`);
@@ -388,6 +395,7 @@ function versionLockstep() {
       if (sh.itemText !== "Choose budget item") fail.push("budget item " + sh.itemText);
       if (sh.splitLink || sh.addSplit) fail.push("empty sheet offers a split control");
       if (!sh.save || sh.del || sh.close) fail.push("new sheet actions " + JSON.stringify({ save: sh.save, del: sh.del, close: sh.close }));
+      if (!sh.closeX || sh.closeX.label !== "Close" || sh.closeX.w < 44 || sh.closeX.h < 44 || sh.closeX.right > 16 || sh.closeX.n !== 1) fail.push("close x " + JSON.stringify(sh.closeX));
       if (sh.openMaxTop > 24 || sh.openMaxH > 80) fail.push("open jumped " + sh.openMaxTop + "/" + sh.openMaxH);
     }
     await snap("04-new-transaction.png");
@@ -516,15 +524,17 @@ function versionLockstep() {
         save: save ? save.textContent.trim() : "",
         saveInFoot: !!(save && save.closest(".ed-actions")),
         close: !!sh.querySelector('[data-act="close-modal"]'),
+        closeX: (sh.querySelector(".ed-close") || {}).getAttribute ? sh.querySelector(".ed-close").getAttribute("aria-label") : "",
+        headerXs: sh.querySelectorAll(".ed-top button").length,
         ph: noteIn.getAttribute("placeholder")
       };
     })()`);
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
-      if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
+      if (out.edit.x || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.closeX !== "Close" || out.edit.headerXs !== 1 || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
     await snap("06-edit-transaction.png");
 
@@ -1092,6 +1102,7 @@ function versionLockstep() {
           full: label.scrollHeight <= label.clientHeight + 1 || ls.whiteSpace !== "nowrap",
           rem: rem.textContent.trim(),
           rust: rem.classList.contains("rust"),
+          color: getComputedStyle(rem).color,
           remUnder: rem.getBoundingClientRect().top >= label.getBoundingClientRect().bottom - 2,
           tickRight: tick.getBoundingClientRect().left >= label.getBoundingClientRect().right - 2
         };
@@ -1108,13 +1119,14 @@ function versionLockstep() {
       await sleep(100);
       await snap("picker-long-names.png");
     }
-    if (!out.longNames || !out.longNames.fun || !out.longNames.fund || out.longNames.fun.cut === "ellipsis" || out.longNames.fund.cut === "ellipsis" || out.longNames.fun.wrap === "nowrap" || !out.longNames.fun.remUnder || !out.longNames.fund.remUnder || !out.longNames.fun.tickRight || !out.longNames.fund.rust) fail.push("long picker names " + JSON.stringify(out.longNames));
+    if (!out.longNames || !out.longNames.fun || !out.longNames.fund || out.longNames.fun.cut === "ellipsis" || out.longNames.fund.cut === "ellipsis" || out.longNames.fun.wrap === "nowrap" || !out.longNames.fun.remUnder || !out.longNames.fund.remUnder || !out.longNames.fun.tickRight || !out.longNames.fund.rust || out.longNames.fund.color === out.longNames.fun.color) fail.push("long picker names " + JSON.stringify(out.longNames));
 
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
     await sleep(1500);
     await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
     await sleep(300);
+    if (SHOTS) await snap("add-close-844.png");
     const rowTops = () => cdp.eval(`(() => {
       const row = (sel) => { const el = document.querySelector(sel); const r = el.getBoundingClientRect(); return Math.round(r.top); };
       return {
@@ -1165,6 +1177,34 @@ function versionLockstep() {
     if (!sameTops(amountBefore, amountAfter)) fail.push("amount finish moved " + JSON.stringify(out.finish));
     if (!sameTops(merchantBefore, merchantAfter)) fail.push("merchant finish moved " + JSON.stringify(out.finish));
     if (!sameTops(pickerBefore, pickerAfter)) fail.push("picker finish moved " + JSON.stringify(out.finish));
+    out.discard = await cdp.eval(`(async () => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.value = "Temp merchant";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".ed-close").click();
+      await new Promise((r) => setTimeout(r, 250));
+      const gone = document.getElementById("modal").hidden;
+      document.querySelector(".bar-add-tx").click();
+      await new Promise((r) => setTimeout(r, 250));
+      const fresh = document.querySelector('[data-ed-in="payee"]').value;
+      document.querySelector(".ed-close").click();
+      await new Promise((r) => setTimeout(r, 220));
+      document.querySelector('[data-tab="spend"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      document.querySelector('[data-act="edit-spend"][data-id="t1"]').click();
+      await new Promise((r) => setTimeout(r, 250));
+      const orig = document.querySelector('[data-ed-in="payee"]').value;
+      document.querySelector('[data-ed-in="payee"]').value = "Changed";
+      document.querySelector('[data-ed-in="payee"]').dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".ed-close").click();
+      await new Promise((r) => setTimeout(r, 220));
+      document.querySelector('[data-act="edit-spend"][data-id="t1"]').click();
+      await new Promise((r) => setTimeout(r, 250));
+      const kept = document.querySelector('[data-ed-in="payee"]').value;
+      return { gone, fresh, orig, kept };
+    })()`);
+    if (SHOTS) await snap("edit-close-844.png");
+    if (!out.discard || !out.discard.gone || out.discard.fresh !== "" || out.discard.kept !== out.discard.orig) fail.push("discard close " + JSON.stringify(out.discard));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
