@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.106. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.107. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -101,13 +101,21 @@ const SEED = `
       ],
       transactions: [
         { id: "t1", payee: "Market", date: "2026-11-02", amount: 42.5, categoryId: "food", lineId: "groceries", note: "Weekly groceries" },
-        { id: "t2", payee: "Cafe", date: "2026-11-03", amount: 6, categoryId: "food", lineId: "restaurants", note: "" }
+        { id: "t2", payee: "Cafe", date: "2026-11-03", amount: 6, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t3", payee: "Trader Joe's", date: "2026-11-01", amount: 12, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t4", payee: "Trader Joe's", date: "2026-11-02", amount: 18, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t5", payee: "Trader Joe's", date: "2026-11-04", amount: 9.5, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t6", payee: "Transit", date: "2026-11-12", amount: 2.75, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t7", payee: "Truck stop", date: "2026-11-06", amount: 40, categoryId: "home", lineId: "rent", note: "" },
+        { id: "t8", payee: "Target", date: "2026-11-09", amount: 26, categoryId: "sav", lineId: "house", note: "" },
+        { id: "t9", payee: "Central Transit", date: "2026-11-04", amount: 12, categoryId: "food", lineId: "restaurants", note: "" }
       ]
     }},
     worth: { years: [y], notes: {}, lines: [
       { id: "w1", name: "Checking", kind: "asset", group: "cash", sortOrder: 0, amounts: { "2026": 8000 }, additions: { "2026": 0 } }
     ], income: {} }
   };
+  try { if (sessionStorage.getItem("pt-shot-dark") === "1") state.theme = "dark"; } catch (e) {}
   localStorage.setItem("PaperTrail.preview.v6", JSON.stringify(state));
   localStorage.setItem("PaperTrail.tourSeen.stats", "1");
   localStorage.setItem("PaperTrail.tourSeen.spend", "1");
@@ -141,7 +149,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.106" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.107" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -587,13 +595,15 @@ function versionLockstep() {
         top: top0,
         remPx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontSize),
         remWeight: getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontWeight,
+        namePx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontSize),
+        nameWeight: getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontWeight,
         remColor: getComputedStyle(document.querySelector(".ed-picker .ed-rem")).color,
         hintColor: getComputedStyle(document.querySelector(".ed-picker-hint")).color
       };
     })()`);
     await snap("08-budget-picker-checks.png");
     if (!out.splitPicker || out.splitPicker.n < 2 || !out.splitPicker.boxes || /split across/i.test(out.splitPicker.hint)) fail.push("picker checks " + JSON.stringify(out.splitPicker));
-    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) < 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
+    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) >= 600 || Math.abs(out.splitPicker.namePx - out.splitPicker.remPx) > 0.6 || Number(out.splitPicker.nameWeight) >= 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
     out.splitCheck = await cdp.eval(`(async () => {
       const sh = document.querySelector("form.sheet.ed-add");
       const a = sh.getBoundingClientRect().top;
@@ -628,6 +638,13 @@ function versionLockstep() {
         noteAfter: block.bottom <= note.top + 2,
         remPx: parseFloat(getComputedStyle(remEl).fontSize),
         amtPx: parseFloat(getComputedStyle(amtEl).fontSize),
+        namePx: parseFloat(getComputedStyle(line.querySelector(".ed-split-name")).fontSize),
+        remWeight: getComputedStyle(remEl).fontWeight,
+        payeePx: parseFloat(getComputedStyle(sh.querySelector('[data-ed-in="payee"]')).fontSize),
+        remWrap: getComputedStyle(line.querySelector(".ed-rem")).whiteSpace,
+        remCut: getComputedStyle(line.querySelector(".ed-rem")).textOverflow,
+        addH: Math.round(add.getBoundingClientRect().height),
+        header: !!sh.querySelector(".ed-budget-card > .sheet-label"),
         mark: (line.querySelector(".ed-split-minus") || {}).textContent.trim(),
         xLeft: x.right <= name.left + 1 && x.left >= cardBox.left - 1,
         xRight: x.left > cardBox.right - 8,
@@ -641,7 +658,7 @@ function versionLockstep() {
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx < out.splitOne.amtPx) || out.splitOne.mark !== "✕" || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || Math.abs(out.splitOne.namePx - out.splitOne.remPx) > 0.6 || Number(out.splitOne.remWeight) >= 600 || Math.abs(out.splitOne.amtPx - out.splitOne.payeePx) > 1.1 || out.splitOne.remWrap === "nowrap" || out.splitOne.remCut === "ellipsis" || out.splitOne.addH > 36 || out.splitOne.header || out.splitOne.mark !== "✕" || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
@@ -690,6 +707,82 @@ function versionLockstep() {
     await snap("10-two-splits.png");
     if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$10.00,$10.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 2 || out.splitTwo.even !== "Split evenly" || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
 
+    async function closeEd() {
+      await cdp.eval(`(() => { const m = document.getElementById("modal"); m.hidden = true; m.innerHTML = ""; document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); })()`);
+      await sleep(40);
+    }
+    async function openAddSheet() {
+      await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+      await sleep(180);
+      await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+      await sleep(280);
+    }
+    await closeEd();
+    await openAddSheet();
+    out.merchList = await cdp.eval(`(async () => {
+      ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 320));
+      const before = document.querySelector(".ed-items").getBoundingClientRect().top;
+      pay.value = "Tr";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      const names = [...document.querySelectorAll(".ed-suggest-btn")].map((b) => b.textContent.trim());
+      const after = document.querySelector(".ed-items").getBoundingClientRect().top;
+      const list = document.querySelector(".ed-suggest");
+      const lr = list.getBoundingClientRect();
+      const pr = pay.getBoundingClientRect();
+      return {
+        names,
+        n: names.length,
+        jump: Math.round(Math.abs(after - before) * 10) / 10,
+        under: lr.top >= pr.bottom - 4 && lr.top <= pr.bottom + 28,
+        chips: document.querySelectorAll(".merchant-chip").length
+      };
+    })()`);
+    const wantMerch = ["Trader Joe's", "Transit", "Truck stop", "Central Transit"];
+    if (!out.merchList || out.merchList.names.join("|") !== wantMerch.join("|") || out.merchList.n < 3 || out.merchList.n > 5 || out.merchList.jump > 2 || !out.merchList.under || out.merchList.chips) fail.push("merchant suggestions " + JSON.stringify(out.merchList));
+    out.merchPick = await cdp.eval(`(async () => {
+      const btn = [...document.querySelectorAll(".ed-suggest-btn")].find((b) => b.textContent.trim() === "Trader Joe's");
+      btn.click();
+      await new Promise((r) => setTimeout(r, 80));
+      const sh = document.querySelector("form.sheet.ed-add");
+      const name = (sh.querySelector(".ed-split-name") || {}).textContent || "";
+      return {
+        payee: sh.querySelector('[data-ed-in="payee"]').value,
+        name: name.trim(),
+        rowAmt: (sh.querySelector(".ed-row-amt") || {}).value || "",
+        topAmt: (sh.querySelector(".ed-amt-v") || {}).textContent.trim(),
+        list: sh.querySelectorAll(".ed-suggest-btn").length,
+        sugg: !!sh.querySelector("[data-role='env-suggest']")
+      };
+    })()`);
+    if (!out.merchPick || out.merchPick.payee !== "Trader Joe's" || out.merchPick.name.indexOf("Groceries") !== 0 || out.merchPick.rowAmt !== "$20.00" || out.merchPick.topAmt !== "$20.00" || out.merchPick.list || !out.merchPick.sugg) fail.push("merchant category " + JSON.stringify(out.merchPick));
+    await closeEd();
+    await openAddSheet();
+    out.merchKeep = await cdp.eval(`(async () => {
+      document.querySelector('[data-ed="picker"]').click();
+      await new Promise((r) => setTimeout(r, 80));
+      const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item > span") || {}).textContent || "").trim() === "Rent");
+      row.querySelector("[data-ed='tick']").click();
+      await new Promise((r) => setTimeout(r, 40));
+      document.querySelector("[data-ed='picker-done']").click();
+      await new Promise((r) => setTimeout(r, 80));
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.value = "Ta";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      const btn = [...document.querySelectorAll(".ed-suggest-btn")].find((b) => b.textContent.trim() === "Target");
+      if (btn) btn.click();
+      await new Promise((r) => setTimeout(r, 60));
+      const name = (document.querySelector(".ed-split-name") || {}).textContent || "";
+      return { tapped: !!btn, name: name.trim(), payee: document.querySelector('[data-ed-in="payee"]').value };
+    })()`);
+    if (!out.merchKeep || !out.merchKeep.tapped || out.merchKeep.payee !== "Target" || out.merchKeep.name.indexOf("Rent") !== 0) fail.push("merchant did not keep the picked item " + JSON.stringify(out.merchKeep));
+
     if (SHOTS) {
       await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
       await sleep(1500);
@@ -721,6 +814,52 @@ function versionLockstep() {
           gif], { stdio: "ignore" });
         out.gif = gif;
       } catch (e) { out.gifError = String(e && e.message || e); }
+
+      await cdp.eval(`sessionStorage.setItem("pt-shot-dark", "1")`);
+      await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+      await sleep(1600);
+      await closeEd();
+      await openAddSheet();
+      await cdp.eval(`(async () => {
+        ["1", "1", "9", "7"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
+        const pay = document.querySelector('[data-ed-in="payee"]');
+        pay.focus();
+        pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        pay.value = "Tr";
+        pay.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await sleep(280);
+      await snap("a-merchant-typing-tr.png");
+      await cdp.eval(`(() => { const b = [...document.querySelectorAll(".ed-suggest-btn")].find((el) => el.textContent.trim() === "Trader Joe's"); b.click(); })()`);
+      await sleep(220);
+      await snap("b-merchant-category.png");
+      await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+      await sleep(200);
+      await snap("e-budget-picker.png");
+      await closeEd();
+      await cdp.eval(`document.querySelector('[data-tab="spend"]').click()`);
+      await sleep(250);
+      await cdp.eval(`document.querySelector('[data-act="edit-spend"][data-id="t1"]').click()`);
+      await sleep(280);
+      await snap("c-edit-one-item.png");
+      await closeEd();
+      await openAddSheet();
+      await cdp.eval(`(async () => {
+        ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
+        document.querySelector('[data-ed="picker"]').click();
+        await new Promise((r) => setTimeout(r, 120));
+        const first = document.querySelector(".ed-picker [data-ed='tick']");
+        first.click();
+        await new Promise((r) => setTimeout(r, 40));
+        const second = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true");
+        second.click();
+        await new Promise((r) => setTimeout(r, 40));
+        document.querySelector("[data-ed='picker-done']").click();
+        await new Promise((r) => setTimeout(r, 120));
+        document.querySelector("[data-ed='even']").click();
+      })()`);
+      await sleep(240);
+      await snap("d-two-item-split.png");
     }
 
     out.fail = fail;
