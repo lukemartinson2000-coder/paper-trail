@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.118. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.119. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -158,7 +158,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.118" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.119" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1205,6 +1205,47 @@ function versionLockstep() {
     })()`);
     if (SHOTS) await snap("edit-close-844.png");
     if (!out.discard || !out.discard.gone || out.discard.fresh !== "" || out.discard.kept !== out.discard.orig) fail.push("discard close " + JSON.stringify(out.discard));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const m = document.getElementById("modal"); if (m) { m.hidden = true; m.innerHTML = ""; } document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); document.querySelector('[data-tab="budget"]').click(); })()`);
+    await sleep(300);
+    async function openLine(name) {
+      return cdp.eval(`(async () => {
+        const btn = [...document.querySelectorAll(".line-name")].find((b) => b.textContent.trim() === ${JSON.stringify(name)});
+        if (!btn) return { missing: true };
+        btn.click();
+        await new Promise((r) => setTimeout(r, 250));
+        const head = document.querySelector(".sheet-month-head");
+        const amt = document.querySelector(".sheet-month-spent");
+        const txs = [...document.querySelectorAll(".sheet-tx .mono")].map((el) => el.textContent.trim());
+        const title = (document.querySelector("#modal h3") || {}).textContent || "";
+        const box = head ? head.getBoundingClientRect() : null;
+        const a = amt ? amt.getBoundingClientRect() : null;
+        return {
+          title: title.trim(),
+          spent: amt ? amt.textContent.trim() : "",
+          txs,
+          sameLine: !!(box && a && Math.abs(a.top - box.top) < 4 && a.right <= box.right + 1),
+          label: head ? head.textContent.replace(amt ? amt.textContent : "", "").trim() : ""
+        };
+      })()`);
+    }
+    out.lineFood = await openLine("Groceries");
+    if (SHOTS) await snap("line-spent-groceries.png");
+    await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
+    await sleep(200);
+    out.lineHome = await openLine("Rent");
+    if (SHOTS) await snap("line-spent-rent.png");
+    function spentOk(row) {
+      if (!row || row.missing || !row.spent || !row.sameLine) return false;
+      if (!/^\$/.test(row.spent)) return false;
+      const nums = row.txs.map((t) => Number(String(t).replace(/[^0-9.-]/g, "")));
+      const sum = Math.round(nums.reduce((n, v) => n + v, 0) * 100) / 100;
+      const shown = Number(String(row.spent).replace(/[^0-9.-]/g, ""));
+      return Math.abs(sum - shown) < 0.001;
+    }
+    if (!spentOk(out.lineFood) || !/Groceries/.test(out.lineFood.title)) fail.push("food spent " + JSON.stringify(out.lineFood));
+    if (!spentOk(out.lineHome) || !/Rent/.test(out.lineHome.title)) fail.push("rent spent " + JSON.stringify(out.lineHome));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));

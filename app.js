@@ -1126,7 +1126,9 @@
 
   function lineSpendList(month, lineId) {
     var txs = lineSpends(month, lineId);
-    var html = '<p class="sheet-label">This month</p>';
+    var spent = 0;
+    try { spent = spentOnLine(month, lineId); } catch (e) {}
+    var html = '<p class="sheet-label sheet-month-head"><span>This month</span><span class="sheet-month-spent">' + money(spent) + "</span></p>";
     if (!txs.length) {
       return html + '<p class="empty">No spending on this line yet.</p>';
     }
@@ -18747,7 +18749,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.118";
+  var APP_VERSION = "37.5.119";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
