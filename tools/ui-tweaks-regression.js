@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.106. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.115. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -101,13 +101,25 @@ const SEED = `
       ],
       transactions: [
         { id: "t1", payee: "Market", date: "2026-11-02", amount: 42.5, categoryId: "food", lineId: "groceries", note: "Weekly groceries" },
-        { id: "t2", payee: "Cafe", date: "2026-11-03", amount: 6, categoryId: "food", lineId: "restaurants", note: "" }
+        { id: "t2", payee: "Cafe", date: "2026-11-03", amount: 6, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t3", payee: "Trader Joe's", date: "2026-11-01", amount: 12, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t4", payee: "Trader Joe's", date: "2026-11-02", amount: 18, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t5", payee: "Trader Joe's", date: "2026-11-04", amount: 9.5, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t6", payee: "Transit", date: "2026-11-12", amount: 2.75, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t7", payee: "Truck stop", date: "2026-11-06", amount: 40, categoryId: "home", lineId: "rent", note: "" },
+        { id: "t8", payee: "Target", date: "2026-11-09", amount: 26, categoryId: "sav", lineId: "house", note: "" },
+        { id: "t9", payee: "Central Transit", date: "2026-11-04", amount: 12, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t10", payee: "Tesco", date: "2026-11-07", amount: 14, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t11", payee: "Tesco", date: "2026-11-13", amount: 16, categoryId: "food", lineId: "groceries", note: "" },
+        { id: "t12", payee: "Temple Books", date: "2026-11-11", amount: 11, categoryId: "food", lineId: "restaurants", note: "" },
+        { id: "t13", payee: "Teacher Supply", date: "2026-11-08", amount: 22, categoryId: "home", lineId: "rent", note: "" }
       ]
     }},
     worth: { years: [y], notes: {}, lines: [
       { id: "w1", name: "Checking", kind: "asset", group: "cash", sortOrder: 0, amounts: { "2026": 8000 }, additions: { "2026": 0 } }
     ], income: {} }
   };
+  try { if (sessionStorage.getItem("pt-shot-dark") === "1") state.theme = "dark"; } catch (e) {}
   localStorage.setItem("PaperTrail.preview.v6", JSON.stringify(state));
   localStorage.setItem("PaperTrail.tourSeen.stats", "1");
   localStorage.setItem("PaperTrail.tourSeen.spend", "1");
@@ -141,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.106" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.115" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -505,7 +517,7 @@ function versionLockstep() {
     if (!out.edit || out.edit.error) fail.push("edit " + JSON.stringify(out.edit));
     else {
       if (!out.edit.itemAbove || out.edit.item !== "Groceries") fail.push("edit budget item " + JSON.stringify(out.edit));
-      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || out.edit.mark !== "✕" || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
+      if (!out.edit.addSplit || out.edit.splitLink || !out.edit.minus || !/Remove /.test(out.edit.removeName) || out.edit.removeName === out.edit.x || out.edit.x !== "Delete transaction" || !/Remaining:/.test(out.edit.rem) || !out.edit.addInside || !out.edit.xLeft) fail.push("edit split chrome " + JSON.stringify(out.edit));
       if (!out.edit.noteOpen || out.edit.note !== "Weekly groceries") fail.push("edit note " + out.edit.note);
       if (out.edit.x !== "Delete transaction" || out.edit.save !== "Save" || !out.edit.saveInFoot || out.edit.close || out.edit.ph) fail.push("edit chrome " + JSON.stringify(out.edit));
     }
@@ -587,13 +599,15 @@ function versionLockstep() {
         top: top0,
         remPx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontSize),
         remWeight: getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontWeight,
+        namePx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontSize),
+        nameWeight: getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontWeight,
         remColor: getComputedStyle(document.querySelector(".ed-picker .ed-rem")).color,
         hintColor: getComputedStyle(document.querySelector(".ed-picker-hint")).color
       };
     })()`);
     await snap("08-budget-picker-checks.png");
     if (!out.splitPicker || out.splitPicker.n < 2 || !out.splitPicker.boxes || /split across/i.test(out.splitPicker.hint)) fail.push("picker checks " + JSON.stringify(out.splitPicker));
-    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) < 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
+    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) >= 600 || Math.abs(out.splitPicker.namePx - out.splitPicker.remPx) > 0.6 || Number(out.splitPicker.nameWeight) >= 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
     out.splitCheck = await cdp.eval(`(async () => {
       const sh = document.querySelector("form.sheet.ed-add");
       const a = sh.getBoundingClientRect().top;
@@ -628,7 +642,21 @@ function versionLockstep() {
         noteAfter: block.bottom <= note.top + 2,
         remPx: parseFloat(getComputedStyle(remEl).fontSize),
         amtPx: parseFloat(getComputedStyle(amtEl).fontSize),
-        mark: (line.querySelector(".ed-split-minus") || {}).textContent.trim(),
+        namePx: parseFloat(getComputedStyle(line.querySelector(".ed-split-name")).fontSize),
+        remWeight: getComputedStyle(remEl).fontWeight,
+        payeePx: parseFloat(getComputedStyle(sh.querySelector('[data-ed-in="payee"]')).fontSize),
+        remWrap: getComputedStyle(line.querySelector(".ed-rem")).whiteSpace,
+        remCut: getComputedStyle(line.querySelector(".ed-rem")).textOverflow,
+        addH: Math.round(add.getBoundingClientRect().height),
+        addAlign: getComputedStyle(add).textAlign,
+        addWeight: getComputedStyle(add).fontWeight,
+        heading: (sh.querySelector(".ed-budget-h") || {}).textContent.trim(),
+        ring: !!line.querySelector(".ed-minus-ring"),
+        hit: Math.round(Math.min(x.width, x.height)),
+        nameColor: getComputedStyle(line.querySelector(".ed-split-name")).color,
+        remColor: getComputedStyle(remEl).color,
+        amtColor: getComputedStyle(amtEl).color,
+        checkNo: /check\s*#/i.test(sh.innerText),
         xLeft: x.right <= name.left + 1 && x.left >= cardBox.left - 1,
         xRight: x.left > cardBox.right - 8,
         amtRight: amt.left >= name.right - 2 && amt.right <= cardBox.right + 1,
@@ -641,15 +669,13 @@ function versionLockstep() {
       };
     })()`);
     await snap("09-one-item-add-split.png");
-    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.remPx < out.splitOne.amtPx) || out.splitOne.mark !== "✕" || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
+    if (!out.splitOne || out.splitOne.lines !== 1 || !out.splitOne.name || out.splitOne.name === "Choose budget item" || out.splitOne.add !== "Add Split" || !/Remove /.test(out.splitOne.minus) || !/Remaining:/.test(out.splitOne.rem) || /…/.test(out.splitOne.rem) || out.splitOne.splitBtn || !out.splitOne.noteAfter || out.splitOne.picker || !(out.splitOne.namePx >= out.splitOne.remPx + 3) || Number(out.splitOne.remWeight) >= 600 || out.splitOne.nameColor === out.splitOne.remColor || out.splitOne.amtColor !== out.splitOne.nameColor || out.splitOne.heading !== "Budget Item(s)" || !out.splitOne.ring || out.splitOne.hit < 44 || out.splitOne.addAlign !== "center" || out.splitOne.addH < 52 || out.splitOne.addH > 64 || Number(out.splitOne.addWeight) >= 500 || out.splitOne.checkNo || !out.splitOne.xLeft || out.splitOne.xRight || !out.splitOne.amtRight || !out.splitOne.addInside || !out.splitOne.quiet || out.splitOne.rowAmt !== "$20.00" || out.splitOne.topAmt !== "$20.00" || out.splitOne.oldBoxes) fail.push("one item split " + JSON.stringify(out.splitOne));
     await cdp.eval(`document.querySelector(".ed-add-split").click()`);
     await sleep(200);
     await cdp.eval(`(() => { const off = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true"); off.click(); })()`);
     await sleep(40);
     await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
     await sleep(200);
-    await cdp.eval(`document.querySelector("[data-ed='even']").click()`);
-    await sleep(80);
     out.splitTwo = await cdp.eval(`(() => {
       const sh = document.querySelector("form.sheet.ed-add");
       const card = sh.querySelector(".ed-budget-card");
@@ -667,7 +693,13 @@ function versionLockstep() {
         values: [...sh.querySelectorAll(".ed-row-amt")].map((el) => el.value),
         rem: [...sh.querySelectorAll(".ed-split-main .ed-rem")].map((el) => el.textContent.trim()),
         rest: sh.querySelectorAll(".ed-rest").length,
-        even: (sh.querySelector("[data-ed='even']") || {}).textContent.trim(),
+        even: sh.querySelectorAll("[data-ed='even']").length,
+        msg: sh.querySelectorAll(".ed-split-msg").length,
+        status: sh.querySelectorAll(".ed-alloc-status").length,
+        save: (sh.querySelector(".ed-save") || {}).textContent.trim(),
+        saveDisabled: !!(sh.querySelector(".ed-save") || {}).disabled,
+        saveAria: (sh.querySelector(".ed-save") || {}).getAttribute("aria-label") || "",
+        saveRadius: parseFloat(getComputedStyle(sh.querySelector(".ed-save")).borderRadius),
         addInside: !!(card && add && card.contains(add)),
         xLeft: lines.every((line) => {
           const x = line.querySelector(".ed-split-minus").getBoundingClientRect();
@@ -688,7 +720,115 @@ function versionLockstep() {
     })()`);
     await sleep(40);
     await snap("10-two-splits.png");
-    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$10.00,$10.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 2 || out.splitTwo.even !== "Split evenly" || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
+    if (!out.splitTwo || out.splitTwo.lines !== 2 || out.splitTwo.names.length !== 2 || out.splitTwo.add !== "Add Split" || out.splitTwo.minus !== 2 || !out.splitTwo.noteAfter || out.splitTwo.amounts !== 2 || out.splitTwo.values.join(",") !== "$0.00,$0.00" || out.splitTwo.rem.length !== 2 || out.splitTwo.rem.some((t) => !/Remaining:/.test(t)) || out.splitTwo.rest !== 0 || out.splitTwo.even !== 0 || out.splitTwo.status !== 0 || out.splitTwo.msg !== 0 || out.splitTwo.save !== "$20.00 remaining" || !out.splitTwo.saveDisabled || out.splitTwo.saveAria.indexOf("$20.00 remaining") !== 0 || !(out.splitTwo.saveRadius >= 20) || !out.splitTwo.addInside || !out.splitTwo.xLeft || out.splitTwo.oldBoxes) fail.push("two splits " + JSON.stringify(out.splitTwo));
+
+    async function closeEd() {
+      await cdp.eval(`(() => { const m = document.getElementById("modal"); m.hidden = true; m.innerHTML = ""; document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); })()`);
+      await sleep(40);
+    }
+    async function openAddSheet() {
+      await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+      await sleep(180);
+      await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+      await sleep(280);
+    }
+    await closeEd();
+    await openAddSheet();
+    out.merchList = await cdp.eval(`(async () => {
+      ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 320));
+      const before = document.querySelector(".ed-items").getBoundingClientRect().top;
+      pay.value = "Tr";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      const names = [...document.querySelectorAll(".ed-quick-btn")].map((b) => b.textContent.trim());
+      const after = document.querySelector(".ed-items").getBoundingClientRect().top;
+      const bar = document.querySelector(".ed-quick");
+      const buttons = [...document.querySelectorAll(".ed-quick-btn")];
+      const rects = buttons.map((b) => b.getBoundingClientRect());
+      const save = document.querySelector(".ed-save").getBoundingClientRect();
+      const pr = pay.getBoundingClientRect();
+      const br = bar.getBoundingClientRect();
+      return {
+        names,
+        n: names.length,
+        jump: Math.round(Math.abs(after - before) * 10) / 10,
+        row: rects.length > 1 && rects.every((r) => Math.abs(r.top - rects[0].top) < 2),
+        equal: rects.length > 1 && rects.every((r) => Math.abs(r.width - rects[0].width) < 8),
+        ellipsis: getComputedStyle(buttons[0]).textOverflow === "ellipsis",
+        radius: parseFloat(getComputedStyle(buttons[0]).borderRadius),
+        aboveSave: br.bottom <= save.top + 2 && br.top > pr.bottom + 24,
+        sheetGap: Math.round(document.querySelector(".phone").getBoundingClientRect().bottom - document.querySelector("form.sheet.ed-add").getBoundingClientRect().bottom),
+        dropdown: !!document.querySelector(".ed-suggest"),
+        chips: document.querySelectorAll(".merchant-chip").length
+      };
+    })()`);
+    const wantMerch = ["Trader Joe's", "Transit", "Truck stop"];
+    if (!out.merchList || out.merchList.names.join("|") !== wantMerch.join("|") || out.merchList.n !== 3 || out.merchList.jump > 2 || !out.merchList.row || !out.merchList.equal || !out.merchList.ellipsis || !(out.merchList.radius >= 12) || !out.merchList.aboveSave || out.merchList.sheetGap > 2 || out.merchList.dropdown || out.merchList.chips) fail.push("merchant suggestions " + JSON.stringify(out.merchList));
+    out.merchPick = await cdp.eval(`(async () => {
+      const btn = [...document.querySelectorAll(".ed-quick-btn")].find((b) => b.textContent.trim() === "Trader Joe's");
+      btn.click();
+      await new Promise((r) => setTimeout(r, 80));
+      const sh = document.querySelector("form.sheet.ed-add");
+      return {
+        payee: sh.querySelector('[data-ed-in="payee"]').value,
+        choose: (sh.querySelector(".ed-items-name") || {}).textContent.trim(),
+        card: !!sh.querySelector(".ed-budget-card"),
+        topAmt: (sh.querySelector(".ed-amt-v") || {}).textContent.trim(),
+        list: sh.querySelectorAll(".ed-quick-btn").length,
+        sugg: !!sh.querySelector("[data-role='env-suggest']")
+      };
+    })()`);
+    if (!out.merchPick || out.merchPick.payee !== "Trader Joe's" || out.merchPick.choose !== "Choose budget item" || out.merchPick.card || out.merchPick.topAmt !== "$20.00" || out.merchPick.list || out.merchPick.sugg) fail.push("merchant fill " + JSON.stringify(out.merchPick));
+    out.lastUsed = await cdp.eval(`(async () => {
+      document.querySelector('[data-ed="picker"]').click();
+      await new Promise((r) => setTimeout(r, 80));
+      const first = document.querySelector(".ed-picker .ed-item-row");
+      return {
+        name: (first.querySelector(".ed-item-label") || {}).textContent.trim(),
+        tag: (first.querySelector(".ed-last-used") || {}).textContent.trim(),
+        open: !!document.querySelector(".ed-picker")
+      };
+    })()`);
+    if (!out.lastUsed || out.lastUsed.name !== "Groceries" || out.lastUsed.tag !== "Last used" || !out.lastUsed.open) fail.push("last used " + JSON.stringify(out.lastUsed));
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(80);
+    await closeEd();
+    await openAddSheet();
+    out.merchKeep = await cdp.eval(`(async () => {
+      document.querySelector('[data-ed="picker"]').click();
+      await new Promise((r) => setTimeout(r, 80));
+      const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item > span") || {}).textContent || "").trim() === "Rent");
+      row.querySelector("[data-ed='tick']").click();
+      await new Promise((r) => setTimeout(r, 40));
+      document.querySelector("[data-ed='picker-done']").click();
+      await new Promise((r) => setTimeout(r, 80));
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.value = "Ta";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      const btn = [...document.querySelectorAll(".ed-quick-btn")].find((b) => b.textContent.trim() === "Target");
+      if (btn) btn.click();
+      await new Promise((r) => setTimeout(r, 60));
+      const name = (document.querySelector(".ed-split-name") || {}).textContent || "";
+      return { tapped: !!btn, name: name.trim(), payee: document.querySelector('[data-ed-in="payee"]').value };
+    })()`);
+    if (!out.merchKeep || !out.merchKeep.tapped || out.merchKeep.payee !== "Target" || out.merchKeep.name.indexOf("Rent") !== 0) fail.push("merchant did not keep the picked item " + JSON.stringify(out.merchKeep));
+    await closeEd();
+    await openAddSheet();
+    out.merchTe = await cdp.eval(`(async () => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.value = "Te";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      return [...document.querySelectorAll(".ed-quick-btn")].map((b) => b.textContent.trim());
+    })()`);
+    if (!out.merchTe || out.merchTe.join("|") !== ["Tesco", "Temple Books", "Teacher Supply"].join("|")) fail.push("Te suggestions " + JSON.stringify(out.merchTe));
 
     if (SHOTS) {
       await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
@@ -721,6 +861,160 @@ function versionLockstep() {
           gif], { stdio: "ignore" });
         out.gif = gif;
       } catch (e) { out.gifError = String(e && e.message || e); }
+
+      await cdp.eval(`sessionStorage.setItem("pt-shot-dark", "1")`);
+      await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+      await sleep(1600);
+      await closeEd();
+      await openAddSheet();
+      await cdp.eval(`(async () => {
+        ["2", "0", "0", "0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click());
+        document.querySelector('[data-ed="picker"]').click();
+        await new Promise((r) => setTimeout(r, 120));
+        document.querySelector(".ed-picker [data-ed='tick']").click();
+        await new Promise((r) => setTimeout(r, 40));
+        document.querySelector("[data-ed='picker-done']").click();
+      })()`);
+      await sleep(240);
+      await snap("a-one-item-add-split.png");
+      await cdp.eval(`(async () => {
+        document.querySelector(".ed-add-split").click();
+        await new Promise((r) => setTimeout(r, 120));
+        const second = [...document.querySelectorAll(".ed-picker [data-ed='tick']")].find((t) => t.getAttribute("aria-checked") !== "true");
+        second.click();
+        await new Promise((r) => setTimeout(r, 40));
+        document.querySelector("[data-ed='picker-done']").click();
+        await new Promise((r) => setTimeout(r, 160));
+        const inputs = [...document.querySelectorAll(".ed-row-amt")];
+        ["1000", "1000"].forEach((digits, i) => {
+          inputs[i].value = digits;
+          inputs[i].dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      })()`);
+      await sleep(200);
+      await snap("b-two-item-add-split.png");
+      await closeEd();
+    }
+
+    out.monthBase = await cdp.eval(`(() => {
+      const food = { id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 500 }] };
+      const rec = (year, month, income) => ({
+        year: year, month: month,
+        incomes: [{ id: "pay", name: "Paycheck", amount: income }],
+        categories: [food],
+        transactions: []
+      });
+      const deductions = [{ name: "Insurance", amount: 100, preTax: true }];
+      const stub = (date, gross) => [{ payStubConfirmed: true, payStubPending: {
+        payDate: date, gross: gross, net: 5000, employee401k: 500, hsa: 200, otherDeductions: deductions
+      } }];
+      const slice = (pic, label) => {
+        const s = (pic.alloc.slices || []).find((x) => x.label === label);
+        return s ? s.amount : 0;
+      };
+      const typed = {
+        trueManual: true, baseSalary: 120000, paychecksPerYear: 12, zipCode: "80202", filingStatus: "single",
+        bonusMonth: 2, employer401kMatch: 0, employer401kBase: 0, employer401kMatchIsPercent: false, employer401kBaseIsPercent: false,
+        compRows: [
+          { id: "bonus", kind: "bonus", name: "Bonus", method: "percent", value: 10, when: "yearly", on: true },
+          { id: "var", kind: "other", name: "Variable comp", method: "fixed", value: 6000, when: "yearly", on: true }
+        ],
+        preTax: [], postTax: [], trueLines: []
+      };
+      const budget = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0 }
+      });
+      const key = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 5800)
+      });
+      const nov = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 5000), payFrequency: "monthly", compensation: typed
+      });
+      const bonus = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 2, rec: rec(2026, 2, 5000), payFrequency: "monthly", compensation: typed
+      });
+      const three = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 1, rec: rec(2026, 1, 5000), payFrequency: "biweekly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 26 },
+        documents: stub("2026-01-01", 3000)
+      });
+      const guard = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: rec(2026, 11, 8000), payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 8000)
+      });
+      const leftAmt = (slices) => {
+        const row = (slices || []).find((x) => x.label === "Left to budget");
+        const old = (slices || []).find((x) => x.label === "Unallocated");
+        return { amount: row ? row.amount : 0, shown: !!row, old: !!old };
+      };
+      const full = {
+        year: 2026, month: 11,
+        incomes: [{ id: "pay", name: "Paycheck", amount: 5000 }],
+        categories: [{ id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 5000 }] }],
+        transactions: []
+      };
+      const filled = PaperTrailPreview.allocationProbe({
+        year: 2026, month: 11, rec: full, payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: stub("2026-11-15", 5800)
+      });
+      const pack = (pic) => ({
+        source: pic.alloc.source, divisor: pic.alloc.divisor, same: pic.same, warn: !!pic.alloc.incomeWarn,
+        savings: pic.alloc.savings, other: slice(pic, "Other payroll deductions"), taxes: slice(pic, "Taxes"),
+        food: slice(pic, "Food"), checks: pic.alloc.paychecks, of: pic.alloc.of,
+        left: leftAmt(pic.alloc.slices), yearLeft: leftAmt(pic.year && pic.year.slices)
+      });
+      return { budget: pack(budget), key: pack(key), typedNov: pack(nov), typedFeb: pack(bonus), three: pack(three), guard: pack(guard), filled: pack(filled) };
+    })()`);
+    const mb = out.monthBase;
+    const taxRow = (row) => row && (row.taxes > 0 || row.other > 0);
+    if (!mb || mb.budget.divisor !== 5000 || !mb.budget.same || taxRow(mb.budget) || mb.budget.warn) fail.push("budget month " + JSON.stringify(mb && mb.budget));
+    if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0 || !mb.key.left.shown || mb.key.left.amount !== 4500 || mb.key.left.old || !mb.key.yearLeft.shown || mb.key.yearLeft.amount !== 4500 || mb.key.yearLeft.old) fail.push("stub extras " + JSON.stringify(mb && mb.key));
+    if (!mb || mb.filled.divisor !== 5800 || mb.filled.left.shown || mb.filled.left.old || mb.filled.yearLeft.shown || mb.filled.yearLeft.old) fail.push("left to budget hidden at zero " + JSON.stringify(mb && mb.filled));
+    if (!mb || mb.typedNov.divisor !== 5000 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
+    if (!mb || mb.typedFeb.divisor !== 17000 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
+    if (!mb || mb.three.divisor !== 7400 || mb.three.savings !== 2100 || mb.three.other !== 300 || mb.three.checks !== 3 || mb.three.warn) fail.push("three paychecks " + JSON.stringify(mb && mb.three));
+    if (!mb || mb.guard.divisor !== 8800 || !mb.guard.warn || mb.guard.savings !== 700 || mb.guard.other !== 100) fail.push("double-count guard " + JSON.stringify(mb && mb.guard));
+    if (SHOTS) {
+      await cdp.eval(`PaperTrailPreview.paintExample(${JSON.stringify({
+        year: 2026, month: 11, payFrequency: "monthly",
+        compensation: { trueManual: false, baseSalary: 0, paychecksPerYear: 12 },
+        documents: [{ payStubConfirmed: true, payStubPending: {
+          payDate: "2026-11-15", gross: 5800, net: 5000, employee401k: 500, hsa: 200,
+          otherDeductions: [{ name: "Insurance", amount: 100, preTax: true }]
+        } }],
+        rec: {
+          year: 2026, month: 11,
+          incomes: [{ id: "pay", name: "Paycheck", amount: 5000 }],
+          categories: [{ id: "food", name: "Food", lines: [{ id: "g", name: "Groceries", assigned: 500 }] }],
+          transactions: []
+        }
+      })})`);
+      await sleep(500);
+      await cdp.eval(`(() => {
+        const sec = document.getElementById("dash-spendcat");
+        const btn = sec && sec.querySelector("[data-dash='fold']");
+        if (btn && sec.classList.contains("dash-folded")) btn.click();
+        if (sec) sec.scrollIntoView({ block: "center" });
+      })()`);
+      await sleep(200);
+      await snap("spend-by-category.png");
+      await cdp.eval(`(() => {
+        const sec = document.getElementById("dash-sav");
+        if (sec) sec.scrollIntoView({ block: "start" });
+      })()`);
+      await sleep(200);
+      await snap("savings-rate.png");
+      const exampleCaption = await cdp.eval(`(() => {
+        const sec = document.getElementById("dash-spendcat");
+        return sec ? sec.innerText : "";
+      })()`);
+      out.exampleCaption = !!(exampleCaption && exampleCaption.indexOf("planned income + paycheck deductions") >= 0 && exampleCaption.indexOf("$5,800") >= 0 && exampleCaption.indexOf("may already include") < 0);
+      if (!out.exampleCaption) fail.push("example caption " + exampleCaption);
     }
 
     out.fail = fail;

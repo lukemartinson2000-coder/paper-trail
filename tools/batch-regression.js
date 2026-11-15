@@ -190,7 +190,7 @@ const SEED = `(() => {
       const amt = (pic, label) => { const s = (pic.slices || []).filter((x) => x.label === label)[0]; return s ? s.amount : 0; };
       const back = PaperTrailPreview.allocationMonth(2026, 12);
       return { basis: dec.basis, source: dec.source, divisor: dec.divisor, of: dec.of, savings: dec.savings, canSav: can.savings, canRate: can.rate,
-        food: amt(dec, "Food"), aside: amt(dec, "Set aside, not in the rate"), taxes: amt(dec, "Taxes"), other: amt(dec, "Other payroll deductions"),
+        food: amt(dec, "Food"), aside: amt(dec, "Other savings"), taxes: amt(dec, "Taxes"), other: amt(dec, "Other payroll deductions"),
         park: amt(dec, "Parking"), k: amt(dec, "401k"), shortfall: dec.shortfall,
         janDiv: jan.divisor, janBasis: jan.basis, yearMixed: year.mixed, yearDiv: year.divisor, yearFood: amt(year, "Food"), yearMonths: year.months,
         restored: back.basis };
