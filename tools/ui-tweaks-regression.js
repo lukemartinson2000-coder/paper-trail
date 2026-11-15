@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.111. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.112. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -153,7 +153,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.111" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.112" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -893,6 +893,17 @@ function versionLockstep() {
       })()`);
       await sleep(200);
       await snap("b-two-item-add-split.png");
+      await closeEd();
+      await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+      await sleep(400);
+      await cdp.eval(`(() => {
+        const sec = document.getElementById("dash-spendcat");
+        const btn = sec && sec.querySelector("[data-dash='fold']");
+        if (btn && sec.classList.contains("dash-folded")) btn.click();
+        if (sec) sec.scrollIntoView({ block: "center" });
+      })()`);
+      await sleep(200);
+      await snap("spend-by-category.png");
     }
 
     out.fail = fail;

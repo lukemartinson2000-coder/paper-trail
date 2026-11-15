@@ -5516,7 +5516,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (savLineOn(cat, ln)) return;
         var amt = roundCents(Math.max(0, Number(ln.assigned) || 0));
         if (!(amt > 0)) return;
-        var name = cat && cat.system === "savings" ? "Set aside, not in the rate" : ((cat && cat.name) || ln.name || "Category");
+        var name = cat && cat.system === "savings" ? "Other savings" : ((cat && cat.name) || ln.name || "Category");
         catMap[name] = roundCents((catMap[name] || 0) + amt);
       });
     });
@@ -18856,7 +18856,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.111";
+  var APP_VERSION = "37.5.112";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
