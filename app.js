@@ -13789,15 +13789,33 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function edPickerRowsHtml(month) {
     var q = (edUi.q || "").toLowerCase(), sel = {}, h = "", lastCat = null;
     (spendDraft.legs || []).forEach(function (l) { if (l.lineId) sel[l.lineId] = 1; });
-    edLines(month).forEach(function (x) {
-      if (q && String(x.line.name).toLowerCase().indexOf(q) < 0 && String(x.cat.name).toLowerCase().indexOf(q) < 0) return;
+    var last = spendDraft && spendDraft.type !== "income" ? merchantLastEnvelope(month, spendDraft.payee) : null;
+    var lastId = last && last.lineId ? String(last.lineId) : "";
+    function matches(x) {
+      if (!q) return true;
+      return String(x.line.name).toLowerCase().indexOf(q) >= 0 || String(x.cat.name).toLowerCase().indexOf(q) >= 0;
+    }
+    function row(x, tag) {
+      var xf = isFlat(x.cat);
+      var on = !!sel[x.line.id];
+      return '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + (tag ? " ed-last" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
+        '<span class="ed-item-name"><span class="ed-item-label">' + esc(x.line.name) + "</span>" +
+        (tag ? '<span class="ed-last-used">Last used</span>' : "") +
+        '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></button>' +
+        '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
+    }
+    var lines = edLines(month).filter(matches);
+    var pin = null;
+    if (lastId) {
+      for (var i = 0; i < lines.length; i++) if (String(lines[i].line.id) === lastId) { pin = lines[i]; break; }
+    }
+    if (pin) h += row(pin, true);
+    lines.forEach(function (x) {
+      if (pin && String(x.line.id) === lastId) return;
       var xf = isFlat(x.cat);
       if (x.cat !== lastCat && !xf) h += '<p class="ed-grp">' + esc(x.cat.name) + "</p>";
       lastCat = x.cat;
-      var on = !!sel[x.line.id];
-      h += '<div class="ed-item-row' + (on ? " on" : "") + (xf ? " ed-flat" : "") + '"><button type="button" class="ed-item' + (on ? " on" : "") + '" data-ed="item" data-key="' + esc(x.key) + '">' +
-        "<span>" + esc(x.line.name) + '</span><span class="ed-rem' + (x.rem < 0 ? " rust" : "") + '"><span class="ed-rem-amt">' + esc(formatMoney(roundCents(x.rem), 2)) + '</span> <span class="ed-rem-word">remaining</span></span></button>' +
-        '<button type="button" class="ed-tick' + (on ? " on" : "") + '" data-ed="tick" data-key="' + esc(x.key) + '" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" aria-label="' + esc((on ? "Selected, " : "Select ") + x.line.name) + '"><span aria-hidden="true">' + (on ? "✓" : "") + "</span></button></div>";
+      h += row(x, false);
     });
     return h;
   }
@@ -14001,14 +14019,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         (sugg && i === 0 ? ' aria-label="' + esc(nm + ". " + suggWhy) + '"' : ' aria-label="' + esc("Budget item, " + nm) + '"') + '>' +
         '<span class="ed-split-name ed-items-name">' + esc(nm) + (sugg && i === 0 ? '<span class="ed-sugg-tag" data-role="env-suggest">Suggested</span>' : "") + "</span>" +
         '<span class="ed-rem' + (rem < 0 ? " rust" : "") + '"><span class="ed-rem-word">Remaining:</span> <span class="ed-rem-amt">' + esc(formatMoney(rem, 2)) + "</span></span></button>" +
-        '<span class="ed-split-amt"><input type="text" inputmode="numeric" autocomplete="off" class="ed-row-amt mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + esc(formatMoney(Number(l.amount) || 0, 2)) + '">' +
-        (picked.length > 1 ? '<button type="button" class="ed-rest" data-ed="fill" data-i="' + i + '" aria-label="Put what’s remaining on ' + esc(nm) + '">Rest</button>' : "") +
-        "</span></div>";
+        '<span class="ed-split-amt"><input type="text" inputmode="numeric" autocomplete="off" class="ed-row-amt mono" data-ed-leg="' + i + '" aria-label="Amount for ' + esc(nm) + '" value="' + esc(formatMoney(Number(l.amount) || 0, 2)) + '"></span></div>';
     });
     h += "</div>";
     if (picked.length > 1) {
-      h += '<div class="ed-alloc-tools"><button type="button" class="ed-alloc-even" data-ed="even">Split evenly</button>' +
-        '<p class="ed-alloc-status" id="ed-alloc-status" aria-live="polite">' + edAllocStatus() + "</p></div>";
+      var mismatch = edSplitMismatch();
+      h += '<p class="ed-split-msg" id="ed-split-msg" role="status"' + (mismatch ? "" : " hidden") + ">" + esc(mismatch) + "</p>";
     }
     if (picked.length < ED_SPLIT_MAX) h += '<button type="button" class="ed-add-split" data-ed="add-split">Add Split</button>';
     return h + "</div>";
@@ -14039,38 +14055,22 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         return '<button type="button" class="ed-quick-btn" tabindex="-1" role="option" data-ed="merch" data-payee="' + esc(it.payee) + '">' + esc(it.payee) + "</button>";
       }).join("") + "</div>";
   }
-  /* Suggest the envelope this merchant went to last time, unless the user already picked one themselves. */
-  function edSuggest(month) {
-    var d = spendDraft;
-    if (!d || d.id || d.type === "income" || !edUi || edUi.manual || !envelopeSuggestOn()) return false;
-    var cur = (d.legs || []).filter(function (l) { return l.lineId; });
-    /* A budget item the user already chose stays. A previous suggestion can still be replaced. */
-    if (cur.length && !d.mappedFromHistory) return false;
-    var found = merchantLastEnvelope(month, d.payee);
-    if (!found) return false;
-    if (d.mappedFromHistory && cur.length === 1 && cur[0].lineId === found.lineId && d.mappedPayee === found.payee) return false;
-    d.legs = [{ id: nextId(), categoryId: found.categoryId, lineId: found.lineId, amount: d.amount, refund: 0, note: "" }];
-    d.mappedFromHistory = true; d.mappedPayee = found.payee; d.mappedSplit = !!found.split;
-    return true;
-  }
-  /* Repaint the merchant bar and the budget item while typing, so the field keeps focus. */
-  function edRepaintLive(month) {
+  /* Repaint only the merchant bar. Typing a name never chooses a budget item. */
+  function edRepaintMerch() {
     var f = document.querySelector("#modal .sheet.ed-add");
     if (!f || !spendDraft) return;
     var m = f.querySelector('[data-role="ed-merch"]');
     if (m) m.outerHTML = edMerchHtml();
-    if (spendDraft.type !== "income") {
-      var sec = f.querySelector(".ed-itemsec");
-      if (sec) sec.outerHTML = edItemsHtml(month);
-    }
   }
   function edAllocLegs() { return ((spendDraft && spendDraft.legs) || []).filter(function (l) { return l.lineId; }); }
   var ED_SPLIT_MAX = 4; /* v37.5.72 (owner): split across up to 4 budget items */
-  function edAllocStatus() {
-    var total = roundCents(Number(spendDraft.amount) || 0), sum = roundCents(edAllocLegs().reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0)), left = roundCents(total - sum);
-    var cls = !(total > 0) ? "" : left === 0 ? "ok" : left < 0 ? "over" : "left";
-    var big = !(total > 0) ? "Enter the amount first" : left < 0 ? "Over by " + formatMoney(-left, 2) : "Left to allocate " + formatMoney(left, 2) + (left === 0 ? " ✓" : "");
-    return '<strong class="ed-left ' + cls + '" data-left="' + left.toFixed(2) + '">' + big + '</strong><span class="caption"><span class="mono">' + formatMoney(sum, 2) + "</span> of <span class=\"mono\">" + formatMoney(total, 2) + "</span> allocated</span>";
+  function edSplitMismatch() {
+    var legs = edAllocLegs();
+    if (!spendDraft || legs.length < 2) return "";
+    var total = roundCents(Number(spendDraft.amount) || 0);
+    var sum = roundCents(legs.reduce(function (n, l) { return n + (Number(l.amount) || 0); }, 0));
+    if (cents(sum) === cents(total)) return "";
+    return "Split amounts must add up to " + formatMoney(total, 2) + ".";
   }
   /* v37.5.74 (tester bug): typing the merchant on iPhone left the number pad up under the iOS keyboard, so the
    * amount was cut off at the top and the pad, Save and keyboard overlapped. Any typed field in the Add sheet now
@@ -14332,7 +14332,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     window.visualViewport.addEventListener("resize", edFit);
     window.visualViewport.addEventListener("scroll", edFit);
   }
-  function edAllocPaint() { var el = document.getElementById("ed-alloc-status"); if (el) el.innerHTML = edAllocStatus(); }
+  function edAllocPaint() {
+    var el = document.getElementById("ed-split-msg");
+    if (!el) return;
+    var msg = edSplitMismatch();
+    el.hidden = !msg;
+    el.textContent = msg;
+  }
   function edSyncAmount() {
     spendDraft.amount = roundCents(edCentsValue(edUi.amt));
     var legs = (spendDraft.legs || []).filter(function (l) { return l.lineId; });
@@ -14351,10 +14357,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       spendDraft.payee = b.getAttribute("data-payee") || "";
       var payIn = document.querySelector('#modal .ed-add [data-ed-in="payee"]');
       if (payIn) payIn.value = spendDraft.payee;
-      edSyncAmount();
-      edSuggest(month);
-      edRepaintLive(month);
-      edRevealBudgetItem();
+      edRepaintMerch();
       return;
     }
     if (a === "type") { spendDraft.type = b.getAttribute("data-type") === "income" ? "income" : "expense"; renderEdAdd(month); return; }
@@ -14442,10 +14445,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var k = el.getAttribute("data-ed-in"), li = el.getAttribute("data-ed-leg");
     if (k === "payee") {
       spendDraft.payee = el.value;
-      var emPay = ensureMonth(state.year, state.month);
-      var suggested = spendDraft.type !== "income" && !spendDraft.id && edSuggest(emPay);
-      edRepaintLive(emPay);
-      if (suggested) edRevealBudgetItem();
+      edRepaintMerch();
     }
     else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
     else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
@@ -14978,7 +14978,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     setTimeout(go, 60);
   }
 
-  /* Editing an expense uses the same card as Add (picker → allocation rows, Rest, Split evenly, live line).
+  /* Editing an expense uses the same card as Add (picker, allocation rows, live line).
    * Refund transactions and income keep the full sheet: the card has no refund-piece inputs yet. */
   function openEditSpend(tx, month) {
     fillSpendDraft(tx);
@@ -18846,7 +18846,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.108";
+  var APP_VERSION = "37.5.109";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

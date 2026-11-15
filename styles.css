@@ -5549,12 +5549,12 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-add .ed-itemsec .ed-items .lbl { flex: none; font: calc(14px * var(--fs-scale)) var(--serif); color: var(--muted); }
 .ed-add .ed-itemsec .ed-items .ed-items-name { text-align: right; font-size: calc(16px * var(--fs-scale)); font-weight: 400; }
 .ed-add .ed-split-link { display: block; margin: 0 0 8px; }
-/* Three merchant names in one bar just above the number pad and Save. */
-.ed-quick { display: flex; flex: none; align-items: stretch; min-height: 44px; margin: 0 -16px; background: var(--paper); border-top: 1px solid var(--rule); z-index: 5; }
+/* Three rounded merchant pills just above the number pad and Save. */
+.ed-quick { display: flex; flex: none; align-items: center; gap: 8px; min-height: 52px; margin: 0; padding: 8px 0 2px; background: var(--paper); z-index: 5; }
 .ed-quick[hidden] { display: none !important; }
-.ed-quick-btn { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; border: 0; border-right: 1px solid var(--rule); background: transparent; color: var(--moss); font: 400 calc(15px * var(--fs-scale)) var(--ui); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ed-quick-btn:last-child { border-right: 0; }
-.ed-quick-btn:hover, .ed-quick-btn:focus { background: var(--highlight); outline: none; }
+.ed-quick-btn { flex: 1 1 0; min-width: 0; height: 36px; margin: 0; padding: 0 12px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--moss) 16%, var(--card)); color: var(--moss); font: 500 calc(14px * var(--fs-scale)) var(--ui); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ed-quick-btn:hover, .ed-quick-btn:focus { background: color-mix(in srgb, var(--moss) 26%, var(--card)); outline: none; }
+body.ed-add-open .modal:not(.wrap-open) { bottom: 0; }
 .ed-budget-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--card); padding: 0 8px 2px; margin: 0 0 4px; }
 .ed-budget-h { margin: 0; padding: 8px 4px 0; font: 600 calc(15px * var(--fs-scale)) var(--ui); color: var(--ink); }
 .ed-filled { display: flex; flex-direction: column; gap: 0; }
@@ -5571,6 +5571,14 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-split-main .ed-rem, .ed-split-main .ed-rem .ed-rem-amt, .ed-split-main .ed-rem .ed-rem-word { margin: 0; font-size: calc(12px * var(--fs-scale)); font-weight: 400; color: var(--muted); letter-spacing: 0; }
 .ed-split-main .ed-rem { max-width: 100%; overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.3; }
 .ed-picker .ed-item > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(17px * var(--fs-scale)); font-weight: 400; }
+.ed-picker .ed-item > span.ed-item-name { display: flex; align-items: baseline; gap: 6px; text-overflow: clip; }
+.ed-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-last-used { flex: none; color: var(--muted); font-size: calc(11px * var(--fs-scale)); font-weight: 500; letter-spacing: 0; }
+.sheet.ed-add .ed-picker { padding-bottom: 0; }
+.sheet.ed-add .ed-picker-list { padding-bottom: 12px; }
+.sheet.ed-add .ed-picker-foot { margin: 0 -16px; padding: 10px 16px 16px; background: var(--paper); z-index: 2; }
+.ed-split-msg { margin: 0; padding: 2px 8px 4px; text-align: center; color: var(--danger); font: 500 calc(13px * var(--fs-scale)) var(--ui); }
+.ed-split-msg[hidden] { display: none !important; }
 .ed-picker .ed-item .ed-rem { margin: 0; text-align: right; white-space: nowrap; }
 .ed-rem.rust, .ed-rem.rust .ed-rem-amt, .ed-rem.rust .ed-rem-word { color: var(--danger); }
 .ed-split-minus { grid-column: 1; grid-row: 1; width: 44px; height: 44px; min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--moss); padding: 0; cursor: pointer; display: grid; place-items: center; }
