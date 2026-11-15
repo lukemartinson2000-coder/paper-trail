@@ -4908,9 +4908,9 @@ button.danger,.danger-btn{color:var(--danger);border-color:var(--danger)}
 .ed-pad .ed-done{grid-column:1/-1;background:var(--moss);color:#fff;border-color:var(--moss);font-size:calc(17px * var(--fs-scale))}
 .ed-picker{position:absolute;inset:0;background:var(--paper);z-index:5;overflow:auto;padding:12px 16px 20px;animation:ed-picker-in .18s ease}
 .ed-picker.ed-picker-out{animation:ed-picker-out .16s ease forwards;pointer-events:none}
-@keyframes ed-picker-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes ed-picker-out{to{opacity:0;transform:translateY(8px)}}
-.ed-search{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;font:calc(15px * var(--fs-scale)) var(--ui);margin:8px 0;background:var(--card);color:var(--ink)}
+@keyframes ed-picker-in{from{opacity:0}to{opacity:1}}
+@keyframes ed-picker-out{to{opacity:0}}
+.ed-search{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;font:16px var(--ui);margin:8px 0;background:var(--card);color:var(--ink)}
 .ed-grp{font:700 calc(12px * var(--fs-scale)) var(--ui);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 4px 4px}
 .ed-item{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;width:100%;padding:10px 8px;border:0;border-bottom:1px solid var(--rule);background:none;font:calc(15px * var(--fs-scale)) var(--ui);color:var(--ink);text-align:left}
 .ed-item.on{background:var(--highlight)}
@@ -5280,18 +5280,30 @@ input.money-fixed{width:100%;max-width:100%;box-sizing:border-box;font-variant-n
 .ed-note.is-open .ed-note-box{grid-template-rows:1fr;opacity:1}
 .ed-note-box>.ed-row{overflow:hidden;min-height:0;background:var(--card);border:1px solid transparent;border-radius:10px;margin:0}
 .ed-note.is-open .ed-note-box>.ed-row{border-color:var(--rule);margin:0 0 12px}
-.sheet.ed-add{transition:transform .22s ease,opacity .2s ease,height .22s ease,max-height .22s ease}
+.sheet.ed-add{transition:none}
 .sheet.ed-add.ed-enter,.sheet.ed-add.ed-out{transition:none}
 .sheet.ed-add .ed-pad{flex:none;position:relative;max-height:280px;overflow:hidden;opacity:1;transform:none;transition:max-height .2s ease,opacity .18s ease,transform .2s ease,padding .2s ease,border-width .2s ease,visibility 0s linear 0s}
 .sheet.ed-add.ed-pad-off .ed-pad{max-height:0;opacity:0;transform:translateY(8px);padding-top:0;padding-bottom:0;border-top-width:0;pointer-events:none;visibility:hidden;transition:max-height .2s ease,opacity .18s ease,transform .2s ease,padding .2s ease,border-width .2s ease,visibility 0s linear .2s}
-.sheet.ed-add .ed-scroll input,.sheet.ed-add .ed-scroll select,.sheet.ed-add .ed-scroll textarea,.sheet.ed-add .ed-scroll .ed-items{scroll-margin-top:8px;scroll-margin-bottom:12px}
+.sheet.ed-add .ed-scroll input,.sheet.ed-add .ed-scroll select,.sheet.ed-add .ed-scroll textarea,.sheet.ed-add .ed-scroll .ed-items{scroll-margin:0}
 @media (prefers-reduced-motion:reduce){.ed-note-box,.ed-add-note,.sheet.ed-add,.sheet.ed-add .ed-pad,.ed-picker{transition:none;animation:none}.ed-amt-row .ed-amt.active .ed-amt-v::after{animation:none}}
 .sheet.ed-add.ed-enter{animation:ed-sheet-in .2s ease both}
 .sheet.ed-add.ed-out{animation:ed-sheet-out .16s ease forwards}
 @keyframes ed-sheet-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes ed-sheet-out{to{opacity:0;transform:translateY(12px)}}
 @media (prefers-reduced-motion:reduce){.sheet.ed-add.ed-enter,.sheet.ed-add.ed-out,.ed-picker{animation:none}}
-body.ed-add-open #screen{overflow:hidden}
+body.ed-add-open,body.ed-add-open #screen{overflow:hidden;overscroll-behavior:none}
+body.ed-add-open .modal:not(.wrap-open){align-items:stretch;justify-content:flex-start;overflow:hidden;overscroll-behavior:contain}
+.sheet.ed-add{position:absolute;top:0;left:0;right:0;width:100%;max-height:none;overscroll-behavior:contain}
+.sheet.ed-add .ed-scroll,.sheet.ed-add .ed-picker,.sheet.ed-add .ed-picker-list{overscroll-behavior:contain}
+.sheet.ed-add input,.sheet.ed-add select,.sheet.ed-add textarea,.sheet.ed-add .ed-search{font-size:16px !important}
+.sheet.ed-add .ed-head{margin-bottom:0}
+.sheet.ed-add .ed-head .sheet-top{padding-top:8px;padding-bottom:4px}
+.sheet.ed-add .ed-switch{margin-bottom:4px}
+.sheet.ed-add .ed-switch button{padding:4px 6px}
+.sheet.ed-add .ed-row{padding:7px 12px}
+.sheet.ed-add .ed-items{padding:8px 12px;margin-bottom:4px}
+.sheet.ed-add .ed-quick{min-height:44px;padding:4px 0}
+.sheet.ed-add .ed-actions{padding-top:4px;padding-bottom:4px}
 body.tx-editor-open #screen{overflow:hidden}
 body.tx-editor-open .sheet{overscroll-behavior:contain}
 .ed-picker button{touch-action:manipulation}
@@ -5554,8 +5566,8 @@ body.it-sheet-open #screen { overflow: hidden; }
 .ed-add .ed-itemsec .ed-items .ed-items-name { text-align: right; font-size: calc(16px * var(--fs-scale)); font-weight: 400; }
 .ed-add .ed-split-link { display: block; margin: 0 0 8px; }
 /* Three rounded merchant pills just above the number pad and Save. */
-.ed-quick { display: flex; flex: none; align-items: center; gap: 8px; min-height: 52px; margin: 0; padding: 8px 0 2px; background: var(--paper); z-index: 5; }
-.ed-quick[hidden] { display: none !important; }
+.ed-quick { display: flex; flex: none; align-items: center; gap: 8px; min-height: 52px; margin: 0; padding: 8px 0 2px; background: var(--paper); z-index: 5; box-sizing: border-box; }
+.ed-quick.is-empty { visibility: hidden; pointer-events: none; }
 .ed-quick-btn { flex: 1 1 0; min-width: 0; height: 36px; margin: 0; padding: 0 12px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--moss) 16%, var(--card)); color: var(--moss); font: 500 calc(14px * var(--fs-scale)) var(--ui); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ed-quick-btn:hover, .ed-quick-btn:focus { background: color-mix(in srgb, var(--moss) 26%, var(--card)); outline: none; }
 body.ed-add-open .modal:not(.wrap-open) { bottom: 0; }
@@ -5574,14 +5586,16 @@ body.ed-add-open .modal:not(.wrap-open) { bottom: 0; }
 .ed-rem-word { font-weight: 400; font-size: calc(13px * var(--fs-scale)); letter-spacing: 0.01em; }
 .ed-split-main .ed-rem, .ed-split-main .ed-rem .ed-rem-amt, .ed-split-main .ed-rem .ed-rem-word { margin: 0; font-size: calc(12px * var(--fs-scale)); font-weight: 400; color: var(--muted); letter-spacing: 0; }
 .ed-split-main .ed-rem { max-width: 100%; overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.3; }
-.ed-picker .ed-item > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(17px * var(--fs-scale)); font-weight: 400; }
-.ed-picker .ed-item > span.ed-item-name { display: flex; align-items: baseline; gap: 6px; text-overflow: clip; }
-.ed-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-picker .ed-item { display: block; min-width: 0; text-align: left; }
+.ed-picker .ed-item-name { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; overflow: visible; }
+.ed-picker .ed-name-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; }
+.ed-item-label { min-width: 0; overflow: visible; text-overflow: clip; white-space: normal; font-size: calc(16px * var(--fs-scale)); font-weight: 400; line-height: 1.25; }
 .ed-last-used { flex: none; color: var(--muted); font-size: calc(11px * var(--fs-scale)); font-weight: 500; letter-spacing: 0; }
 .sheet.ed-add .ed-picker { padding-bottom: 0; }
 .sheet.ed-add .ed-picker-list { padding-bottom: 12px; }
 .sheet.ed-add .ed-picker-foot { margin: 0 -16px; padding: 10px 16px 16px; background: var(--paper); z-index: 2; }
-.ed-picker .ed-item .ed-rem { margin: 0; text-align: right; white-space: nowrap; }
+.ed-picker .ed-item .ed-rem { display: block; margin: 2px 0 0; text-align: left; white-space: normal; font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.3; }
+.ed-picker .ed-item .ed-rem .ed-rem-amt, .ed-picker .ed-item .ed-rem .ed-rem-word { font-size: 12px; font-weight: 400; color: inherit; }
 .ed-rem.rust, .ed-rem.rust .ed-rem-amt, .ed-rem.rust .ed-rem-word { color: var(--danger); }
 .ed-split-minus { grid-column: 1; grid-row: 1; width: 44px; height: 44px; min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--moss); padding: 0; cursor: pointer; display: grid; place-items: center; }
 .ed-minus-ring { width: 22px; height: 22px; border: 1.5px solid currentColor; border-radius: 50%; box-sizing: border-box; position: relative; }

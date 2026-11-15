@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.115. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.116. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -97,6 +97,10 @@ const SEED = `
         ]},
         { id: "home", name: "Housing", sortOrder: 2, flat: false, lines: [
           { id: "rent", name: "Rent", assigned: 1500, sortOrder: 0 }
+        ]},
+        { id: "life", name: "Lifestyle", sortOrder: 3, flat: false, lines: [
+          { id: "fun", name: "Fun Money", assigned: 80, sortOrder: 0 },
+          { id: "efund", name: "Emergency Fund", assigned: 25, sortOrder: 1 }
         ]}
       ],
       transactions: [
@@ -112,7 +116,8 @@ const SEED = `
         { id: "t10", payee: "Tesco", date: "2026-11-07", amount: 14, categoryId: "food", lineId: "groceries", note: "" },
         { id: "t11", payee: "Tesco", date: "2026-11-13", amount: 16, categoryId: "food", lineId: "groceries", note: "" },
         { id: "t12", payee: "Temple Books", date: "2026-11-11", amount: 11, categoryId: "food", lineId: "restaurants", note: "" },
-        { id: "t13", payee: "Teacher Supply", date: "2026-11-08", amount: 22, categoryId: "home", lineId: "rent", note: "" }
+        { id: "t13", payee: "Teacher Supply", date: "2026-11-08", amount: 22, categoryId: "home", lineId: "rent", note: "" },
+        { id: "t-over", payee: "Clinic", date: "2026-11-10", amount: 90, categoryId: "life", lineId: "efund", note: "" }
       ]
     }},
     worth: { years: [y], notes: {}, lines: [
@@ -153,7 +158,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.115" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.116" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -566,7 +571,6 @@ function versionLockstep() {
     if (!out.keyboard || out.keyboard.skipped) fail.push("keyboard viewport " + JSON.stringify(out.keyboard));
     else {
       if (out.keyboard.coveredField || out.keyboard.coveredSave) fail.push("keyboard covered field or save " + JSON.stringify(out.keyboard));
-      if (out.keyboard.maxStep > 90) fail.push("keyboard fit snapped " + out.keyboard.maxStep);
     }
     await snap("07-keyboard-field-and-save.png");
 
@@ -599,15 +603,19 @@ function versionLockstep() {
         top: top0,
         remPx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontSize),
         remWeight: getComputedStyle(document.querySelector(".ed-picker .ed-rem-amt")).fontWeight,
-        namePx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontSize),
-        nameWeight: getComputedStyle(document.querySelector(".ed-picker .ed-item > span:first-child")).fontWeight,
+        namePx: parseFloat(getComputedStyle(document.querySelector(".ed-picker .ed-item-label")).fontSize),
+        nameWeight: getComputedStyle(document.querySelector(".ed-picker .ed-item-label")).fontWeight,
+        nameWrap: getComputedStyle(document.querySelector(".ed-picker .ed-item-label")).whiteSpace,
+        nameCut: getComputedStyle(document.querySelector(".ed-picker .ed-item-label")).textOverflow,
+        remUnder: document.querySelector(".ed-picker .ed-rem").getBoundingClientRect().top >= document.querySelector(".ed-picker .ed-item-label").getBoundingClientRect().bottom - 2,
+        tickRight: document.querySelector(".ed-picker .ed-tick").getBoundingClientRect().left >= document.querySelector(".ed-picker .ed-item-label").getBoundingClientRect().right - 2,
         remColor: getComputedStyle(document.querySelector(".ed-picker .ed-rem")).color,
         hintColor: getComputedStyle(document.querySelector(".ed-picker-hint")).color
       };
     })()`);
     await snap("08-budget-picker-checks.png");
     if (!out.splitPicker || out.splitPicker.n < 2 || !out.splitPicker.boxes || /split across/i.test(out.splitPicker.hint)) fail.push("picker checks " + JSON.stringify(out.splitPicker));
-    if (!out.splitPicker || !(out.splitPicker.remPx >= 16) || Number(out.splitPicker.remWeight) >= 600 || Math.abs(out.splitPicker.namePx - out.splitPicker.remPx) > 0.6 || Number(out.splitPicker.nameWeight) >= 600 || out.splitPicker.remColor === out.splitPicker.hintColor) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
+    if (!out.splitPicker || !(out.splitPicker.remPx <= 13) || !(out.splitPicker.namePx >= 15) || Number(out.splitPicker.remWeight) >= 600 || Number(out.splitPicker.nameWeight) >= 600 || out.splitPicker.nameWrap === "nowrap" || out.splitPicker.nameCut === "ellipsis" || !out.splitPicker.remUnder || !out.splitPicker.tickRight) fail.push("picker remaining type " + JSON.stringify(out.splitPicker));
     out.splitCheck = await cdp.eval(`(async () => {
       const sh = document.querySelector("form.sheet.ed-add");
       const a = sh.getBoundingClientRect().top;
@@ -801,7 +809,7 @@ function versionLockstep() {
     out.merchKeep = await cdp.eval(`(async () => {
       document.querySelector('[data-ed="picker"]').click();
       await new Promise((r) => setTimeout(r, 80));
-      const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item > span") || {}).textContent || "").trim() === "Rent");
+      const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item-label") || {}).textContent || "").trim() === "Rent");
       row.querySelector("[data-ed='tick']").click();
       await new Promise((r) => setTimeout(r, 40));
       document.querySelector("[data-ed='picker-done']").click();
@@ -1016,6 +1024,147 @@ function versionLockstep() {
       out.exampleCaption = !!(exampleCaption && exampleCaption.indexOf("planned income + paycheck deductions") >= 0 && exampleCaption.indexOf("$5,800") >= 0 && exampleCaption.indexOf("may already include") < 0);
       if (!out.exampleCaption) fail.push("example caption " + exampleCaption);
     }
+
+    async function sheetStable(height, keyboard, shotName) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: height, deviceScaleFactor: 1, mobile: true });
+      await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+      await sleep(1500);
+      await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+      await sleep(300);
+      const info = await cdp.eval(`(async () => {
+        const vis = ${keyboard};
+        const fake = { height: vis, width: 390, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0, addEventListener() {}, removeEventListener() {} };
+        try { Object.defineProperty(window, "visualViewport", { configurable: true, get() { return fake; } }); } catch (e) {}
+        const date = () => document.querySelector('[data-ed-in="date"]').closest(".ed-row").getBoundingClientRect();
+        const pay = document.querySelector('[data-ed-in="payee"]');
+        const box = () => ({ date: date().top, pay: pay.getBoundingClientRect().top, sheet: document.querySelector("form.sheet.ed-add").getBoundingClientRect().top });
+        pay.focus();
+        pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 80));
+        pay.blur();
+        await new Promise((r) => setTimeout(r, 80));
+        const before = box();
+        try { pay.focus({ preventScroll: true }); } catch (e) { pay.focus(); }
+        pay.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 180));
+        const mid = box();
+        pay.value = "Tr";
+        pay.dispatchEvent(new Event("input", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 80));
+        const d = date();
+        const sh = document.querySelector("form.sheet.ed-add").getBoundingClientRect();
+        const item = document.querySelector(".ed-items, .ed-budget-card").getBoundingClientRect();
+        const after = box();
+        return {
+          before, mid, after,
+          dateTop: Math.round(d.top), dateBottom: Math.round(d.bottom),
+          sheetTop: Math.round(sh.top), sheetBottom: Math.round(sh.bottom),
+          itemTop: Math.round(item.top), itemBottom: Math.round(item.bottom),
+          vis,
+          dateVisible: d.top >= sh.top - 1 && d.bottom <= Math.min(sh.bottom, vis) + 1,
+          itemVisible: item.top >= sh.top - 1 && item.bottom <= Math.min(sh.bottom, vis) + 1,
+          still: Math.abs(before.date - mid.date) <= 1 && Math.abs(mid.date - after.date) <= 1 && Math.abs(before.sheet - after.sheet) <= 1 && Math.abs(before.pay - after.pay) <= 1
+        };
+      })()`);
+      if (shotName) await snap(shotName);
+      return info;
+    }
+    out.stable844 = await sheetStable(844, 508, SHOTS ? "add-keyboard-390x844.png" : "");
+    out.stable667 = await sheetStable(667, 336, SHOTS ? "add-keyboard-390x667.png" : "");
+    if (!out.stable844 || !out.stable844.dateVisible || !out.stable844.itemVisible || !out.stable844.still) fail.push("sheet moved at 844 " + JSON.stringify(out.stable844));
+    if (!out.stable667 || !out.stable667.dateVisible || !out.stable667.itemVisible || !out.stable667.still) fail.push("sheet moved at 667 " + JSON.stringify(out.stable667));
+    await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+    await sleep(200);
+    out.longNames = await cdp.eval(`(() => {
+      const rows = [...document.querySelectorAll(".ed-picker .ed-item-row")];
+      const find = (name) => rows.find((r) => ((r.querySelector(".ed-item-label") || {}).textContent || "") === name);
+      const pack = (name) => {
+        const row = find(name);
+        if (!row) return null;
+        const label = row.querySelector(".ed-item-label");
+        const rem = row.querySelector(".ed-rem");
+        const tick = row.querySelector(".ed-tick");
+        const ls = getComputedStyle(label);
+        return {
+          text: label.textContent,
+          cut: ls.textOverflow,
+          wrap: ls.whiteSpace,
+          full: label.scrollHeight <= label.clientHeight + 1 || ls.whiteSpace !== "nowrap",
+          rem: rem.textContent.trim(),
+          rust: rem.classList.contains("rust"),
+          remUnder: rem.getBoundingClientRect().top >= label.getBoundingClientRect().bottom - 2,
+          tickRight: tick.getBoundingClientRect().left >= label.getBoundingClientRect().right - 2
+        };
+      };
+      return { fun: pack("Fun Money"), fund: pack("Emergency Fund") };
+    })()`);
+    if (SHOTS) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+      await sleep(200);
+      await cdp.eval(`(() => {
+        const row = [...document.querySelectorAll(".ed-picker .ed-item-row")].find((r) => ((r.querySelector(".ed-item-label") || {}).textContent || "") === "Emergency Fund");
+        if (row) row.scrollIntoView({ block: "center" });
+      })()`);
+      await sleep(100);
+      await snap("picker-long-names.png");
+    }
+    if (!out.longNames || !out.longNames.fun || !out.longNames.fund || out.longNames.fun.cut === "ellipsis" || out.longNames.fund.cut === "ellipsis" || out.longNames.fun.wrap === "nowrap" || !out.longNames.fun.remUnder || !out.longNames.fund.remUnder || !out.longNames.fun.tickRight || !out.longNames.fund.rust) fail.push("long picker names " + JSON.stringify(out.longNames));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector(".bar-add-tx").click()`);
+    await sleep(300);
+    const rowTops = () => cdp.eval(`(() => {
+      const row = (sel) => { const el = document.querySelector(sel); const r = el.getBoundingClientRect(); return Math.round(r.top); };
+      return {
+        date: row('[data-ed-in="date"]'),
+        amount: row(".ed-amt"),
+        merchant: row('[data-ed-in="payee"]'),
+        item: row(".ed-itemsec")
+      };
+    })()`);
+    const sameTops = (a, b) => a && b && ["date", "amount", "merchant", "item"].every((k) => Math.abs(a[k] - b[k]) <= 1);
+    await cdp.eval(`["2","0","0","0"].forEach((k) => document.querySelector('[data-ed="key"][data-k="' + k + '"]').click())`);
+    await sleep(40);
+    const amountBefore = await rowTops();
+    if (SHOTS) await snap("finish-amount-before.png");
+    await cdp.eval(`document.querySelector('[data-ed="next"]').click()`);
+    await sleep(320);
+    const amountAfter = await rowTops();
+    if (SHOTS) await snap("finish-amount-after.png");
+    await cdp.eval(`(() => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.focus();
+      pay.value = "Tr";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await sleep(80);
+    const merchantBefore = await rowTops();
+    if (SHOTS) await snap("finish-merchant-before.png");
+    await cdp.eval(`(() => {
+      const pay = document.querySelector('[data-ed-in="payee"]');
+      pay.value = "Trader Joe's";
+      pay.dispatchEvent(new Event("input", { bubbles: true }));
+      pay.blur();
+    })()`);
+    await sleep(80);
+    const merchantAfter = await rowTops();
+    if (SHOTS) await snap("finish-merchant-after.png");
+    const pickerBefore = await rowTops();
+    if (SHOTS) await snap("finish-picker-before.png");
+    await cdp.eval(`document.querySelector('[data-ed="picker"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector(".ed-picker [data-ed='tick']").click()`);
+    await sleep(40);
+    await cdp.eval(`document.querySelector("[data-ed='picker-done']").click()`);
+    await sleep(280);
+    const pickerAfter = await rowTops();
+    if (SHOTS) await snap("finish-picker-after.png");
+    out.finish = { amountBefore, amountAfter, merchantBefore, merchantAfter, pickerBefore, pickerAfter };
+    if (!sameTops(amountBefore, amountAfter)) fail.push("amount finish moved " + JSON.stringify(out.finish));
+    if (!sameTops(merchantBefore, merchantAfter)) fail.push("merchant finish moved " + JSON.stringify(out.finish));
+    if (!sameTops(pickerBefore, pickerAfter)) fail.push("picker finish moved " + JSON.stringify(out.finish));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
