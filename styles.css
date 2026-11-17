@@ -5351,6 +5351,10 @@ body.kb-fit .screen{padding-bottom:0}
 /* DRAFT next7: Pay stubs door */
 .stats-vault-row{display:flex;gap:8px}
 .stats-vault-row .stats-vault{flex:1;position:relative}
+.dash-wrap-door{display:flex;align-items:center;gap:12px;width:100%;margin-top:8px;min-height:60px;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.dash-wrap-door .ar-txt{flex:1;display:flex;flex-direction:column;gap:2px}
+.dash-wrap-door .caption{margin:0}
+.dash-wrap-door .chev{color:var(--ink);opacity:.5;font-size:20px}
 .stats-paystubs.on{background:var(--ink);color:var(--paper)}
 .paystub-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7c5cff;margin-left:6px;vertical-align:middle}
 .it-nostub{margin:10px 16px;padding:14px 16px}

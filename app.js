@@ -2822,6 +2822,7 @@
       ">" + esc(ANNUAL_REVIEW_NAME) + "</button>" +
       "</div>" +
       '<div class="stats-vault-row"><button class="stats-vault" type="button" data-act="stats-door" data-door="vault">Vault</button></div>' +
+      (active === "dash" ? dashWrapDoorHtml() : "") +
       (inReview && active !== "review" ? '<button type="button" class="ar-back" data-act="stats-door" data-door="review">‹ ' + esc(ANNUAL_REVIEW_NAME) + "</button>" : "") +
       "</div>";
   }
@@ -2829,12 +2830,12 @@
   function renderAnnualReview() {
     var stubs = confirmedPayStubs().length, c = state.compensation || {};
     var payData = stubs > 0 || !!c.trueManual;
-    var wrapY = annualWrapYear(), q = quarterAvail(), lastQ = q[q.length - 1];
+    var wrapY = annualWrapYear();
     var row = function (attrs, title, cap, quiet) {
       return '<li><button type="button" class="ar-row' + (quiet ? " ar-quiet" : "") + '" ' + attrs + '><span class="ar-txt"><strong>' + title + '</strong><span class="caption">' + cap + '</span></span><span class="chev" aria-hidden="true">›</span></button></li>';
     };
+    /* The year recap stays here. A closed quarter lives under Vault on the Dashboard. */
     var wrapRow = wrapY != null ? row('data-act="open-wrapped"', "Wrapped", "Your " + wrapY + " recap, story style", false)
-      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", false)
       : (function () {
         /* Not open yet: a quiet progress bar from Jan 1 to Dec 25 of this year (not tappable). */
         var t = dashToday(), y = t.getFullYear();
@@ -7709,17 +7710,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (m === 1) return t.getFullYear() - 1;
     return null;
   }
+  /* The newest closed quarter. The year recap stays on Annual review. */
+  function latestQuarterWrap() {
+    var last = quarterAvail().slice(-1)[0];
+    if (!last) return null;
+    return { act: "open-quarter", title: "Wrapped", caption: "Q" + last.q + " " + last.year + " check-in" };
+  }
+  function dashWrapDoorHtml() {
+    var item = latestQuarterWrap();
+    if (!item) return "";
+    return '<button type="button" class="dash-wrap-door" data-act="' + item.act + '"><span class="ar-txt"><strong>' + esc(item.title) + '</strong><span class="caption">' + esc(item.caption) + '</span></span><span class="chev" aria-hidden="true">›</span></button>';
+  }
   function wrapEntryHtml() {
     state.wrapCadence = "year";
-    var Y = annualWrapYear(), av = quarterAvail(), last = av[av.length - 1];
-    if (Y == null && !last) return "";
+    var Y = annualWrapYear();
+    /* Quarterly check-in is the door under Vault, so this card is only the year recap. */
+    if (Y == null) return "";
     return '<section class="card insight-card wrap-tile" id="dash-wrapped"><p class="kicker">Wrapped</p>' +
       '<div class="wrap-tile-btns">' +
-      (Y != null ? '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
-        '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" : "") +
-      (last ? '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>Q' + last.q + " " + last.year + "</strong>" +
-        '<span class="caption">Quarterly check-in</span></button>' : "") + "</div>" +
-      '<p class="plain-line">A quick, swipeable recap of your money' + (Y != null ? ", including how you compare with people your age." : ".") + "</p></section>";
+      '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
+      '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button></div>" +
+      '<p class="plain-line">A quick, swipeable recap of your money, including how you compare with people your age.</p></section>';
   }
 
   /* One Wrapped page per spending category for the year.
@@ -18836,7 +18847,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.122";
+  var APP_VERSION = "37.5.123";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";

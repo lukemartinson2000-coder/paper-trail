@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.122. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.123. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.122" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.123" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1450,16 +1450,23 @@ function versionLockstep() {
     await sleep(200);
     await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
     await sleep(350);
-    await cdp.eval(`document.querySelector('[data-act="stats-door"][data-door="review"]').click()`);
-    await sleep(300);
-    out.q3entry = await cdp.eval(`(() => {
-      const row = document.querySelector('[data-act="open-quarter"]');
-      return { text: row ? row.textContent.replace(/\\s+/g, " ").trim() : "", night: document.body.classList.contains("night") };
+    out.dashWrap = await cdp.eval(`(() => {
+      const vault = document.querySelector(".stats-vault-row");
+      const door = document.querySelector(".dash-wrap-door");
+      const next = vault ? vault.nextElementSibling : null;
+      return {
+        caption: door ? door.textContent.replace(/\\s+/g, " ").trim() : "",
+        act: door ? door.getAttribute("data-act") : "",
+        underVault: !!(door && next === door),
+        dup: !!document.querySelector("#dash-wrapped")
+      };
     })()`);
-    if (SHOTS) await snap("q3-entry.png");
-    if (!out.q3entry || out.q3entry.text.indexOf("Q3 2026") < 0 || !out.q3entry.night) fail.push("q3 entry " + JSON.stringify(out.q3entry));
-    await cdp.eval(`document.querySelector('[data-act="open-quarter"]').click()`);
+    if (SHOTS) await snap("dash-wrap.png");
+    if (!out.dashWrap || out.dashWrap.caption.indexOf("Q3 2026 check-in") < 0 || out.dashWrap.act !== "open-quarter" || !out.dashWrap.underVault || out.dashWrap.dup) fail.push("dashboard wrap " + JSON.stringify(out.dashWrap));
+    await cdp.eval(`document.querySelector(".dash-wrap-door").click()`);
     await sleep(300);
+    out.dashWrapOpen = await cdp.eval(`(document.querySelector(".wrap-cadence-label") || {}).textContent || ""`);
+    if (out.dashWrapOpen.indexOf("Quarterly") < 0) fail.push("dashboard wrap open " + JSON.stringify(out.dashWrapOpen));
     for (let i = 0; i < 8 && !(await cdp.eval(`!!document.querySelector(".fridge-card")`)); i++) {
       await cdp.eval(`(() => { var n = document.querySelector('[data-act="wrap-next"]'); if (n) n.click(); })()`);
       await sleep(180);
@@ -1473,6 +1480,18 @@ function versionLockstep() {
 
     await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
     await sleep(250);
+    await cdp.eval(`document.querySelector('[data-act="stats-door"][data-door="review"]').click()`);
+    await sleep(300);
+    out.annualRow = await cdp.eval(`(() => {
+      const row = document.querySelector(".ar-wrap-load, [data-act='open-wrapped']");
+      return {
+        text: row ? row.textContent.replace(/\\s+/g, " ").trim() : "",
+        quarter: !!document.querySelector('[data-act="open-quarter"]'),
+        night: document.body.classList.contains("night")
+      };
+    })()`);
+    if (SHOTS) await snap("annual-wrap.png");
+    if (!out.annualRow || out.annualRow.text.indexOf("opens Dec 25") < 0 || out.annualRow.quarter || !out.annualRow.night) fail.push("annual row " + JSON.stringify(out.annualRow));
     await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
     await sleep(200);
     await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
