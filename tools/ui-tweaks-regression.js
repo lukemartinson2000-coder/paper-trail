@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.120. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.123. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.120" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.123" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1325,6 +1325,239 @@ function versionLockstep() {
     await sleep(80);
     out.autoKeep = await cdp.eval(`(() => (document.querySelector(".ed-split-name") || {}).textContent || "")()`);
     if (!out.autoKeep || String(out.autoKeep).trim() !== "Rent") fail.push("kept user pick " + JSON.stringify(out.autoKeep));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const m = document.getElementById("modal"); if (m) { m.hidden = true; m.innerHTML = ""; } document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); document.querySelector('[data-tab="budget"]').click(); })()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector(".sav-pay-link").click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="it-true-manual"]').click()`);
+    await sleep(250);
+    function segBox() {
+      return cdp.eval(`(() => {
+        function box(el) {
+          if (!el) return null;
+          const t = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          const border = parseFloat(cs.borderTopWidth) || 0;
+          const pad = parseFloat(cs.paddingTop) || 0;
+          const radius = parseFloat(cs.borderRadius) || 0;
+          const btns = [...el.querySelectorAll("button")];
+          const rs = btns.map((b) => b.getBoundingClientRect());
+          const bcs = btns.map((b) => getComputedStyle(b));
+          const inset = rs.length ? {
+            l: rs[0].left - t.left - border,
+            r: t.right - rs[rs.length - 1].right - border,
+            t: rs[0].top - t.top - border,
+            b: t.bottom - rs[0].bottom - border
+          } : null;
+          const input = el.closest(".it-amt-row") && el.closest(".it-amt-row").querySelector('input[type="text"]');
+          const ir = input ? input.getBoundingClientRect() : null;
+          return {
+            h: Math.round(t.height * 10) / 10,
+            inputH: ir ? Math.round(ir.height * 10) / 10 : null,
+            w: Math.round(t.width * 10) / 10,
+            radius,
+            pad,
+            border,
+            inner: bcs.length ? parseFloat(bcs[0].borderRadius) : null,
+            btnBorder: bcs.length ? parseFloat(bcs[0].borderTopWidth) : null,
+            inset,
+            widths: rs.map((r) => Math.round(r.width * 10) / 10),
+            labels: btns.map((b) => b.textContent),
+            clipped: btns.some((b) => b.scrollWidth > b.clientWidth + 1),
+            on: (btns.find((b) => b.classList.contains("on")) || {}).textContent || ""
+          };
+        }
+        const unit = document.querySelector(".it-amt-row .it-unit-toggle");
+        const tax = document.querySelector(".gp-tax .it-unit-toggle");
+        const row = document.querySelector(".it-amt-row");
+        const tops = (sel) => { const el = document.querySelector(sel); return el ? Math.round(el.getBoundingClientRect().top) : null; };
+        return {
+          step: (document.querySelector(".gp-step") || {}).textContent || "",
+          unit: box(unit),
+          tax: box(tax),
+          rowW: row ? Math.round(row.getBoundingClientRect().width * 10) / 10 : null,
+          help: (document.querySelector(".gp-tax-help") || {}).textContent || "",
+          label: (document.querySelector(".gp-tax-label") || {}).textContent || "",
+          tops: {
+            step: tops(".gp-step"),
+            account: tops("select"),
+            amt: tops(".it-amt-row input"),
+            unit: tops(".it-amt-row .it-unit-toggle"),
+            tax: tops(".gp-tax .it-unit-toggle"),
+            help: tops(".gp-tax-help"),
+            check: tops(".gp-check"),
+            next: tops("[data-act='gp-next']")
+          }
+        };
+      })()`);
+    }
+    function insetOk(seg) {
+      if (!seg || !seg.inset) return false;
+      const n = seg.pad;
+      return ["l", "r", "t", "b"].every((k) => Math.abs(seg.inset[k] - n) <= 1);
+    }
+    function radiusOk(seg) {
+      if (!seg) return false;
+      return Math.abs(seg.inner - (seg.radius - seg.pad - seg.border)) <= 0.6 && seg.btnBorder === 0;
+    }
+    out.payIncome = await segBox();
+    const inc = out.payIncome && out.payIncome.unit;
+    if (!inc || inc.inputH == null || Math.abs(inc.h - inc.inputH) > 1 || !insetOk(inc) || !radiusOk(inc) || inc.clipped || inc.on !== "$ a year") fail.push("income unit toggle " + JSON.stringify(inc));
+    await cdp.eval(`(() => { const s = document.querySelector('[name="salary"]'); s.value = "90000"; })()`);
+    await cdp.eval(`document.querySelector('[data-act="gp-next"]').click()`);
+    await sleep(200);
+    out.payPre = await segBox();
+    if (SHOTS) await snap("pay-pretax.png");
+    const pre = out.payPre;
+    const tax = pre && pre.tax;
+    const unit = pre && pre.unit;
+    const halves = tax && tax.widths.length === 2 && Math.abs(tax.widths[0] - tax.widths[1]) <= 1;
+    const full = tax && pre.rowW && Math.abs(tax.w - pre.rowW) <= 2;
+    if (!pre || !/Retirement/.test(pre.step) || pre.label !== "Tax treatment" || pre.help !== "Comes out before taxes, lowers taxable pay." || !unit || Math.abs(unit.h - unit.inputH) > 1 || !insetOk(unit) || !radiusOk(unit) || unit.clipped || (unit.labels || []).join("|") !== "$ a year|% of yearly gross" || unit.on !== "$ a year" || !tax || tax.clipped || !halves || !full || !insetOk(tax) || !radiusOk(tax) || tax.on !== "Pre-tax") fail.push("retirement pretax " + JSON.stringify(pre));
+    const beforeToggle = pre.tops;
+    await cdp.eval(`document.querySelector('.gp-tax [data-tax="post"]').click()`);
+    await sleep(60);
+    out.payPost = await segBox();
+    if (SHOTS) await snap("pay-aftertax.png");
+    const moved = beforeToggle && out.payPost && out.payPost.tops && Object.keys(beforeToggle).filter((k) => beforeToggle[k] != null && Math.abs(beforeToggle[k] - out.payPost.tops[k]) > 1);
+    if (!out.payPost || out.payPost.help !== "Comes out after taxes (Roth-style)." || out.payPost.tax.on !== "After-tax" || (moved && moved.length)) fail.push("after-tax toggle " + JSON.stringify({ help: out.payPost && out.payPost.help, on: out.payPost && out.payPost.tax && out.payPost.tax.on, moved, before: beforeToggle, after: out.payPost && out.payPost.tops }));
+    await cdp.eval(`(() => { const s = document.querySelector('select[name="retType0"]'); s.value = "hsa"; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+    await sleep(200);
+    out.payHsa = await segBox();
+    if (SHOTS) await snap("pay-hsa.png");
+    const hsa = out.payHsa;
+    const hsaName = await cdp.eval(`(document.querySelector('select[name="retType0"]') || {}).value || ""`);
+    if (hsaName !== "hsa" || !hsa || !hsa.unit || Math.abs(hsa.unit.h - hsa.unit.inputH) > 1 || !insetOk(hsa.unit) || !radiusOk(hsa.unit) || hsa.unit.clipped || hsa.unit.on !== "$ a year" || hsa.tax.on !== "Pre-tax") fail.push("hsa toggle " + JSON.stringify({ hsaName, hsa }));
+
+    out.quarterMath = await cdp.eval(`(() => {
+      const t = PaperTrailPreview.seasonFxTiming();
+      const p = (ms) => PaperTrailPreview.seasonFxPhase(ms);
+      const list = PaperTrailPreview.quarterList();
+      return { t, p0: p(0), p4: p(4000), p20: p(20000), p36: p(36000), p40: p(40000), list };
+    })()`);
+    const qm = out.quarterMath;
+    const lastQ = qm && qm.list && qm.list[qm.list.length - 1];
+    if (!qm || qm.t.normalMs !== 5000 || qm.t.slowMs !== 30000 || qm.p0.rate !== 1 || qm.p4.rate !== 1 || Math.abs(qm.p20.rate - qm.t.slowRate) > 0.02 || qm.p20.fade || !qm.p40.dead || !lastQ || lastQ.year !== 2026 || lastQ.q !== 3) fail.push("quarter or fall timing " + JSON.stringify(qm));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const x = document.querySelector(".gp-sheet .sheet-x"); if (x) x.click(); })()`);
+    await sleep(300);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="dark"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+    await sleep(350);
+    out.dashWrap = await cdp.eval(`(() => {
+      const vault = document.querySelector(".stats-vault-row");
+      const door = document.querySelector(".dash-wrap-door");
+      const next = vault ? vault.nextElementSibling : null;
+      return {
+        caption: door ? door.textContent.replace(/\\s+/g, " ").trim() : "",
+        act: door ? door.getAttribute("data-act") : "",
+        underVault: !!(door && next === door),
+        dup: !!document.querySelector("#dash-wrapped")
+      };
+    })()`);
+    if (SHOTS) await snap("dash-wrap.png");
+    if (!out.dashWrap || out.dashWrap.caption.indexOf("Q3 2026 check-in") < 0 || out.dashWrap.act !== "open-quarter" || !out.dashWrap.underVault || out.dashWrap.dup) fail.push("dashboard wrap " + JSON.stringify(out.dashWrap));
+    await cdp.eval(`document.querySelector(".dash-wrap-door").click()`);
+    await sleep(300);
+    out.dashWrapOpen = await cdp.eval(`(document.querySelector(".wrap-cadence-label") || {}).textContent || ""`);
+    if (out.dashWrapOpen.indexOf("Quarterly") < 0) fail.push("dashboard wrap open " + JSON.stringify(out.dashWrapOpen));
+    for (let i = 0; i < 8 && !(await cdp.eval(`!!document.querySelector(".fridge-card")`)); i++) {
+      await cdp.eval(`(() => { var n = document.querySelector('[data-act="wrap-next"]'); if (n) n.click(); })()`);
+      await sleep(180);
+    }
+    out.q3card = await cdp.eval(`(() => {
+      const card = document.querySelector(".fridge-card");
+      return { period: card ? (card.querySelector(".fc-period") || {}).textContent : "", label: card ? card.getAttribute("aria-label") : "", night: document.body.classList.contains("night") };
+    })()`);
+    if (SHOTS) await snap("q3-fridge.png");
+    if (!out.q3card || out.q3card.period !== "Q3 2026" || !out.q3card.night) fail.push("q3 fridge " + JSON.stringify(out.q3card));
+
+    await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-act="stats-door"][data-door="review"]').click()`);
+    await sleep(300);
+    out.annualRow = await cdp.eval(`(() => {
+      const row = document.querySelector(".ar-wrap-load, [data-act='open-wrapped']");
+      return {
+        text: row ? row.textContent.replace(/\\s+/g, " ").trim() : "",
+        quarter: !!document.querySelector('[data-act="open-quarter"]'),
+        night: document.body.classList.contains("night")
+      };
+    })()`);
+    if (SHOTS) await snap("annual-wrap.png");
+    if (!out.annualRow || out.annualRow.text.indexOf("opens Dec 25") < 0 || out.annualRow.quarter || !out.annualRow.night) fail.push("annual row " + JSON.stringify(out.annualRow));
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    const fxStart = Date.now();
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(700);
+    async function fxNow() {
+      return cdp.eval(`(() => {
+        const fx = document.getElementById("season-fx");
+        const p = document.querySelector(".season-fx-p");
+        const cs = p ? getComputedStyle(p) : null;
+        return {
+          kind: fx ? fx.getAttribute("data-kind") : "",
+          n: document.querySelectorAll(".season-fx-p").length,
+          seen: fx ? Number(fx.getAttribute("data-fx-seen")) : null,
+          rate: fx ? Number(fx.getAttribute("data-fx-rate")) : null,
+          dead: fx ? fx.classList.contains("fx-dead") : null,
+          anim: cs ? cs.animationName : "",
+          play: p && p.getAnimations ? ((p.getAnimations()[0] || {}).playbackRate) : null
+        };
+      })()`);
+    }
+    out.fxEarly = await fxNow();
+    if (SHOTS) await snap("fx-0to5.png");
+    const seenBeforeTab = out.fxEarly && out.fxEarly.seen;
+    await cdp.eval(`document.querySelector('[data-tab="spend"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(400);
+    out.fxAfterTab = await fxNow();
+    if (!out.fxEarly || out.fxEarly.kind !== "leaves" || out.fxEarly.n < 8 || !(out.fxEarly.rate > 0.9) || out.fxEarly.dead || !out.fxAfterTab || out.fxAfterTab.kind !== "leaves" || out.fxAfterTab.seen < seenBeforeTab || out.fxAfterTab.n !== out.fxEarly.n) fail.push("fall start " + JSON.stringify({ early: out.fxEarly, tab: out.fxAfterTab }));
+    const wait20 = 20000 - (Date.now() - fxStart);
+    if (wait20 > 0) await sleep(wait20);
+    out.fxSlow = await fxNow();
+    if (SHOTS) await snap("fx-20s.png");
+    if (!out.fxSlow || out.fxSlow.dead || !(out.fxSlow.rate < 0.45) || !(out.fxSlow.rate > 0.15) || out.fxSlow.anim === "none" || !(out.fxSlow.play < 0.45)) fail.push("fall slow " + JSON.stringify(out.fxSlow));
+    const wait38 = 38500 - (Date.now() - fxStart);
+    if (wait38 > 0) await sleep(wait38);
+    out.fxStop = await fxNow();
+    if (SHOTS) await snap("fx-stopped.png");
+    if (!out.fxStop || !out.fxStop.dead || out.fxStop.rate !== 0 || out.fxStop.anim !== "none" || out.fxStop.play != null) fail.push("fall stopped " + JSON.stringify(out.fxStop));
+    if (SHOTS) {
+      try {
+        const dir = path.join(SHOTS, "fx-seq");
+        fs.mkdirSync(dir, { recursive: true });
+        ["fx-0to5.png", "fx-20s.png", "fx-stopped.png"].forEach((name, i) => {
+          fs.copyFileSync(path.join(SHOTS, name), path.join(dir, "f" + i + ".png"));
+        });
+        execFileSync("ffmpeg", ["-y", "-framerate", "1", "-i", path.join(dir, "f%d.png"),
+          "-vf", "fps=1,scale=390:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse",
+          path.join(SHOTS, "fx-fall.gif")], { stdio: "ignore" });
+      } catch (e) { out.fxGifError = String(e && e.message || e); }
+    }
+
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(400);
+    out.fxReduce = await fxNow();
+    if (!out.fxReduce || out.fxReduce.kind !== "leaves" || out.fxReduce.n < 8 || out.fxReduce.anim !== "none" || out.fxReduce.play != null) fail.push("reduced motion " + JSON.stringify(out.fxReduce));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));

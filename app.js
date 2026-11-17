@@ -2822,6 +2822,7 @@
       ">" + esc(ANNUAL_REVIEW_NAME) + "</button>" +
       "</div>" +
       '<div class="stats-vault-row"><button class="stats-vault" type="button" data-act="stats-door" data-door="vault">Vault</button></div>' +
+      (active === "dash" ? dashWrapDoorHtml() : "") +
       (inReview && active !== "review" ? '<button type="button" class="ar-back" data-act="stats-door" data-door="review">‹ ' + esc(ANNUAL_REVIEW_NAME) + "</button>" : "") +
       "</div>";
   }
@@ -2829,12 +2830,12 @@
   function renderAnnualReview() {
     var stubs = confirmedPayStubs().length, c = state.compensation || {};
     var payData = stubs > 0 || !!c.trueManual;
-    var wrapY = annualWrapYear(), q = quarterAvail(), lastQ = q[q.length - 1];
+    var wrapY = annualWrapYear();
     var row = function (attrs, title, cap, quiet) {
       return '<li><button type="button" class="ar-row' + (quiet ? " ar-quiet" : "") + '" ' + attrs + '><span class="ar-txt"><strong>' + title + '</strong><span class="caption">' + cap + '</span></span><span class="chev" aria-hidden="true">›</span></button></li>';
     };
+    /* The year recap stays here. A closed quarter lives under Vault on the Dashboard. */
     var wrapRow = wrapY != null ? row('data-act="open-wrapped"', "Wrapped", "Your " + wrapY + " recap, story style", false)
-      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", true)
       : (function () {
         /* Not open yet: a quiet progress bar from Jan 1 to Dec 25 of this year (not tappable). */
         var t = dashToday(), y = t.getFullYear();
@@ -7709,17 +7710,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (m === 1) return t.getFullYear() - 1;
     return null;
   }
+  /* The newest closed quarter. The year recap stays on Annual review. */
+  function latestQuarterWrap() {
+    var last = quarterAvail().slice(-1)[0];
+    if (!last) return null;
+    return { act: "open-quarter", title: "Wrapped", caption: "Q" + last.q + " " + last.year + " check-in" };
+  }
+  function dashWrapDoorHtml() {
+    var item = latestQuarterWrap();
+    if (!item) return "";
+    return '<button type="button" class="dash-wrap-door" data-act="' + item.act + '"><span class="ar-txt"><strong>' + esc(item.title) + '</strong><span class="caption">' + esc(item.caption) + '</span></span><span class="chev" aria-hidden="true">›</span></button>';
+  }
   function wrapEntryHtml() {
     state.wrapCadence = "year";
-    var Y = annualWrapYear(), av = quarterAvail(), last = av[av.length - 1];
-    if (Y == null && !last) return "";
+    var Y = annualWrapYear();
+    /* Quarterly check-in is the door under Vault, so this card is only the year recap. */
+    if (Y == null) return "";
     return '<section class="card insight-card wrap-tile" id="dash-wrapped"><p class="kicker">Wrapped</p>' +
       '<div class="wrap-tile-btns">' +
-      (Y != null ? '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
-        '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" : "") +
-      (last ? '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>Q' + last.q + " " + last.year + "</strong>" +
-        '<span class="caption">Quarterly check-in</span></button>' : "") + "</div>" +
-      '<p class="plain-line">A quick, swipeable recap of your money' + (Y != null ? ", including how you compare with people your age." : ".") + "</p></section>";
+      '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
+      '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button></div>" +
+      '<p class="plain-line">A quick, swipeable recap of your money, including how you compare with people your age.</p></section>';
   }
 
   /* One Wrapped page per spending category for the year.
@@ -8315,14 +8326,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = Math.round(now * 100) - Math.round(prior * 100);
     return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
   }
-  /* v37.5.73 (owner): a quarter's check-in exists only once the quarter is closed — all 3 months wrapped up. */
-  function quarterClosed(year, q) {
-    for (var m = q * 3 - 2; m <= q * 3; m++) { var rec = state.months && state.months[ymKey(year, m)]; if (!rec || !rec.closedAt) return false; }
-    return true;
+  /* A quarter's check-in opens the day after that quarter ends. Wrapping up each
+   * month is separate (that earns the $0 stamp) and is not required to open the check-in. */
+  function quarterEnded(year, q) {
+    var t = dashToday();
+    if (t.getFullYear() > year) return true;
+    if (t.getFullYear() < year) return false;
+    return (t.getMonth() + 1) > q * 3;
   }
   function quarterAvail() {
     var t = dashToday(), Y = t.getFullYear(), out = [];
-    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterClosed(yy, q)) out.push({ year: yy, q: q, done: true }); });
+    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterEnded(yy, q)) out.push({ year: yy, q: q, done: true }); });
     return out.slice(-4);
   }
   function quarterBounds(year, q, toDate) {
@@ -11497,11 +11511,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" data-act="gp-unit" data-u="pct" aria-pressed="' + (!!pct) + '"' + (pct ? ' class="on"' : "") + ">" + pctLabel + "</button></span>" +
       '<input type="hidden" name="' + name + '" value="' + (pct ? "pct" : "usd") + '">';
   }
+  function gpTaxHelp(tax) {
+    if (tax === "post") return "Comes out after taxes (Roth-style).";
+    if (tax === "pre") return "Comes out before taxes, lowers taxable pay.";
+    return "Choose pre-tax or after-tax.";
+  }
   function gpTaxHtml(name, tax, aria) {
-    return '<input type="hidden" name="' + name + '" value="' + (tax === "post" ? "post" : tax === "pre" ? "pre" : "") + '">' +
-      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria) + '">' +
-      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (tax === "pre") + '"' + (tax === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
-      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (tax === "post") + '"' + (tax === "post" ? ' class="on"' : "") + ">After-tax</button></span>";
+    var which = tax === "post" ? "post" : tax === "pre" ? "pre" : "";
+    return '<div class="gp-tax"><span class="gp-tax-label">Tax treatment</span>' +
+      '<input type="hidden" name="' + name + '" value="' + which + '">' +
+      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria || "Tax treatment") + '">' +
+      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (which === "pre") + '"' + (which === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
+      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (which === "post") + '"' + (which === "post" ? ' class="on"' : "") + ">After-tax</button></span>" +
+      '<p class="gp-tax-help" aria-live="polite">' + esc(gpTaxHelp(which)) + "</p></div>";
   }
   function gpAmtRow(name, value, pct, unitName, pctLabel, aria) {
     return '<div class="it-amt-row" data-gp-amt="1"><span class="it-amt-unit" aria-hidden="true">' + (pct ? "%" : "$") + "</span>" +
@@ -11688,11 +11710,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     var tax = btn.getAttribute("data-tax") === "post" ? "post" : "pre";
-    var hold = line && line.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
-    if (!hold && line) hold = line.querySelector('input[type="hidden"][name*="Tax"]');
+    var wrap = btn.closest(".gp-tax") || line;
+    var hold = wrap && wrap.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
+    if (!hold && wrap) hold = wrap.querySelector('input[type="hidden"][name*="Tax"]');
     if (hold) hold.value = tax;
     var group = btn.parentNode;
     [].forEach.call(group.querySelectorAll("[data-act=gp-tax]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+    var help = wrap && wrap.querySelector(".gp-tax-help");
+    if (help) help.textContent = gpTaxHelp(tax);
   }
   function gpCommit() {
     var d = gpDraft;
@@ -18822,7 +18847,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.120";
+  var APP_VERSION = "37.5.123";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20076,26 +20101,71 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<span class="season-fx-p" style="left:' + x + "%;width:" + size + "px;height:" + size + "px;--fx-dur:" + dur + "s;--fx-delay:" + delay.toFixed(1) + "s;--fx-sway:" + sway + "px;--fx-spin:" + spin + 'deg;--fx-top:' + ((i * 11) % 80) + '%">' + SEASON_FX_GLYPHS[kind](i) + "</span>";
     }
     fx.innerHTML = h;
-    seasonFxCalmStart(fx);
+    seasonFxClock(fx);
   }
-  /* Leaves fall at full strength for a short while after Seasonal starts, then fade down to a calm few.
-   * Only visible time counts (a hidden tab pauses the clock). Restarts only when the layer is rebuilt
-   * (Seasonal re-entered), not on re-renders or tab switches. */
-  var FX_FULL_MS = 20000, FX_CALM_KEEP = 4, fxCalmTimer = null;
-  function seasonFxCalmStart(fx) {
-    if (fxCalmTimer) clearInterval(fxCalmTimer);
-    var full = FX_FULL_MS;
-    try { var o = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (o > 0) full = o; } catch (e) {}
-    /* Keep the slowest few for the calm set. */
-    var ps = [].slice.call(fx.querySelectorAll(".season-fx-p"));
-    ps.map(function (el) { return { el: el, d: parseFloat(el.style.getPropertyValue("--fx-dur")) || 0 }; })
-      .sort(function (a, b) { return b.d - a.d; })
-      .forEach(function (x, i) { if (i >= FX_CALM_KEEP) x.el.classList.add("fx-extra"); });
-    var seen = 0, step = Math.min(500, full);
-    fxCalmTimer = setInterval(function () {
-      if (!document.body.contains(fx)) { clearInterval(fxCalmTimer); fxCalmTimer = null; return; }
-      if (!document.hidden) seen += step;
-      if (seen >= full) { fx.classList.add("fx-calm"); clearInterval(fxCalmTimer); fxCalmTimer = null; }
+  /* One clock for every falling season (leaves, snow, and anything added later).
+   * Normal speed, then a slower fall, then the pieces fade and the loop stops.
+   * The clock starts the first time this page shows a falling season. Tab switches
+   * do not restart it. A hidden tab does not spend the clock. */
+  var SEASON_FX_TIMING = { normalMs: 5000, slowMs: 30000, easeMs: 1500, fadeMs: 2500, slowRate: 0.28 };
+  var seasonFxSeen = null, seasonFxTimer = null, seasonFxDone = false;
+  function seasonFxTiming() {
+    var t = {
+      normalMs: SEASON_FX_TIMING.normalMs, slowMs: SEASON_FX_TIMING.slowMs,
+      easeMs: SEASON_FX_TIMING.easeMs, fadeMs: SEASON_FX_TIMING.fadeMs, slowRate: SEASON_FX_TIMING.slowRate
+    };
+    try {
+      var n = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (n > 0) t.normalMs = n;
+      var s = Number(localStorage.getItem("PaperTrail.fxSlowMs")); if (s > 0) t.slowMs = s;
+    } catch (e) {}
+    return t;
+  }
+  function seasonFxPhase(seen, t) {
+    var slowAt = t.normalMs, holdAt = t.normalMs + t.easeMs, stopAt = t.normalMs + t.slowMs, deadAt = stopAt + t.fadeMs;
+    if (seen < slowAt) return { rate: 1, fade: false, dead: false };
+    if (seen < holdAt) {
+      var u = (seen - slowAt) / t.easeMs, e = u * u * (3 - 2 * u);
+      return { rate: 1 + (t.slowRate - 1) * e, fade: false, dead: false };
+    }
+    if (seen < stopAt) return { rate: t.slowRate, fade: false, dead: false };
+    if (seen < deadAt) return { rate: t.slowRate * (1 - (seen - stopAt) / t.fadeMs), fade: true, dead: false };
+    return { rate: 0, fade: true, dead: true };
+  }
+  function seasonFxApply(fx, phase) {
+    if (!fx) return;
+    fx.classList.toggle("fx-stop", !!phase.fade);
+    fx.classList.toggle("fx-dead", !!phase.dead);
+    fx.setAttribute("data-fx-seen", String(Math.round(seasonFxSeen || 0)));
+    fx.setAttribute("data-fx-rate", phase.dead ? "0" : String(Math.round(phase.rate * 100) / 100));
+    var ps = fx.querySelectorAll(".season-fx-p");
+    for (var i = 0; i < ps.length; i++) {
+      if (phase.dead) {
+        ps[i].style.animation = "none"; ps[i].style.willChange = "auto";
+        var done = ps[i].getAnimations ? ps[i].getAnimations() : [];
+        for (var d = 0; d < done.length; d++) { try { done[d].cancel(); } catch (e2) {} }
+        continue;
+      }
+      var anims = ps[i].getAnimations ? ps[i].getAnimations() : [];
+      for (var j = 0; j < anims.length; j++) {
+        if (Math.abs(anims[j].playbackRate - phase.rate) > 0.02) anims[j].playbackRate = phase.rate;
+      }
+    }
+  }
+  function seasonFxClock(fx) {
+    if (seasonFxDone) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (seasonFxTimer) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    seasonFxSeen = 0;
+    var step = 200;
+    seasonFxApply(fx, seasonFxPhase(0, seasonFxTiming()));
+    seasonFxTimer = setInterval(function () {
+      var layer = document.getElementById("season-fx");
+      if (!layer || document.hidden) return;
+      var timing = seasonFxTiming();
+      seasonFxSeen += step;
+      var phase = seasonFxPhase(seasonFxSeen, timing);
+      seasonFxApply(layer, phase);
+      if (phase.dead) { seasonFxDone = true; clearInterval(seasonFxTimer); seasonFxTimer = null; }
     }, step);
   }
   document.addEventListener("visibilitychange", function () {
@@ -23483,6 +23553,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return rec ? allocMonth(rec) : allocMonth(null);
     },
     allocationYear: function (year) { return allocYear(year); },
+    seasonFxTiming: function () { return seasonFxTiming(); },
+    seasonFxPhase: function (seen) { return seasonFxPhase(seen, seasonFxTiming()); },
+    quarterList: function () { return quarterAvail(); },
     /* Test hook: apply a pay plan, read allocation, then put the plan back. */
     /* Temporary pay plan and one month, restored afterward. Nothing is saved. */
     allocationProbe: function (spec) {
