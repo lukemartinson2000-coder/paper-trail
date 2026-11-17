@@ -2834,7 +2834,7 @@
       return '<li><button type="button" class="ar-row' + (quiet ? " ar-quiet" : "") + '" ' + attrs + '><span class="ar-txt"><strong>' + title + '</strong><span class="caption">' + cap + '</span></span><span class="chev" aria-hidden="true">›</span></button></li>';
     };
     var wrapRow = wrapY != null ? row('data-act="open-wrapped"', "Wrapped", "Your " + wrapY + " recap, story style", false)
-      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", true)
+      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", false)
       : (function () {
         /* Not open yet: a quiet progress bar from Jan 1 to Dec 25 of this year (not tappable). */
         var t = dashToday(), y = t.getFullYear();
@@ -8315,14 +8315,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = Math.round(now * 100) - Math.round(prior * 100);
     return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
   }
-  /* v37.5.73 (owner): a quarter's check-in exists only once the quarter is closed — all 3 months wrapped up. */
-  function quarterClosed(year, q) {
-    for (var m = q * 3 - 2; m <= q * 3; m++) { var rec = state.months && state.months[ymKey(year, m)]; if (!rec || !rec.closedAt) return false; }
-    return true;
+  /* A quarter's check-in opens the day after that quarter ends. Wrapping up each
+   * month is separate (that earns the $0 stamp) and is not required to open the check-in. */
+  function quarterEnded(year, q) {
+    var t = dashToday();
+    if (t.getFullYear() > year) return true;
+    if (t.getFullYear() < year) return false;
+    return (t.getMonth() + 1) > q * 3;
   }
   function quarterAvail() {
     var t = dashToday(), Y = t.getFullYear(), out = [];
-    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterClosed(yy, q)) out.push({ year: yy, q: q, done: true }); });
+    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterEnded(yy, q)) out.push({ year: yy, q: q, done: true }); });
     return out.slice(-4);
   }
   function quarterBounds(year, q, toDate) {
@@ -18833,7 +18836,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.121";
+  var APP_VERSION = "37.5.122";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20087,26 +20090,71 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<span class="season-fx-p" style="left:' + x + "%;width:" + size + "px;height:" + size + "px;--fx-dur:" + dur + "s;--fx-delay:" + delay.toFixed(1) + "s;--fx-sway:" + sway + "px;--fx-spin:" + spin + 'deg;--fx-top:' + ((i * 11) % 80) + '%">' + SEASON_FX_GLYPHS[kind](i) + "</span>";
     }
     fx.innerHTML = h;
-    seasonFxCalmStart(fx);
+    seasonFxClock(fx);
   }
-  /* Leaves fall at full strength for a short while after Seasonal starts, then fade down to a calm few.
-   * Only visible time counts (a hidden tab pauses the clock). Restarts only when the layer is rebuilt
-   * (Seasonal re-entered), not on re-renders or tab switches. */
-  var FX_FULL_MS = 20000, FX_CALM_KEEP = 4, fxCalmTimer = null;
-  function seasonFxCalmStart(fx) {
-    if (fxCalmTimer) clearInterval(fxCalmTimer);
-    var full = FX_FULL_MS;
-    try { var o = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (o > 0) full = o; } catch (e) {}
-    /* Keep the slowest few for the calm set. */
-    var ps = [].slice.call(fx.querySelectorAll(".season-fx-p"));
-    ps.map(function (el) { return { el: el, d: parseFloat(el.style.getPropertyValue("--fx-dur")) || 0 }; })
-      .sort(function (a, b) { return b.d - a.d; })
-      .forEach(function (x, i) { if (i >= FX_CALM_KEEP) x.el.classList.add("fx-extra"); });
-    var seen = 0, step = Math.min(500, full);
-    fxCalmTimer = setInterval(function () {
-      if (!document.body.contains(fx)) { clearInterval(fxCalmTimer); fxCalmTimer = null; return; }
-      if (!document.hidden) seen += step;
-      if (seen >= full) { fx.classList.add("fx-calm"); clearInterval(fxCalmTimer); fxCalmTimer = null; }
+  /* One clock for every falling season (leaves, snow, and anything added later).
+   * Normal speed, then a slower fall, then the pieces fade and the loop stops.
+   * The clock starts the first time this page shows a falling season. Tab switches
+   * do not restart it. A hidden tab does not spend the clock. */
+  var SEASON_FX_TIMING = { normalMs: 5000, slowMs: 30000, easeMs: 1500, fadeMs: 2500, slowRate: 0.28 };
+  var seasonFxSeen = null, seasonFxTimer = null, seasonFxDone = false;
+  function seasonFxTiming() {
+    var t = {
+      normalMs: SEASON_FX_TIMING.normalMs, slowMs: SEASON_FX_TIMING.slowMs,
+      easeMs: SEASON_FX_TIMING.easeMs, fadeMs: SEASON_FX_TIMING.fadeMs, slowRate: SEASON_FX_TIMING.slowRate
+    };
+    try {
+      var n = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (n > 0) t.normalMs = n;
+      var s = Number(localStorage.getItem("PaperTrail.fxSlowMs")); if (s > 0) t.slowMs = s;
+    } catch (e) {}
+    return t;
+  }
+  function seasonFxPhase(seen, t) {
+    var slowAt = t.normalMs, holdAt = t.normalMs + t.easeMs, stopAt = t.normalMs + t.slowMs, deadAt = stopAt + t.fadeMs;
+    if (seen < slowAt) return { rate: 1, fade: false, dead: false };
+    if (seen < holdAt) {
+      var u = (seen - slowAt) / t.easeMs, e = u * u * (3 - 2 * u);
+      return { rate: 1 + (t.slowRate - 1) * e, fade: false, dead: false };
+    }
+    if (seen < stopAt) return { rate: t.slowRate, fade: false, dead: false };
+    if (seen < deadAt) return { rate: t.slowRate * (1 - (seen - stopAt) / t.fadeMs), fade: true, dead: false };
+    return { rate: 0, fade: true, dead: true };
+  }
+  function seasonFxApply(fx, phase) {
+    if (!fx) return;
+    fx.classList.toggle("fx-stop", !!phase.fade);
+    fx.classList.toggle("fx-dead", !!phase.dead);
+    fx.setAttribute("data-fx-seen", String(Math.round(seasonFxSeen || 0)));
+    fx.setAttribute("data-fx-rate", phase.dead ? "0" : String(Math.round(phase.rate * 100) / 100));
+    var ps = fx.querySelectorAll(".season-fx-p");
+    for (var i = 0; i < ps.length; i++) {
+      if (phase.dead) {
+        ps[i].style.animation = "none"; ps[i].style.willChange = "auto";
+        var done = ps[i].getAnimations ? ps[i].getAnimations() : [];
+        for (var d = 0; d < done.length; d++) { try { done[d].cancel(); } catch (e2) {} }
+        continue;
+      }
+      var anims = ps[i].getAnimations ? ps[i].getAnimations() : [];
+      for (var j = 0; j < anims.length; j++) {
+        if (Math.abs(anims[j].playbackRate - phase.rate) > 0.02) anims[j].playbackRate = phase.rate;
+      }
+    }
+  }
+  function seasonFxClock(fx) {
+    if (seasonFxDone) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (seasonFxTimer) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    seasonFxSeen = 0;
+    var step = 200;
+    seasonFxApply(fx, seasonFxPhase(0, seasonFxTiming()));
+    seasonFxTimer = setInterval(function () {
+      var layer = document.getElementById("season-fx");
+      if (!layer || document.hidden) return;
+      var timing = seasonFxTiming();
+      seasonFxSeen += step;
+      var phase = seasonFxPhase(seasonFxSeen, timing);
+      seasonFxApply(layer, phase);
+      if (phase.dead) { seasonFxDone = true; clearInterval(seasonFxTimer); seasonFxTimer = null; }
     }, step);
   }
   document.addEventListener("visibilitychange", function () {
@@ -23494,6 +23542,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return rec ? allocMonth(rec) : allocMonth(null);
     },
     allocationYear: function (year) { return allocYear(year); },
+    seasonFxTiming: function () { return seasonFxTiming(); },
+    seasonFxPhase: function (seen) { return seasonFxPhase(seen, seasonFxTiming()); },
+    quarterList: function () { return quarterAvail(); },
     /* Test hook: apply a pay plan, read allocation, then put the plan back. */
     /* Temporary pay plan and one month, restored afterward. Nothing is saved. */
     allocationProbe: function (spec) {

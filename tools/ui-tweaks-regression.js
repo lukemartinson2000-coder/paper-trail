@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.121. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.122. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.121" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.122" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1430,6 +1430,115 @@ function versionLockstep() {
     const hsa = out.payHsa;
     const hsaName = await cdp.eval(`(document.querySelector('select[name="retType0"]') || {}).value || ""`);
     if (hsaName !== "hsa" || !hsa || !hsa.unit || Math.abs(hsa.unit.h - hsa.unit.inputH) > 1 || !insetOk(hsa.unit) || !radiusOk(hsa.unit) || hsa.unit.clipped || hsa.unit.on !== "$ a year" || hsa.tax.on !== "Pre-tax") fail.push("hsa toggle " + JSON.stringify({ hsaName, hsa }));
+
+    out.quarterMath = await cdp.eval(`(() => {
+      const t = PaperTrailPreview.seasonFxTiming();
+      const p = (ms) => PaperTrailPreview.seasonFxPhase(ms);
+      const list = PaperTrailPreview.quarterList();
+      return { t, p0: p(0), p4: p(4000), p20: p(20000), p36: p(36000), p40: p(40000), list };
+    })()`);
+    const qm = out.quarterMath;
+    const lastQ = qm && qm.list && qm.list[qm.list.length - 1];
+    if (!qm || qm.t.normalMs !== 5000 || qm.t.slowMs !== 30000 || qm.p0.rate !== 1 || qm.p4.rate !== 1 || Math.abs(qm.p20.rate - qm.t.slowRate) > 0.02 || qm.p20.fade || !qm.p40.dead || !lastQ || lastQ.year !== 2026 || lastQ.q !== 3) fail.push("quarter or fall timing " + JSON.stringify(qm));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const x = document.querySelector(".gp-sheet .sheet-x"); if (x) x.click(); })()`);
+    await sleep(300);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="dark"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+    await sleep(350);
+    await cdp.eval(`document.querySelector('[data-act="stats-door"][data-door="review"]').click()`);
+    await sleep(300);
+    out.q3entry = await cdp.eval(`(() => {
+      const row = document.querySelector('[data-act="open-quarter"]');
+      return { text: row ? row.textContent.replace(/\\s+/g, " ").trim() : "", night: document.body.classList.contains("night") };
+    })()`);
+    if (SHOTS) await snap("q3-entry.png");
+    if (!out.q3entry || out.q3entry.text.indexOf("Q3 2026") < 0 || !out.q3entry.night) fail.push("q3 entry " + JSON.stringify(out.q3entry));
+    await cdp.eval(`document.querySelector('[data-act="open-quarter"]').click()`);
+    await sleep(300);
+    for (let i = 0; i < 8 && !(await cdp.eval(`!!document.querySelector(".fridge-card")`)); i++) {
+      await cdp.eval(`(() => { var n = document.querySelector('[data-act="wrap-next"]'); if (n) n.click(); })()`);
+      await sleep(180);
+    }
+    out.q3card = await cdp.eval(`(() => {
+      const card = document.querySelector(".fridge-card");
+      return { period: card ? (card.querySelector(".fc-period") || {}).textContent : "", label: card ? card.getAttribute("aria-label") : "", night: document.body.classList.contains("night") };
+    })()`);
+    if (SHOTS) await snap("q3-fridge.png");
+    if (!out.q3card || out.q3card.period !== "Q3 2026" || !out.q3card.night) fail.push("q3 fridge " + JSON.stringify(out.q3card));
+
+    await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    const fxStart = Date.now();
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(700);
+    async function fxNow() {
+      return cdp.eval(`(() => {
+        const fx = document.getElementById("season-fx");
+        const p = document.querySelector(".season-fx-p");
+        const cs = p ? getComputedStyle(p) : null;
+        return {
+          kind: fx ? fx.getAttribute("data-kind") : "",
+          n: document.querySelectorAll(".season-fx-p").length,
+          seen: fx ? Number(fx.getAttribute("data-fx-seen")) : null,
+          rate: fx ? Number(fx.getAttribute("data-fx-rate")) : null,
+          dead: fx ? fx.classList.contains("fx-dead") : null,
+          anim: cs ? cs.animationName : "",
+          play: p && p.getAnimations ? ((p.getAnimations()[0] || {}).playbackRate) : null
+        };
+      })()`);
+    }
+    out.fxEarly = await fxNow();
+    if (SHOTS) await snap("fx-0to5.png");
+    const seenBeforeTab = out.fxEarly && out.fxEarly.seen;
+    await cdp.eval(`document.querySelector('[data-tab="spend"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(400);
+    out.fxAfterTab = await fxNow();
+    if (!out.fxEarly || out.fxEarly.kind !== "leaves" || out.fxEarly.n < 8 || !(out.fxEarly.rate > 0.9) || out.fxEarly.dead || !out.fxAfterTab || out.fxAfterTab.kind !== "leaves" || out.fxAfterTab.seen < seenBeforeTab || out.fxAfterTab.n !== out.fxEarly.n) fail.push("fall start " + JSON.stringify({ early: out.fxEarly, tab: out.fxAfterTab }));
+    const wait20 = 20000 - (Date.now() - fxStart);
+    if (wait20 > 0) await sleep(wait20);
+    out.fxSlow = await fxNow();
+    if (SHOTS) await snap("fx-20s.png");
+    if (!out.fxSlow || out.fxSlow.dead || !(out.fxSlow.rate < 0.45) || !(out.fxSlow.rate > 0.15) || out.fxSlow.anim === "none" || !(out.fxSlow.play < 0.45)) fail.push("fall slow " + JSON.stringify(out.fxSlow));
+    const wait38 = 38500 - (Date.now() - fxStart);
+    if (wait38 > 0) await sleep(wait38);
+    out.fxStop = await fxNow();
+    if (SHOTS) await snap("fx-stopped.png");
+    if (!out.fxStop || !out.fxStop.dead || out.fxStop.rate !== 0 || out.fxStop.anim !== "none" || out.fxStop.play != null) fail.push("fall stopped " + JSON.stringify(out.fxStop));
+    if (SHOTS) {
+      try {
+        const dir = path.join(SHOTS, "fx-seq");
+        fs.mkdirSync(dir, { recursive: true });
+        ["fx-0to5.png", "fx-20s.png", "fx-stopped.png"].forEach((name, i) => {
+          fs.copyFileSync(path.join(SHOTS, name), path.join(dir, "f" + i + ".png"));
+        });
+        execFileSync("ffmpeg", ["-y", "-framerate", "1", "-i", path.join(dir, "f%d.png"),
+          "-vf", "fps=1,scale=390:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse",
+          path.join(SHOTS, "fx-fall.gif")], { stdio: "ignore" });
+      } catch (e) { out.fxGifError = String(e && e.message || e); }
+    }
+
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(400);
+    out.fxReduce = await fxNow();
+    if (!out.fxReduce || out.fxReduce.kind !== "leaves" || out.fxReduce.n < 8 || out.fxReduce.anim !== "none" || out.fxReduce.play != null) fail.push("reduced motion " + JSON.stringify(out.fxReduce));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
