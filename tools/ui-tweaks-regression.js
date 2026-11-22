@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.129. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.130. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.129" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.130" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1848,12 +1848,13 @@ function versionLockstep() {
         viewBox: santa && santa.querySelector("svg") ? santa.querySelector("svg").getAttribute("viewBox") : "",
         head: santa && santa.querySelector("path") ? santa.querySelector("path").getAttribute("d").slice(0, 12) : "",
         w: santa ? Math.round(santa.getBoundingClientRect().width) : 0,
-        clears: santa && document.querySelector(".month-jump") ? Math.round(document.querySelector(".month-jump").getBoundingClientRect().top - santa.getBoundingClientRect().bottom) : -99,
+        pad: document.querySelector(".month-bar") ? getComputedStyle(document.querySelector(".month-bar")).paddingTop : "",
+        pos: santa ? getComputedStyle(santa).position : "",
         night: document.body.classList.contains("night"),
         kind: (document.getElementById("season-fx") || {}).getAttribute && document.getElementById("season-fx").getAttribute("data-kind")
       };
     })()`);
-    if (!out.decLights || out.decLights.month.indexOf("December") < 0 || out.decLights.twinkle !== "fast" || out.decLights.bulbs < 8 || !out.decLights.wire || !(out.decLights.rate > 0.8) || out.decLights.paths !== 1 || out.decLights.fill !== "#8E1C24" || out.decLights.viewBox !== "0 0 1000 471.3" || out.decLights.head !== "M833.5 5.6c-" || out.decLights.w < 110 || out.decLights.w > 150 || out.decLights.clears < 0 || out.decLights.night || out.decLights.kind !== "snow") fail.push("december lights " + JSON.stringify(out.decLights));
+    if (!out.decLights || out.decLights.month.indexOf("December") < 0 || out.decLights.twinkle !== "fast" || out.decLights.bulbs < 8 || !out.decLights.wire || !(out.decLights.rate > 0.8) || out.decLights.paths !== 1 || out.decLights.fill !== "#8E1C24" || out.decLights.viewBox !== "0 0 1000 471.3" || out.decLights.head !== "M833.5 5.6c-" || out.decLights.w < 110 || out.decLights.w > 150 || out.decLights.pad !== "26px" || out.decLights.pos !== "absolute" || out.decLights.night || out.decLights.kind !== "snow") fail.push("december lights " + JSON.stringify(out.decLights));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
