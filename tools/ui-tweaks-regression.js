@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.123. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.124. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.123" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.124" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -996,8 +996,8 @@ function versionLockstep() {
     if (!mb || mb.budget.divisor !== 5000 || !mb.budget.same || taxRow(mb.budget) || mb.budget.warn) fail.push("budget month " + JSON.stringify(mb && mb.budget));
     if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0 || !mb.key.left.shown || mb.key.left.amount !== 4500 || mb.key.left.old || !mb.key.yearLeft.shown || mb.key.yearLeft.amount !== 4500 || mb.key.yearLeft.old) fail.push("stub extras " + JSON.stringify(mb && mb.key));
     if (!mb || mb.filled.divisor !== 5800 || mb.filled.left.shown || mb.filled.left.old || mb.filled.yearLeft.shown || mb.filled.yearLeft.old) fail.push("left to budget hidden at zero " + JSON.stringify(mb && mb.filled));
-    if (!mb || mb.typedNov.divisor !== 5000 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
-    if (!mb || mb.typedFeb.divisor !== 17000 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
+    if (!mb || mb.typedNov.divisor !== 8147.88 || mb.typedNov.taxes !== 3147.88 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
+    if (!mb || mb.typedFeb.divisor !== 20147.88 || mb.typedFeb.taxes !== 3147.88 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
     if (!mb || mb.three.divisor !== 7400 || mb.three.savings !== 2100 || mb.three.other !== 300 || mb.three.checks !== 3 || mb.three.warn) fail.push("three paychecks " + JSON.stringify(mb && mb.three));
     if (!mb || mb.guard.divisor !== 8800 || !mb.guard.warn || mb.guard.savings !== 700 || mb.guard.other !== 100) fail.push("double-count guard " + JSON.stringify(mb && mb.guard));
     if (SHOTS) {
@@ -1444,6 +1444,82 @@ function versionLockstep() {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await cdp.eval(`(() => { const x = document.querySelector(".gp-sheet .sheet-x"); if (x) x.click(); })()`);
     await sleep(300);
+    const typedPay = {
+      trueManual: true, baseSalary: 60000, paychecksPerYear: 26, filingStatus: "single", zipCode: "80202",
+      preTax: [
+        { id: "401k", name: "Traditional 401k", method: "fixed", value: 6000, on: true },
+        { id: "hsa", name: "HSA", method: "fixed", value: 1200, on: true },
+        { id: "ins", name: "Insurance", method: "fixed", value: 2400, on: true }
+      ],
+      postTax: [], compRows: [],
+      trueLines: [
+        { id: "401k", tax: "pre", saves: true },
+        { id: "hsa", tax: "pre", saves: true },
+        { id: "ins", tax: "pre", saves: false }
+      ],
+      employer401kMatch: 0, employer401kMatchIsPercent: false, employer401kBase: 0, employer401kBaseIsPercent: false,
+      erSaves: { er401k: true }, payStubSnapshot: null
+    };
+    out.savBefore = await cdp.eval(`PaperTrailPreview.canonicalSavings(2026, 11, 11)`);
+    out.savTax = await cdp.eval(`(() => {
+      const rc = (n) => Math.round(Number(n) * 100) / 100;
+      const P = PaperTrailPreview;
+      const typedPack = P.savingsApply({ year: 2026, month: 11, documents: [], compensation: ${JSON.stringify(typedPay)} });
+      const typed = typedPack.canonical;
+      const annual = (typedPack.federal || 0) + (typedPack.stateTax || 0) + (typedPack.local || 0) + (typedPack.fica || 0);
+      const n = typed.paychecks || 1;
+      const expectTax = rc(annual / typedPack.checks * n);
+      const stubPay = Object.assign({}, ${JSON.stringify(typedPay)}, { payStubSnapshot: {
+        confirmedAt: "2026-11-01", payDate: "2026-11-15", gross: 3000, net: 2000,
+        federalTax: 200, stateTax: 50, socialSecurity: 100, medicare: 20, employee401k: 100
+      } });
+      const stub = P.savingsApply({ year: 2026, month: 11, compensation: stubPay }).canonical;
+      const expectStub = rc((200 + 50 + 100 + 20) * (stub.paychecks || 1));
+      P.savingsRestore();
+      const lines = [typed.takeHome, rc((typed.paycheck || 0) + (typed.employer || 0)), rc((typed.taxes || 0) + (typed.other || 0) + (typed.bonus || 0))];
+      const sum = rc(lines.reduce((a, b) => a + b, 0));
+      return {
+        typed: { rate: typed.rate, divisor: typed.divisor, taxes: typed.taxes, other: typed.other, savings: typed.savings, checks: n, annual: rc(annual) },
+        expectTax, sum, lines,
+        stub: { taxes: stub.taxes, source: stub.source, checks: stub.paychecks, expectStub }
+      };
+    })()`);
+    out.savTax.before = { rate: out.savBefore && out.savBefore.rate, divisor: out.savBefore && out.savBefore.divisor, taxes: out.savBefore && out.savBefore.taxes };
+    const stx = out.savTax;
+    if (!stx || !(stx.typed.taxes > 0) || Math.abs(stx.typed.taxes - stx.expectTax) > 0.02 || Math.abs(stx.sum - stx.typed.divisor) > 0.02 || stx.stub.source !== "stub" || Math.abs(stx.stub.taxes - stx.stub.expectStub) > 0.02 || Math.abs(stx.stub.taxes - stx.expectTax) < 1) fail.push("typed tax base " + JSON.stringify(stx));
+    await cdp.eval(`PaperTrailPreview.savingsApply({ year: 2026, month: 11, documents: [], theme: "light", compensation: ${JSON.stringify(typedPay)} })`);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="light"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+    await sleep(400);
+    await cdp.eval(`document.querySelector('[data-act="sav-details"][data-sav="month"]').click()`);
+    await sleep(250);
+    await cdp.eval(`(() => {
+      const sheet = document.querySelector(".sav-details");
+      const base = document.querySelector(".sav-details .sav-base");
+      if (sheet && base) sheet.scrollTop += base.getBoundingClientRect().top - sheet.getBoundingClientRect().top - 70;
+    })()`);
+    await sleep(40);
+    if (SHOTS) await snap("sav-base.png");
+    out.savSheet = await cdp.eval(`(() => {
+      const rows = [...document.querySelectorAll(".sav-details .sav-base")].map((r) => ({
+        label: (r.querySelector("span") || {}).textContent || "",
+        amount: (r.querySelector(".mono") || {}).textContent || ""
+      }));
+      const nums = rows.map((r) => Number(String(r.amount).replace(/[^0-9.-]/g, "")));
+      const sum = Math.round(nums.reduce((a, b) => a + b, 0) * 100) / 100;
+      return { rows, sum, hero: (document.querySelector(".sav-details .hero-amount") || {}).textContent || "", night: document.body.classList.contains("night"), title: (document.querySelector(".sav-details h3") || {}).textContent || "" };
+    })()`);
+    if (!out.savSheet || out.savSheet.night || out.savSheet.rows.length !== 3 || Math.abs(out.savSheet.sum - Math.round(stx.typed.divisor)) > 1) fail.push("sav sheet " + JSON.stringify(out.savSheet));
+    await cdp.eval(`(() => { document.querySelector('[data-act="close-modal"]').click(); })()`);
+    await sleep(200);
+    await cdp.eval(`PaperTrailPreview.savingsRestore()`);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
     await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
     await sleep(80);
     await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="dark"]').click()`);

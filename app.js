@@ -9196,8 +9196,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var er = [];
     var er401 = scaleCheck((erMatch || 0) + (erBaseAmt || 0), n);
     if (er401 > 0 && itErCounts("Employer 401k")) er.push({ name: "Employer 401k", amount: er401, source: "Typed-in pay" });
-    if (!(pay.length || other > 0 || er.length || bonus > 0)) return null;
-    return { source: "typed", pay: pay, other: roundCents(other), taxes: 0, er: er, bonus: bonus, checks: n, ceiling: 0 };
+    /* This month's share of the year's estimated tax: per paycheck, times this month's paycheck count. */
+    var taxes = 0;
+    try {
+      var est = estimateCompensation(JSON.parse(JSON.stringify(plan)));
+      var annualTax = (Number(est.federalTax) || 0) + (Number(est.stateTax) || 0) + (Number(est.localTax) || 0) + (Number(est.fica) || 0);
+      taxes = scaleCheck(checks > 0 ? annualTax / checks : 0, n);
+    } catch (e3) {}
+    if (!(pay.length || other > 0 || er.length || bonus > 0 || taxes > 0)) return null;
+    return { source: "typed", pay: pay, other: roundCents(other), taxes: taxes, er: er, bonus: bonus, checks: n, ceiling: 0 };
   }
   function monthPayrollAdd(year, month) {
     var n = monthPaycheckCount(year, month);
@@ -9223,7 +9230,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     recs = (recs || []).filter(Boolean).slice().sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); });
     var budgetMap = {}, payMap = {}, erMap = {};
     var budget = 0, pay = 0, er = 0, takeHome = 0, gross = 0, months = 0, skippedGross = 0, used = [];
-    var source = "budget", taxes = 0, otherDed = 0, divSum = 0, incomeWarn = false, paychecks = 0;
+    var source = "budget", taxes = 0, otherDed = 0, bonusSum = 0, divSum = 0, incomeWarn = false, paychecks = 0;
     recs.forEach(function (rec) {
       var th = 0;
       try { th = Number(sums(rec).income) || 0; } catch (e) {}
@@ -9253,6 +9260,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       takeHome += th;
       taxes += taxNow;
       otherDed += otherNow;
+      bonusSum += bonusNow;
       if (add) paychecks = add.checks || paychecks;
       if (add && add.source === "stub" && add.ceiling > 0 && baseNow > roundCents(add.ceiling * 1.05)) incomeWarn = true;
       bItems.forEach(function (it) { savAdd(budgetMap, it); budget += it.amount; });
@@ -9273,7 +9281,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var out = {
       basis: basis, label: added ? "Savings rate · planned income + deductions" : "Savings rate · planned income",
       rate: rate, state: stateName, savings: savings, divisor: divisor, gross: gross, employer: er, paycheck: pay, budget: budget, takeHome: takeHome, taxes: taxes, other: otherDed,
-      budgetItems: savList(budgetMap), paycheckItems: savList(payMap), employerItems: savList(erMap),
+      budgetItems: savList(budgetMap), paycheckItems: savList(payMap), employerItems: savList(erMap), bonus: roundCents(bonusSum),
       source: source, months: months, partial: partial, period: period, skippedGross: skippedGross, paydaysNote: "",
       incomeWarn: incomeWarn, paychecks: used.length === 1 ? paychecks : 0, added: added
     };
@@ -9337,6 +9345,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<button type="button" class="sav-pay-link" data-act="sav-pay-link">' + (on ? "Paycheck savings included · Edit" : "Include paycheck savings") + "</button>" +
       (on ? "" : '<p class="caption">Count retirement contributions and employer contributions from your pay.</p>');
   }
+  function savBaseRow(label, amount) {
+    return '<div class="row sav-base"><span>' + esc(label) + '</span><span class="mono">' + money(amount) + "</span></div>";
+  }
   function savGroupHtml(title, items) {
     var rows = (items || []).map(function (it) {
       return '<div class="row"><span>' + esc(it.name) + '</span><span class="mono">' + money(it.amount) + "</span></div>";
@@ -9355,6 +9366,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       savGroupHtml("From your budget", c.budgetItems) + savGroupHtml("From your paycheck", c.paycheckItems) + savGroupHtml("From your employer", c.employerItems) +
       '<div class="row"><span>Total savings</span><span class="mono">' + money(c.savings) + "</span></div>" +
       '<div class="row"><span>Divided by</span><span class="mono">' + (c.divisor > 0 ? money(c.divisor) : "—") + "</span></div>" +
+      savBaseRow("Planned income", c.takeHome) +
+      savBaseRow("Savings from paycheck and employer", roundCents((Number(c.paycheck) || 0) + (Number(c.employer) || 0))) +
+      savBaseRow("Taxes and other deductions", roundCents((Number(c.taxes) || 0) + (Number(c.other) || 0) + (Number(c.bonus) || 0))) +
       '<p class="caption">' + esc(c.formula) + "</p>" +
       '<p class="caption">' + esc(src) + (c.employer ? " · employer money that counts is in the savings and in the base" : "") + "</p>" +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
@@ -18847,7 +18861,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.123";
+  var APP_VERSION = "37.5.124";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -23616,6 +23630,33 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var y = Number(spec.year), m = Number(spec.month);
         return { month: allocMonth(state.months[ymKey(y, m)]), january: allocMonth(state.months[ymKey(y, 1)]), year: allocYear(y), canonical: canonicalSavings([state.months[ymKey(y, m)]]) };
       } finally { state.compensation = keepC; state.savLineOn = keepS; }
+    },
+    /* Preview-only: swap pay for a reading, then put the previous plan back. Nothing is saved. */
+    savingsApply: function (spec) {
+      spec = spec || {};
+      if (!this._savKeep) this._savKeep = { c: state.compensation, d: state.profile && state.profile.documents, t: state.theme };
+      if (spec.compensation) state.compensation = spec.compensation;
+      if (spec.documents) { state.profile = state.profile || {}; state.profile.documents = spec.documents; }
+      if (spec.theme) state.theme = spec.theme;
+      payStubBasisCache = {};
+      var rec = state.months && state.months[ymKey(spec.year, spec.month)];
+      var c = canonicalSavings(rec ? [rec] : []);
+      var est = null;
+      try { est = estimateCompensation(JSON.parse(JSON.stringify(state.compensation || {}))); } catch (e) {}
+      return {
+        canonical: c,
+        federal: est && est.federalTax, stateTax: est && est.stateTax, local: est && est.localTax, fica: est && est.fica,
+        checks: est && est.paychecksPerYear
+      };
+    },
+    savingsRestore: function () {
+      var k = this._savKeep;
+      if (!k) return;
+      state.compensation = k.c;
+      if (state.profile) state.profile.documents = k.d;
+      state.theme = k.t;
+      this._savKeep = null;
+      payStubBasisCache = {};
     },
     canonicalSavings: function (year, m1, m2) {
       var recs = [];
