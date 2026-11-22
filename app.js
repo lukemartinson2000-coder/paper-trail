@@ -18919,7 +18919,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.126";
+  var APP_VERSION = "37.5.127";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20154,45 +20154,44 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   };
   var HOLLY_SVG = '<svg viewBox="0 0 28 22" aria-hidden="true"><path d="M6 14c-4-2-5-8-2-10 3 1 5 5 6 8-2 1-3 2-4 2z" fill="#1F6B4A"/><path d="M22 14c4-2 5-8 2-10-3 1-5 5-6 8 2 1 3 2 4 2z" fill="#174E36"/><circle cx="11" cy="15" r="2.1" fill="#A33B45"/><circle cx="15.2" cy="13.4" r="2.1" fill="#A33B45"/><circle cx="13.2" cy="17.2" r="1.8" fill="#C4A15A"/></svg>';
   var FLAKE_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M3 5.5l14 9M17 5.5L3 14.5" stroke="#F4F7F8" stroke-width="1.3" stroke-linecap="round"/></svg>';
-  /* Same fill-and-palette language as the November turkey: chunky shapes, gold legs, cream highlights, red accent. */
-  var SANTA_SVG = '<svg viewBox="0 0 180 72" aria-hidden="true">' +
-    '<path class="sleigh-runner" d="M8 50c2-8 8-12 14-8 2 2 2 5 0 7-8 2-12 1-14 1z" fill="#E7B02F"/>' +
-    '<path class="sleigh-runner" d="M16 54c24 9 64 9 92-1 5-2 9-1 12 2-10 7-36 11-58 9-26-2-40-7-46-10z" fill="#D9A441"/>' +
-    '<path d="M22 52c22 6 56 6 82-2" fill="none" stroke="#C9702B" stroke-width="1.5" stroke-linecap="round"/>' +
-    '<path class="sleigh-runner" d="M112 48c8 0 16 5 17 13 0 4-4 7-8 5-7-3-9-10-9-18z" fill="#E7B02F"/>' +
-    '<path class="sleigh-body" d="M24 48c2-18 12-26 30-28h36c12 1 20 8 22 18l-4 10c-28 8-62 8-84 0z" fill="#A8462A"/>' +
-    '<path d="M42 30h40c7 0 12 3 14 9H48c-2-6-4-9-6-9z" fill="#C9702B"/>' +
-    '<path d="M34 40h70" stroke="#E7B02F" stroke-width="2.4" stroke-linecap="round"/>' +
-    '<g class="sleigh-sack"><ellipse cx="38" cy="34" rx="14" ry="12" fill="#5A3820"/>' +
-    '<path d="M28 26c4-8 14-9 18-2" fill="#6E4428"/>' +
-    '<rect x="24" y="16" width="12" height="10" rx="1.4" fill="#C8352B"/><path d="M30 16v10M24 21h12" stroke="#E7B02F" stroke-width="1.3"/>' +
-    '<rect x="37" y="14" width="10" height="10" rx="1.4" fill="#1F6B4A"/><path d="M42 14v10M37 19h10" stroke="#F3DCA4" stroke-width="1.2"/></g>' +
-    '<g class="sleigh-santa"><ellipse cx="68" cy="34" rx="12" ry="14" fill="#C8352B"/>' +
-    '<path d="M56 38h24c1 7-5 12-12 12s-13-5-12-12z" fill="#8C2F38"/>' +
-    '<path d="M57 40h22" stroke="#F3DCA4" stroke-width="2.6" stroke-linecap="round"/>' +
-    '<circle cx="68" cy="22" r="8" fill="#F3DCA4"/>' +
-    '<path d="M60 16c1-8 16-8 17 1l-2 3.4H62z" fill="#C8352B"/>' +
-    '<circle cx="78" cy="11" r="2.6" fill="#F3DCA4"/>' +
-    '<rect x="59" y="15.2" width="18" height="3.4" rx="1.3" fill="#F3DCA4"/>' +
-    '<circle cx="71" cy="20" r="1.25" fill="#fff"/><circle cx="71.35" cy="20.1" r=".62" fill="#1C1E21"/>' +
-    '<path d="M62 25c3.2 2.6 9 2.6 12.2 0" fill="#F3DCA4"/>' +
-    '<path d="M78 32c7 1 9 5 6 8-3-1-6-4-6-8z" fill="#C8352B"/></g>' +
-    '<path d="M112 40c8 1 14-1 18 2" fill="none" stroke="#D9A441" stroke-width="1.6" stroke-linecap="round"/>' +
-    '<g class="sleigh-deer"><ellipse cx="146" cy="44" rx="20" ry="10" fill="#7B4E2C"/>' +
-    '<ellipse cx="150" cy="42" rx="13" ry="7" fill="#8C5B37"/>' +
-    '<path d="M126 40c-7 1-10 6-6 8 4 1 8-2 8-5z" fill="#5A3820"/>' +
-    '<path d="M156 40c3-6 6-12 10-16" fill="#7B4E2C"/>' +
-    '<circle cx="168" cy="28" r="8" fill="#8C5B37"/>' +
-    '<path d="M160 24c-2-5 0-7 2-5" fill="#5A3820"/>' +
-    '<path d="M164 20c-1-7 2-10 3-13" stroke="#5A3820" stroke-width="2.1" fill="none" stroke-linecap="round"/>' +
-    '<path d="M165 14c-4-1-6-3-7-5" stroke="#5A3820" stroke-width="1.7" fill="none" stroke-linecap="round"/>' +
-    '<path d="M172 20c2-7 1-11 3-14" stroke="#5A3820" stroke-width="2.1" fill="none" stroke-linecap="round"/>' +
-    '<path d="M173 14c4-1 6-3 8-5" stroke="#5A3820" stroke-width="1.7" fill="none" stroke-linecap="round"/>' +
-    '<circle cx="170.5" cy="27" r="1.3" fill="#fff"/><circle cx="170.9" cy="27.1" r=".65" fill="#1C1E21"/>' +
-    '<circle cx="175.5" cy="30" r="1.9" fill="#C8352B"/>' +
-    '<g stroke="#D08A22" stroke-width="2.2" stroke-linecap="round" fill="none">' +
-    '<path d="M134 52v9l-2.2 1.3M134 61l2.2 1.2"/><path d="M144 53v9l-2.2 1.3M144 62l2.2 1.2"/>' +
-    '<path d="M156 52v8"/><path d="M164 51v8"/></g></g></svg>';
+  /* Greeting-card sleigh: cranberry body, gold runners, Santa, sack, two reindeer. Flat shapes, no extra swooshes. */
+  var SANTA_SVG = '<svg viewBox="0 0 340 88" aria-hidden="true">' +
+    '<path class="sleigh-runner" d="M34 70c-8-1-12-8-8-14 3-5 10-6 13-2 2 3 0 7-4 9 22 8 70 10 112-2 10-3 18-8 20-14 2-6-4-10-9-7-4 2-5 7-2 10" fill="none" stroke="#C4A15A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path class="sleigh-body" d="M46 66c0-22 8-36 24-42 8-3 16-1 18 6 1 5-3 9 2 12l52-4c16-1 26-8 32-18 4-6 12-8 14 0 2 8-6 20-18 28-16 10-40 16-70 18H52c-4 0-6 0-6 0z" fill="#8E1C24"/>' +
+    '<g class="sleigh-sack"><path d="M48 52c-8 1-12 9-8 15 2 3 7 5 12 3 7-2 11-8 9-14-1-4-6-5-13-4z" fill="#0F5A3E"/>' +
+    '<rect x="46" y="44" width="10" height="8" rx="1.2" fill="#C4A15A"/><path d="M51 44v8M46 48h10" stroke="#8E1C24" stroke-width="1"/></g>' +
+    '<g class="sleigh-santa">' +
+    '<path d="M96 46h28c2 12-2 22-14 24-12-2-16-12-14-24z" fill="#8E1C24"/>' +
+    '<path d="M98 60h24" stroke="#F7F4EE" stroke-width="3.4" stroke-linecap="round"/>' +
+    '<path d="M102 44c0 10 5 16 10 16s10-6 10-16c-3 5-7 7-10 7s-7-2-10-7z" fill="#F7F4EE"/>' +
+    '<circle cx="112" cy="38" r="8" fill="#F0D2B8"/>' +
+    '<circle cx="109.2" cy="37" r="1" fill="#1C1E21"/><circle cx="115" cy="37" r="1" fill="#1C1E21"/>' +
+    '<path d="M104 34c2-12 18-14 22-2l-3 4h-16z" fill="#8E1C24"/>' +
+    '<path d="M103 35h20" stroke="#F7F4EE" stroke-width="3.2" stroke-linecap="round"/>' +
+    '<circle cx="126" cy="26" r="3" fill="#F7F4EE"/>' +
+    '<path d="M122 48c10 2 16 0 22-4" fill="none" stroke="#8E1C24" stroke-width="3" stroke-linecap="round"/>' +
+    '</g>' +
+    '<path class="sleigh-rein" d="M142 48c22-2 40 2 64 2 18 0 36-2 72 0" fill="none" stroke="#C4A15A" stroke-width="1.5" stroke-linecap="round"/>' +
+    '<g class="sleigh-deer" fill="#5C3A28">' +
+    '<ellipse cx="206" cy="54" rx="16" ry="8"/>' +
+    '<path d="M190 50c-6 1-8 5-5 7 3 1 6-1 7-4z"/>' +
+    '<path d="M218 50c4-5 8-8 12-9" stroke="#5C3A28" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+    '<circle cx="232" cy="40" r="6.5"/>' +
+    '<ellipse cx="238" cy="42" rx="5" ry="3"/>' +
+    '<circle cx="242" cy="42" r="1.8" fill="#8E1C24"/>' +
+    '<circle cx="234" cy="38.5" r="1" fill="#F7F4EE"/><circle cx="234.4" cy="38.5" r=".5" fill="#1C1E21"/>' +
+    '<path d="M228 34l-2-8M228 30l6-4M236 32l2-8M237 28l6-3" fill="none" stroke="#3A2418" stroke-width="1.7" stroke-linecap="round"/>' +
+    '<g fill="none" stroke="#5C3A28" stroke-width="2.6" stroke-linecap="round"><path d="M196 60v12"/><path d="M204 61v12"/><path d="M214 60v11"/><path d="M220 59v11"/></g>' +
+    '<ellipse cx="278" cy="52" rx="15" ry="7.5"/>' +
+    '<path d="M264 48c-5 1-7 4-4 6 2 1 5-1 6-3z"/>' +
+    '<path d="M288 48c4-5 7-8 11-9" stroke="#5C3A28" stroke-width="6.5" fill="none" stroke-linecap="round"/>' +
+    '<circle cx="300" cy="38" r="6"/>' +
+    '<ellipse cx="306" cy="40" rx="4.6" ry="2.8"/>' +
+    '<circle cx="310" cy="40" r="1.8" fill="#8E1C24"/>' +
+    '<circle cx="302" cy="36.6" r="1" fill="#F7F4EE"/><circle cx="302.4" cy="36.6" r=".5" fill="#1C1E21"/>' +
+    '<path d="M296 32l-2-8M296 28l6-4M304 30l2-8M305 26l6-3" fill="none" stroke="#3A2418" stroke-width="1.7" stroke-linecap="round"/>' +
+    '<g fill="none" stroke="#5C3A28" stroke-width="2.6" stroke-linecap="round"><path d="M268 58v12"/><path d="M276 59v12"/><path d="M286 58v11"/><path d="M292 57v11"/></g>' +
+    '</g></svg>';
   function seasonLightsMarkup() {
     var cols = ["#C8352B", "#1F6B4A", "#E7B02F", "#F3DCA4", "#A8462A"];
     var h = '<svg class="season-light-wire" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 6 C8 12 16 2 25 7 S42 13 50 6 S66 1 75 7 S90 12 100 5" fill="none" stroke="#174E36" stroke-width="1.15" vector-effect="non-scaling-stroke" stroke-linecap="round"/></svg>';
