@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.125. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.130. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.125" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.130" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -1811,6 +1811,50 @@ function versionLockstep() {
     await sleep(400);
     out.fxReduce = await fxNow();
     if (!out.fxReduce || out.fxReduce.kind !== "leaves" || out.fxReduce.n < 8 || out.fxReduce.anim !== "none" || out.fxReduce.play != null) fail.push("reduced motion " + JSON.stringify(out.fxReduce));
+
+    out.lightMode = await cdp.eval(`(() => {
+      const t = PaperTrailPreview.seasonFxTiming();
+      const mode = (ms) => PaperTrailPreview.seasonLightMode(ms);
+      return { fast: mode(1000), mid: mode(t.normalMs - 1), slow: mode(t.normalMs + 1000), endSlow: mode(t.normalMs + t.slowMs - 1), steady: mode(t.normalMs + t.slowMs) };
+    })()`);
+    if (!out.lightMode || out.lightMode.fast !== "fast" || out.lightMode.mid !== "fast" || out.lightMode.slow !== "slow" || out.lightMode.endSlow !== "slow" || out.lightMode.steady !== "steady") fail.push("light clock " + JSON.stringify(out.lightMode));
+
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(300);
+    out.novLights = await cdp.eval(`!!document.getElementById("season-lights")`);
+    if (out.novLights) fail.push("lights showing in November");
+    await cdp.eval(`document.querySelector('[data-act="next-month"]').click()`);
+    await sleep(1800);
+    out.decLights = await cdp.eval(`(() => {
+      const lights = document.getElementById("season-lights");
+      const bulb = lights && lights.querySelector(".season-bulb");
+      const anim = bulb && bulb.getAnimations ? (bulb.getAnimations()[0] || null) : null;
+      const santa = document.getElementById("season-santa");
+      return {
+        month: ((document.querySelector(".month-jump") || {}).textContent || "").replace(/\\s+/g, " ").trim(),
+        twinkle: lights ? lights.getAttribute("data-twinkle") : "",
+        bulbs: lights ? lights.querySelectorAll(".season-bulb").length : 0,
+        wire: !!(lights && lights.querySelector(".season-light-wire")),
+        rate: anim ? Math.round(anim.playbackRate * 100) / 100 : null,
+        paths: santa ? santa.querySelectorAll("svg path").length : 0,
+        fill: santa && santa.querySelector("path") ? santa.querySelector("path").getAttribute("fill") : "",
+        viewBox: santa && santa.querySelector("svg") ? santa.querySelector("svg").getAttribute("viewBox") : "",
+        head: santa && santa.querySelector("path") ? santa.querySelector("path").getAttribute("d").slice(0, 12) : "",
+        w: santa ? Math.round(santa.getBoundingClientRect().width) : 0,
+        pad: document.querySelector(".month-bar") ? getComputedStyle(document.querySelector(".month-bar")).paddingTop : "",
+        pos: santa ? getComputedStyle(santa).position : "",
+        night: document.body.classList.contains("night"),
+        kind: (document.getElementById("season-fx") || {}).getAttribute && document.getElementById("season-fx").getAttribute("data-kind")
+      };
+    })()`);
+    if (!out.decLights || out.decLights.month.indexOf("December") < 0 || out.decLights.twinkle !== "fast" || out.decLights.bulbs < 8 || !out.decLights.wire || !(out.decLights.rate > 0.8) || out.decLights.paths !== 1 || out.decLights.fill !== "#8E1C24" || out.decLights.viewBox !== "0 0 1000 471.3" || out.decLights.head !== "M833.5 5.6c-" || out.decLights.w < 110 || out.decLights.w > 150 || out.decLights.pad !== "26px" || out.decLights.pos !== "absolute" || out.decLights.night || out.decLights.kind !== "snow") fail.push("december lights " + JSON.stringify(out.decLights));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
