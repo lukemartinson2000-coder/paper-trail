@@ -18919,7 +18919,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.125";
+  var APP_VERSION = "37.5.126";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20154,7 +20154,63 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   };
   var HOLLY_SVG = '<svg viewBox="0 0 28 22" aria-hidden="true"><path d="M6 14c-4-2-5-8-2-10 3 1 5 5 6 8-2 1-3 2-4 2z" fill="#1F6B4A"/><path d="M22 14c4-2 5-8 2-10-3 1-5 5-6 8 2 1 3 2 4 2z" fill="#174E36"/><circle cx="11" cy="15" r="2.1" fill="#A33B45"/><circle cx="15.2" cy="13.4" r="2.1" fill="#A33B45"/><circle cx="13.2" cy="17.2" r="1.8" fill="#C4A15A"/></svg>';
   var FLAKE_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M3 5.5l14 9M17 5.5L3 14.5" stroke="#F4F7F8" stroke-width="1.3" stroke-linecap="round"/></svg>';
-  var SANTA_SVG = '<svg viewBox="0 0 120 36" aria-hidden="true"><g fill="none" stroke="#C4A15A" stroke-width="1"><path d="M8 22c6-8 10-8 14 0" stroke="#1F6B4A"/><circle cx="14" cy="14" r="3" fill="#C4A15A"/><path d="M22 20h8l6 6H26z" fill="#8C2F38"/><path d="M30 16c8 0 14 4 16 8H34c-1-3-4-5-8-5z" fill="#F4F1EA"/><circle cx="48" cy="18" r="2" fill="#1C1E21"/><path d="M62 24h28l6-8H70z" fill="#8C2F38"/><path d="M66 24v4M86 24v4" stroke="#C4A15A"/><circle cx="70" cy="28" r="2" fill="#1C1E21"/><circle cx="90" cy="28" r="2" fill="#1C1E21"/></g></svg>';
+  /* Same fill-and-palette language as the November turkey: chunky shapes, gold legs, cream highlights, red accent. */
+  var SANTA_SVG = '<svg viewBox="0 0 180 72" aria-hidden="true">' +
+    '<path class="sleigh-runner" d="M8 50c2-8 8-12 14-8 2 2 2 5 0 7-8 2-12 1-14 1z" fill="#E7B02F"/>' +
+    '<path class="sleigh-runner" d="M16 54c24 9 64 9 92-1 5-2 9-1 12 2-10 7-36 11-58 9-26-2-40-7-46-10z" fill="#D9A441"/>' +
+    '<path d="M22 52c22 6 56 6 82-2" fill="none" stroke="#C9702B" stroke-width="1.5" stroke-linecap="round"/>' +
+    '<path class="sleigh-runner" d="M112 48c8 0 16 5 17 13 0 4-4 7-8 5-7-3-9-10-9-18z" fill="#E7B02F"/>' +
+    '<path class="sleigh-body" d="M24 48c2-18 12-26 30-28h36c12 1 20 8 22 18l-4 10c-28 8-62 8-84 0z" fill="#A8462A"/>' +
+    '<path d="M42 30h40c7 0 12 3 14 9H48c-2-6-4-9-6-9z" fill="#C9702B"/>' +
+    '<path d="M34 40h70" stroke="#E7B02F" stroke-width="2.4" stroke-linecap="round"/>' +
+    '<g class="sleigh-sack"><ellipse cx="38" cy="34" rx="14" ry="12" fill="#5A3820"/>' +
+    '<path d="M28 26c4-8 14-9 18-2" fill="#6E4428"/>' +
+    '<rect x="24" y="16" width="12" height="10" rx="1.4" fill="#C8352B"/><path d="M30 16v10M24 21h12" stroke="#E7B02F" stroke-width="1.3"/>' +
+    '<rect x="37" y="14" width="10" height="10" rx="1.4" fill="#1F6B4A"/><path d="M42 14v10M37 19h10" stroke="#F3DCA4" stroke-width="1.2"/></g>' +
+    '<g class="sleigh-santa"><ellipse cx="68" cy="34" rx="12" ry="14" fill="#C8352B"/>' +
+    '<path d="M56 38h24c1 7-5 12-12 12s-13-5-12-12z" fill="#8C2F38"/>' +
+    '<path d="M57 40h22" stroke="#F3DCA4" stroke-width="2.6" stroke-linecap="round"/>' +
+    '<circle cx="68" cy="22" r="8" fill="#F3DCA4"/>' +
+    '<path d="M60 16c1-8 16-8 17 1l-2 3.4H62z" fill="#C8352B"/>' +
+    '<circle cx="78" cy="11" r="2.6" fill="#F3DCA4"/>' +
+    '<rect x="59" y="15.2" width="18" height="3.4" rx="1.3" fill="#F3DCA4"/>' +
+    '<circle cx="71" cy="20" r="1.25" fill="#fff"/><circle cx="71.35" cy="20.1" r=".62" fill="#1C1E21"/>' +
+    '<path d="M62 25c3.2 2.6 9 2.6 12.2 0" fill="#F3DCA4"/>' +
+    '<path d="M78 32c7 1 9 5 6 8-3-1-6-4-6-8z" fill="#C8352B"/></g>' +
+    '<path d="M112 40c8 1 14-1 18 2" fill="none" stroke="#D9A441" stroke-width="1.6" stroke-linecap="round"/>' +
+    '<g class="sleigh-deer"><ellipse cx="146" cy="44" rx="20" ry="10" fill="#7B4E2C"/>' +
+    '<ellipse cx="150" cy="42" rx="13" ry="7" fill="#8C5B37"/>' +
+    '<path d="M126 40c-7 1-10 6-6 8 4 1 8-2 8-5z" fill="#5A3820"/>' +
+    '<path d="M156 40c3-6 6-12 10-16" fill="#7B4E2C"/>' +
+    '<circle cx="168" cy="28" r="8" fill="#8C5B37"/>' +
+    '<path d="M160 24c-2-5 0-7 2-5" fill="#5A3820"/>' +
+    '<path d="M164 20c-1-7 2-10 3-13" stroke="#5A3820" stroke-width="2.1" fill="none" stroke-linecap="round"/>' +
+    '<path d="M165 14c-4-1-6-3-7-5" stroke="#5A3820" stroke-width="1.7" fill="none" stroke-linecap="round"/>' +
+    '<path d="M172 20c2-7 1-11 3-14" stroke="#5A3820" stroke-width="2.1" fill="none" stroke-linecap="round"/>' +
+    '<path d="M173 14c4-1 6-3 8-5" stroke="#5A3820" stroke-width="1.7" fill="none" stroke-linecap="round"/>' +
+    '<circle cx="170.5" cy="27" r="1.3" fill="#fff"/><circle cx="170.9" cy="27.1" r=".65" fill="#1C1E21"/>' +
+    '<circle cx="175.5" cy="30" r="1.9" fill="#C8352B"/>' +
+    '<g stroke="#D08A22" stroke-width="2.2" stroke-linecap="round" fill="none">' +
+    '<path d="M134 52v9l-2.2 1.3M134 61l2.2 1.2"/><path d="M144 53v9l-2.2 1.3M144 62l2.2 1.2"/>' +
+    '<path d="M156 52v8"/><path d="M164 51v8"/></g></g></svg>';
+  function seasonLightsMarkup() {
+    var cols = ["#C8352B", "#1F6B4A", "#E7B02F", "#F3DCA4", "#A8462A"];
+    var h = '<svg class="season-light-wire" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 6 C8 12 16 2 25 7 S42 13 50 6 S66 1 75 7 S90 12 100 5" fill="none" stroke="#174E36" stroke-width="1.15" vector-effect="non-scaling-stroke" stroke-linecap="round"/></svg>';
+    var n = 12;
+    for (var i = 0; i < n; i++) {
+      var left = ((i + 0.5) / n) * 100;
+      var hang = 7 + Math.round(Math.sin(i * 1.2) * 3);
+      h += '<span class="season-bulb" style="left:' + left.toFixed(2) + "%;top:" + hang + "px;animation-delay:" + (-(i * 0.11)).toFixed(2) + "s;--bulb:" + cols[i % cols.length] + '"></span>';
+    }
+    return h;
+  }
+  /* Fast while snow is at full speed, slow for the slow-fall window, then steady on. */
+  function seasonLightMode(seen, t) {
+    t = t || seasonFxTiming();
+    if (seen < t.normalMs) return "fast";
+    if (seen < t.normalMs + t.slowMs) return "slow";
+    return "steady";
+  }
   function seasonFx(phone, kind) {
     var fx = document.getElementById("season-fx");
     if (!kind) { if (fx) fx.remove(); return; }
@@ -20222,6 +20278,47 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         if (Math.abs(anims[j].playbackRate - phase.rate) > 0.02) anims[j].playbackRate = phase.rate;
       }
     }
+    seasonLightsApply(phase);
+  }
+  function seasonLightsApply(phase) {
+    var lights = document.getElementById("season-lights");
+    if (!lights) return;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var mode = reduce ? "steady" : seasonLightMode(seasonFxSeen || 0, seasonFxTiming());
+    if (!reduce && phase && (phase.fade || phase.dead)) mode = "steady";
+    lights.setAttribute("data-twinkle", mode);
+    var bulbs = lights.querySelectorAll(".season-bulb");
+    for (var i = 0; i < bulbs.length; i++) {
+      if (mode === "steady") {
+        bulbs[i].style.animation = "none";
+        bulbs[i].style.opacity = "1";
+        continue;
+      }
+      if (bulbs[i].style.animation === "none") bulbs[i].style.animation = "";
+      var anims = bulbs[i].getAnimations ? bulbs[i].getAnimations() : [];
+      var rate = phase && phase.rate > 0 ? phase.rate : 1;
+      for (var j = 0; j < anims.length; j++) {
+        if (Math.abs(anims[j].playbackRate - rate) > 0.02) anims[j].playbackRate = rate;
+      }
+    }
+  }
+  function seasonLights(phone, on) {
+    var el = document.getElementById("season-lights");
+    if (!on) {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      return;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "season-lights";
+      el.className = "season-lights";
+      el.setAttribute("aria-hidden", "true");
+      el.innerHTML = seasonLightsMarkup();
+      phone.insertBefore(el, phone.firstChild);
+    }
+    var phase = seasonFxPhase(seasonFxSeen || 0, seasonFxTiming());
+    if (seasonFxDone) phase = { rate: 0, fade: true, dead: true };
+    seasonLightsApply(phase);
   }
   function seasonFxClock(fx) {
     if (seasonFxDone) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
@@ -20333,6 +20430,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var oldSprig = document.querySelector("#month-bar .season-sprig");
       if (oldSprig) oldSprig.parentNode.removeChild(oldSprig);
     }
+    /* Lights ride the Budget month bar only. Snow still falls on every tab. */
+    seasonLights(phone, s === "dec");
   }
   /* Themed close: one turkey runs across, then the existing stamp lands. Skipped for reduced motion. */
   function seasonCloseRun() {
@@ -23630,6 +23729,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     allocationYear: function (year) { return allocYear(year); },
     seasonFxTiming: function () { return seasonFxTiming(); },
     seasonFxPhase: function (seen) { return seasonFxPhase(seen, seasonFxTiming()); },
+    seasonLightMode: function (seen) { return seasonLightMode(seen, seasonFxTiming()); },
     quarterList: function () { return quarterAvail(); },
     /* Test hook: apply a pay plan, read allocation, then put the plan back. */
     /* Temporary pay plan and one month, restored afterward. Nothing is saved. */
