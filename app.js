@@ -117,6 +117,24 @@
     return "id-" + (uid++);
   }
 
+  /* Saved ids stay as they are. The counter must continue past them, or the next
+   * new row reuses id-1000 and a tap opens the older row that already has that id. */
+  function claimStoredId(id) {
+    var m = /^id-(\d+)$/.exec(String(id == null ? "" : id));
+    if (!m) return;
+    var n = Number(m[1]);
+    if (n >= uid) uid = n + 1;
+  }
+  function claimIdsIn(value, depth) {
+    if (!value || typeof value !== "object" || depth > 12) return;
+    if (Object.prototype.hasOwnProperty.call(value, "id")) claimStoredId(value.id);
+    var keys = Object.keys(value);
+    for (var i = 0; i < keys.length; i++) {
+      var child = value[keys[i]];
+      if (child && typeof child === "object") claimIdsIn(child, depth + 1);
+    }
+  }
+
   function ymKey(year, month) {
     return year + "-" + month;
   }
@@ -3438,6 +3456,7 @@
       parsed.worthDetails = false;
       parsed.statementDetails = false;
       if (parsed.matters && typeof parsed.matters === "object") parsed.matters.deeperOpen = false;
+      claimIdsIn(parsed, 0);
       return parsed;
     } catch (err) {
       /* Was a silent blankState() — the survey then showed and its first tap saved empty books over the real ones. */
@@ -4651,14 +4670,24 @@
 
 var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h1.5v-8H10zm3.5 0v8H15v-8h-1.5z" fill="currentColor"/></svg>';
 
+  /* Tags and angle brackets come out while typing. Spaces stay. Trim only when the note is saved. */
+  function txNoteStrip(v) {
+    return String(v || "").replace(/<[^>]*>/g, "").replace(/[<>]/g, "").slice(0, 200);
+  }
   function txNoteClean(v) {
-    return String(v || "").replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/^\s+|\s+$/g, "").slice(0, 200);
+    return txNoteStrip(v).replace(/^\s+|\s+$/g, "");
+  }
+  function txStorageAt(list, tx) {
+    for (var i = 0; i < (list || []).length; i++) if (list[i] === tx) return i;
+    return -1;
   }
   function spendRowHtml(month, tx) {
     var income = isIncomeTx(tx);
     var summary = gm().txSummary(tx);
     var refund = gm().refundLabel(tx, money);
     var standalone = !income && tx.refundKind === "standalone";
+    var at = txStorageAt(month && month.transactions, tx);
+    var atAttr = ' data-tx-at="' + at + '"';
     var amountHtml;
     if (income) {
       amountHtml = '<span class="mono tx-amt income-amt">+' + money(summary.received) + "</span>";
@@ -4669,7 +4698,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       amountHtml = "<span class='mono tx-amt'>" + money(txTotal(tx)) + "</span>";
     }
-    amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '" aria-label="Edit amount" ');
+    amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '"' + atAttr + ' aria-label="Edit amount" ');
     var caption = (isSplitTx(tx) ? "Split · " : esc(displayEnvelope(month, tx)) + " · ") +
       esc(displayDate(tx.date)) +
       (tx.note ? " · " + esc(tx.note) : "");
@@ -4680,12 +4709,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (isSplitTx(tx)) chips += ' <span class="split-stamp">Split</span>';
     if (!income && txNeedsCategory(month, tx)) chips += ' <span class="uncat-chip">' + (isSplitTx(tx) ? "Part needs a category" : "Needs a category") + "</span>";
     if (refund) chips += ' <span class="refund-chip">' + esc(refund) + "</span>";
-    return '<div class="tx-swipe" data-swipe-id="' + esc(tx.id) + '">' +
-      '<button class="tx-swipe-delete" type="button" data-act="swipe-delete" data-id="' + esc(tx.id) +
-      '" tabindex="-1" aria-label="Delete ' + esc(tx.payee || "transaction") + '" title="Delete">' + TRASH_SVG +
+    return '<div class="tx-swipe" data-swipe-id="' + esc(tx.id) + '"' + atAttr + '>' +
+      '<button class="tx-swipe-delete" type="button" data-act="swipe-delete" data-id="' + esc(tx.id) + '"' + atAttr +
+      ' tabindex="-1" aria-label="Delete ' + esc(tx.payee || "transaction") + '" title="Delete">' + TRASH_SVG +
       '<span class="tx-swipe-label">Delete</span></button>' +
       '<button class="row-btn tx-row' + (income ? " tx-income" : "") + (refund ? " tx-refund" : "") +
-      '" type="button" data-act="edit-spend" data-id="' + esc(tx.id) + '">' +
+      '" type="button" data-act="edit-spend" data-id="' + esc(tx.id) + '"' + atAttr + '>' +
       '<div class="row"><div><div class="name">' + esc(tx.payee || (income ? "Income" : "Spend")) + chips +
       '</div><span class="caption">' + caption + "</span></div>" + amountHtml + "</div></button></div>";
   }
@@ -4714,10 +4743,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function renderSpend(month, totals) {
     /* One add control on this tab: the floating +. The old header "Add" was the same action. */
     var html =
-      '<div class="nav-row"><h2>Transactions</h2></div>' +
+      '<div class="nav-row tx-list-head"><h2>Transactions</h2></div>' +
       '<div class="row"><span>Spent this month</span><span class="mono">' + money(totals.spent) + "</span></div>" +
       (totals.refunds > 0 ? '<div class="row dense"><span class="caption">Refunds netted out</span><span class="mono caption">' + money(totals.refunds) + "</span></div>" : "") +
-      '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
+      '<input class="search-field tx-search" data-act="spend-search" type="search" placeholder="Search this month" value="' +
       esc(spendSearch) + '">' +
       '';
     /* EveryDollar-style queue. Spends without an envelope wait here until you pick one. */
@@ -14458,7 +14487,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       edApplyAuto(ensureMonth(state.year, state.month));
     }
     else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
-    else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
+    else if (k === "note") { var noteLive = txNoteStrip(el.value); spendDraft.note = noteLive; if (el.value !== noteLive) el.value = noteLive; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; if (!edPaintPicker(ensureMonth(state.year, state.month))) renderEdAdd(); }
     else if (li != null) {
@@ -14711,7 +14740,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var delTop = document.querySelector("#modal form.sheet .sheet-top");
       if (delTop && !delTop.querySelector("[data-act='delete-spend']")) {
         delTop.insertAdjacentHTML("beforeend", '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' +
-          esc(spendDraft.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>');
+          esc(spendDraft.id) + '" data-tx-at="' + (typeof spendDraft.txAt === "number" ? spendDraft.txAt : "") + '" aria-label="Delete transaction" title="Delete transaction">✕</button>');
       }
     }
     splitArm();
@@ -14992,6 +15021,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * Refund transactions and income keep the full sheet: the card has no refund-piece inputs yet. */
   function openEditSpend(tx, month) {
     fillSpendDraft(tx);
+    if (spendDraft) spendDraft.txAt = txStorageAt(month && month.transactions, tx);
     if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) {
       renderSpendSheet(month);
       return;
@@ -15017,8 +15047,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return null;
   }
 
-  function confirmDeleteTransaction(month, txId) {
-    var tx = findTx(month, txId);
+  /* The row stamps the storage index. Ids are compared as strings, and when two rows
+   * share an id the index is the one that was tapped — not the first match in the array. */
+  function txAtMatches(list, at, txId) {
+    return typeof at === "number" && at >= 0 && list[at] && String(list[at].id) === String(txId);
+  }
+  function txFromRow(month, el) {
+    var row = el && el.closest ? (el.closest(".tx-row") || el.closest(".tx-swipe-delete") || el) : el;
+    if (!row || !row.getAttribute) return null;
+    var id = row.getAttribute("data-id");
+    var raw = row.getAttribute("data-tx-at");
+    var at = raw == null || raw === "" ? NaN : Number(raw);
+    var list = (month && month.transactions) || [];
+    if (txAtMatches(list, at, id)) return list[at];
+    return findTx(month, id);
+  }
+
+  function confirmDeleteTransaction(month, txId, at) {
+    var list = month.transactions || [];
+    var tx = txAtMatches(list, at, txId) ? list[at] : findTx(month, txId);
     if (!tx) return false;
     var income = isIncomeTx(tx);
     var what = income ? "income" : "transaction";
@@ -15031,10 +15078,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return window.confirm(msg);
   }
 
-  function deleteTransaction(month, txId) {
+  function dropFirstTx(list, id, pinned) {
+    var gone = false;
+    return (list || []).filter(function (item) {
+      if (pinned && item === pinned) return false;
+      if (!pinned && !gone && String(item.id) === String(id)) { gone = true; return false; }
+      return true;
+    });
+  }
+
+  function deleteTransaction(month, txId, at) {
     var list = month.transactions || [];
-    var index = -1;
-    list.forEach(function (item, i) { if (String(item.id) === String(txId)) index = i; });
+    var index = txAtMatches(list, at, txId) ? at : -1;
+    if (index < 0) {
+      for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(txId)) { index = i; break; }
+    }
     if (index < 0) return false;
     list.splice(index, 1);
     saveState();
@@ -18861,7 +18919,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.124";
+  var APP_VERSION = "37.5.125";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -21938,10 +21996,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "delete-spend" || act === "swipe-delete") {
       // Transactions tab only; never offered from Budget/envelope views or other sheets.
       var delId = actEl.getAttribute("data-id") || "";
+      var delRaw = actEl.getAttribute("data-tx-at");
+      var delAt = delRaw == null || delRaw === "" ? -1 : Number(delRaw);
       if (state.tab !== "spend") return;
-      if (!confirmDeleteTransaction(month, delId)) return;
+      if (!confirmDeleteTransaction(month, delId, delAt)) return;
       if (act === "delete-spend") { spendDraft = null; closeModal(); }
-      deleteTransaction(month, delId);
+      deleteTransaction(month, delId, delAt);
     } else if (act === "export-xlsx") {
       exportXlsx();
     } else if (act === "export-pdf") {
@@ -22441,7 +22501,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }     else if (act === "add-spend") {
       openEdAdd(month);
     } else if (act === "edit-spend") {
-      var tx = (month.transactions || []).filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
+      var tx = txFromRow(month, actEl);
       if (tx) {
         openEditSpend(tx, month);
         /* Opening a transaction focuses nothing (no keyboard); only a tap on its $ amount still jumps to Amount. */
@@ -22869,17 +22929,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         remapLegIds(payload);
         if (payload.legs) payload.legs.forEach(remapLegIds);
       }
-      /* Entry time for the same-day tie-break; an edit keeps the original. */
-      var prevTx = spendDraft.id ? (month.transactions || []).concat(destMonth.transactions || []).filter(function (item) { return item.id === spendDraft.id; })[0] : null;
+      /* Entry time for the same-day tie-break; an edit keeps the original.
+       * txAt is the row that was opened, so a shared id does not overwrite the other copy. */
+      var srcList = month.transactions || [];
+      var at = typeof spendDraft.txAt === "number" ? spendDraft.txAt : -1;
+      var pinned = spendDraft.id && txAtMatches(srcList, at, spendDraft.id) ? srcList[at] : null;
+      var prevTx = pinned || (spendDraft.id ? srcList.concat(destMonth.transactions || []).filter(function (item) { return String(item.id) === String(spendDraft.id); })[0] : null);
       if (prevTx ? prevTx.enteredAt : true) payload.enteredAt = (prevTx && prevTx.enteredAt) || Date.now();
-      var inPlace = spendDraft.id && destMonth === month ? (month.transactions || []).map(function (t) { return t.id; }).indexOf(spendDraft.id) : -1;
-      if (inPlace >= 0) {
-        month.transactions[inPlace] = payload; // edits keep their place (same-day order = entry order)
+      if (pinned && destMonth === month) {
+        srcList[at] = payload; // edits keep their place (same-day order = entry order)
       } else if (spendDraft.id) {
-        month.transactions = (month.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
-        if (destMonth !== month) {
-          destMonth.transactions = (destMonth.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
-        }
+        month.transactions = dropFirstTx(month.transactions, spendDraft.id, pinned);
+        if (destMonth !== month) destMonth.transactions = dropFirstTx(destMonth.transactions, spendDraft.id, null);
         destMonth.transactions.push(payload);
       } else {
         destMonth.transactions.push(payload);
@@ -22915,7 +22976,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "save-edit-spend") {
       var editParts = String(data.lineKey || "").split(":");
       month.transactions.forEach(function (item) {
-        if (item.id === data.id) {
+        if (String(item.id) === String(data.id)) {
           item.payee = (data.payee || "").replace(/^\s+|\s+$/g, "") || "Spend";
           item.amount = Number(data.amount) || 0;
           item.date = data.date || item.date;
@@ -23657,6 +23718,38 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.theme = k.t;
       this._savKeep = null;
       payStubBasisCache = {};
+    },
+    /* Preview only. Adds one transaction in memory and redraws. Does not write storage. */
+    plantTx: function (spec) {
+      spec = spec || {};
+      var y = spec.year != null ? Number(spec.year) : state.year;
+      var m = spec.month != null ? Number(spec.month) : state.month;
+      var rec = ensureMonth(y, m);
+      var tx = spec.tx;
+      if (!tx) return null;
+      claimStoredId(tx.id);
+      (tx.legs || []).forEach(function (leg) { if (leg) claimStoredId(leg.id); });
+      rec.transactions = rec.transactions || [];
+      rec.transactions.push(tx);
+      if (spec.show) { state.year = y; state.month = m; state.tab = "spend"; render(); }
+      return { id: String(tx.id), at: rec.transactions.length - 1 };
+    },
+    /* Preview only. Removes the planted row (by storage index when given) and drops a month the test created. */
+    unplantTx: function (spec) {
+      spec = spec || {};
+      var rec = state.months && state.months[ymKey(spec.year != null ? spec.year : state.year, spec.month != null ? spec.month : state.month)];
+      if (rec && spec.id != null) {
+        var at = spec.at;
+        rec.transactions = (rec.transactions || []).filter(function (item, i) {
+          if (typeof at === "number") return !(i === at && String(item.id) === String(spec.id));
+          return String(item.id) !== String(spec.id);
+        });
+      }
+      if (spec.dropYear != null && spec.dropMonth != null) {
+        delete state.months[ymKey(spec.dropYear, spec.dropMonth)];
+      }
+      if (spec.show) { state.tab = "spend"; render(); }
+      return true;
     },
     canonicalSavings: function (year, m1, m2) {
       var recs = [];

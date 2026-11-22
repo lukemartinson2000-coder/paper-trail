@@ -2500,6 +2500,26 @@ body.night .line-assigned-btn {
   background: var(--paper);
   touch-action: pan-y;
 }
+/* Transactions list only: a little more row, type, and room under the heading. */
+.tx-list-head { padding: 12px 16px 22px; }
+.tx-search { margin-top: 8px; }
+.tx-swipe .tx-row .row {
+  align-items: center;
+  padding: 15px 16px;
+}
+.tx-row .row .name {
+  font-size: calc(19px * var(--fs-scale));
+  line-height: 1.25;
+}
+.tx-row .caption {
+  font-size: calc(14px * var(--fs-scale));
+  line-height: 1.35;
+  margin-top: 3px;
+}
+.tx-row .tx-amt {
+  font-size: calc(18px * var(--fs-scale));
+  font-weight: 600;
+}
 .tx-swipe-delete {
   position: absolute;
   top: 0;

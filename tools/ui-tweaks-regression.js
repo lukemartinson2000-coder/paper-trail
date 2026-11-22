@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.124. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.125. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.124" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.125" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -318,6 +318,183 @@ function versionLockstep() {
     if (out.tx && out.tx.labeled !== 0) fail.push("Add label still on screen");
     if (out.tx && out.tx.title !== "Transactions") fail.push("transactions title " + out.tx.title);
     await snap("03-transactions-one-add.png");
+    await snap("tx-list-after.png");
+
+    out.txOpen = await cdp.eval(`(async () => {
+      const row = document.querySelector('.tx-row[data-id="t12"]');
+      const name = getComputedStyle(row.querySelector(".name"));
+      const amt = getComputedStyle(row.querySelector(".tx-amt"));
+      const cap = getComputedStyle(row.querySelector(".caption"));
+      const box = getComputedStyle(row.querySelector(".row"));
+      const head = getComputedStyle(document.querySelector(".tx-list-head"));
+      row.click();
+      await new Promise((r) => setTimeout(r, 250));
+      const payee = document.querySelector('[data-ed-in="payee"]');
+      const date = document.querySelector('[data-ed-in="date"]');
+      const text = (document.getElementById("modal").innerText || "");
+      return {
+        id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at"),
+        payee: payee && payee.value, date: date && date.value, text: text.slice(0, 240),
+        namePx: parseFloat(name.fontSize), amtPx: parseFloat(amt.fontSize), capPx: parseFloat(cap.fontSize),
+        pad: box.paddingTop, head: head.paddingBottom
+      };
+    })()`);
+    if (SHOTS) await snap("tx-open-correct.png");
+    if (!out.txOpen || out.txOpen.payee !== "Temple Books" || out.txOpen.date !== "2026-11-11" || out.txOpen.text.indexOf("11.00") < 0 || out.txOpen.at === "0") fail.push("temple opened wrong " + JSON.stringify(out.txOpen));
+    if (!out.txOpen || !(out.txOpen.namePx >= 21) || !(out.txOpen.amtPx >= 20) || !(out.txOpen.capPx >= 15) || out.txOpen.pad !== "15px" || out.txOpen.head !== "22px") fail.push("tx row size " + JSON.stringify(out.txOpen));
+
+    out.txCases = await cdp.eval(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const close = async () => { const b = document.querySelector(".ed-close"); if (b) b.click(); await wait(220); };
+      const opened = () => {
+        const payee = document.querySelector('[data-ed-in="payee"], #modal input[name="payee"]');
+        const date = document.querySelector('[data-ed-in="date"], #modal input[name="date"]');
+        const modal = document.getElementById("modal");
+        return { payee: payee && payee.value, date: date && date.value, text: modal && !modal.hidden ? modal.innerText.slice(0, 500) : "" };
+      };
+      const clickNamed = async (needle) => {
+        const row = [...document.querySelectorAll(".tx-row")].find((el) => ((el.querySelector(".name") || {}).textContent || "").indexOf(needle) >= 0);
+        if (!row) return { missing: needle };
+        row.click();
+        await wait(250);
+        return Object.assign({ id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at") }, opened());
+      };
+      await close();
+      const search = document.querySelector("[data-act='spend-search']");
+      search.value = "Trader";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(250);
+      const filtered = [...document.querySelectorAll(".tx-row")].map((el) => el.getAttribute("data-id"));
+      const t5 = document.querySelector('.tx-row[data-id="t5"]');
+      t5.click();
+      await wait(250);
+      const trader = Object.assign({ ids: filtered }, opened());
+      await close();
+      const searchNow = document.querySelector("[data-act='spend-search']");
+      searchNow.value = "";
+      searchNow.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(200);
+      document.querySelector('.tx-row[data-id="t1"]').click();
+      await wait(250);
+      const note = document.querySelector('[data-ed-in="note"]');
+      note.focus();
+      note.value = "";
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+      for (const ch of "hello world") {
+        note.value = note.value + ch;
+        note.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" }));
+      }
+      const typed = note.value;
+      return { trader, typed };
+    })()`);
+    if (SHOTS) await snap("tx-note-spaces.png");
+    if (!out.txCases || out.txCases.typed !== "hello world") fail.push("note spaces " + JSON.stringify(out.txCases && out.txCases.typed));
+    if (!out.txCases || !out.txCases.trader || out.txCases.trader.payee !== "Trader Joe's" || out.txCases.trader.date !== "2026-11-04" || out.txCases.trader.text.indexOf("9.50") < 0 || out.txCases.trader.ids[0] !== "t5") fail.push("filtered row " + JSON.stringify(out.txCases && out.txCases.trader));
+
+    out.txMore = await cdp.eval(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const P = window.PaperTrailPreview;
+      const close = async () => { const b = document.querySelector(".ed-close"); if (b) b.click(); await wait(220); };
+      const opened = () => {
+        const payee = document.querySelector('[data-ed-in="payee"], #modal input[name="payee"]');
+        const date = document.querySelector('[data-ed-in="date"], #modal input[name="date"]');
+        const modal = document.getElementById("modal");
+        return { payee: payee && payee.value, date: date && date.value, text: modal && !modal.hidden ? modal.innerText.slice(0, 500) : "" };
+      };
+      const clickNamed = async (needle) => {
+        const row = [...document.querySelectorAll(".tx-row")].find((el) => {
+          const name = el.querySelector(".name");
+          const text = name && name.childNodes[0] ? name.childNodes[0].textContent.trim() : "";
+          return text === needle;
+        });
+        if (!row) return { missing: needle };
+        row.click();
+        await wait(260);
+        return Object.assign({ id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at") }, opened());
+      };
+      await close();
+      const dup = P.plantTx({ show: true, tx: { id: "t1", payee: "Later Market", date: "2026-11-20", amount: 99, categoryId: "food", lineId: "groceries", note: "" } });
+      const later = await clickNamed("Later Market");
+      await close();
+      const num = P.plantTx({ show: true, tx: { id: 77, payee: "Numeric Diner", date: "2026-11-19", amount: 3.5, categoryId: "food", lineId: "groceries", note: "" } });
+      const diner = await clickNamed("Numeric Diner");
+      await close();
+      P.plantTx({ show: true, tx: { id: "id-split-probe", payee: "Split Diner", date: "2026-11-16", amount: 30, categoryId: "food", lineId: "groceries", legs: [
+        { id: "id-split-a", categoryId: "food", lineId: "groceries", amount: 20 },
+        { id: "id-split-b", categoryId: "food", lineId: "restaurants", amount: 10 }
+      ] } });
+      const split = await clickNamed("Split Diner");
+      await close();
+      P.plantTx({ show: true, tx: { id: "id-inc-probe", type: "income", payee: "Side Gig", amount: 150, date: "2026-11-15", incomeId: "pay1", note: "" } });
+      const income = await clickNamed("Side Gig");
+      const saveInc = document.querySelector("#modal form button.primary");
+      if (saveInc) saveInc.click();
+      await wait(250);
+      P.plantTx({ show: true, tx: { id: "id-ref-probe", payee: "Return Mart", amount: 8, date: "2026-11-15", categoryId: "food", lineId: "groceries", refundKind: "full" } });
+      const refund = await clickNamed("Return Mart");
+      const saveRef = document.querySelector("#modal form button.primary, #modal .ed-save");
+      if (saveRef) saveRef.click();
+      await wait(250);
+      P.plantTx({ show: true, tx: { id: "id-note-probe", payee: "Note Cafe", date: "2026-11-17", amount: 4, categoryId: "food", lineId: "restaurants", note: "" } });
+      const noteRow = await clickNamed("Note Cafe");
+      const noteBtn = document.querySelector('[data-ed="note-open"]');
+      if (noteBtn && noteBtn.getAttribute("aria-expanded") !== "true") noteBtn.click();
+      await wait(200);
+      const note = document.querySelector('[data-ed-in="note"]');
+      note.focus();
+      for (const ch of "  hello world  ") {
+        note.value = note.value + ch;
+        note.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" }));
+      }
+      const live = note.value;
+      document.querySelector(".ed-save").click();
+      await wait(300);
+      const saved = [...document.querySelectorAll(".tx-row")].find((el) => ((el.querySelector(".name") || {}).textContent || "").indexOf("Note Cafe") >= 0);
+      const caption = saved ? saved.querySelector(".caption").textContent : "";
+      const prevConfirm = window.confirm;
+      window.confirm = function () { return true; };
+      const swipe = [...document.querySelectorAll(".tx-swipe")].find((el) => el.textContent.indexOf("Later Market") >= 0);
+      const del = swipe && swipe.querySelector('[data-act="swipe-delete"]');
+      if (del) del.click();
+      await wait(250);
+      window.confirm = prevConfirm;
+      const market = await clickNamed("Market");
+      await close();
+      document.querySelector('[data-act="prev-month"]').click();
+      await wait(250);
+      const octTitle = (document.querySelector(".month-title, .month-label, h1") || {}).textContent || document.body.innerText.slice(0, 80);
+      P.plantTx({ year: 2026, month: 10, show: true, tx: { id: "id-oct-probe", payee: "October Books", date: "2026-10-02", amount: 6, categoryId: "food", lineId: "groceries", note: "" } });
+      const october = await clickNamed("October Books");
+      await close();
+      document.querySelector('[data-act="next-month"]').click();
+      await wait(250);
+      const back = await clickNamed("Temple Books");
+      await close();
+      const leftover = [...document.querySelectorAll(".tx-row")].find((el) => {
+        const name = el.querySelector(".name");
+        return name && name.childNodes[0] && name.childNodes[0].textContent.trim() === "Later Market";
+      });
+      if (leftover) P.unplantTx({ id: "t1", at: Number(leftover.getAttribute("data-tx-at")) });
+      P.unplantTx({ id: "77" });
+      P.unplantTx({ id: "id-split-probe" });
+      P.unplantTx({ id: "id-inc-probe" });
+      P.unplantTx({ id: "id-ref-probe" });
+      P.unplantTx({ id: "id-note-probe" });
+      P.unplantTx({ dropYear: 2026, dropMonth: 10, show: true });
+      const still = !!document.querySelector('.tx-row[data-id="t12"]');
+      const gone = !document.querySelector(".tx-row") || ![...document.querySelectorAll(".tx-row")].some((el) => el.textContent.indexOf("Later Market") >= 0 || el.textContent.indexOf("Note Cafe") >= 0 || el.textContent.indexOf("October Books") >= 0);
+      return { later, diner, split, income, refund, live, caption, market, october, octTitle, back, still, gone };
+    })()`);
+    const more = out.txMore || {};
+    if (!more.later || more.later.payee !== "Later Market" || more.later.text.indexOf("99.00") < 0 || more.later.at === "0") fail.push("duplicate id " + JSON.stringify(more.later));
+    if (!more.diner || more.diner.payee !== "Numeric Diner" || more.diner.text.indexOf("3.50") < 0) fail.push("numeric id " + JSON.stringify(more.diner));
+    if (!more.split || more.split.payee !== "Split Diner" || more.split.text.indexOf("Groceries") < 0 || more.split.text.indexOf("Restaurants") < 0) fail.push("split " + JSON.stringify(more.split));
+    if (!more.income || more.income.payee !== "Side Gig") fail.push("income " + JSON.stringify(more.income));
+    if (!more.refund || more.refund.payee !== "Return Mart") fail.push("refund " + JSON.stringify(more.refund));
+    if (more.live !== "  hello world  " || !more.caption || more.caption.indexOf("hello world") < 0 || more.caption.indexOf("  hello") >= 0) fail.push("note trim " + JSON.stringify({ live: more.live, caption: more.caption }));
+    if (!more.market || more.market.payee !== "Market" || more.market.text.indexOf("42.50") < 0) fail.push("after delete " + JSON.stringify(more.market));
+    if (!more.october || more.october.payee !== "October Books") fail.push("other month " + JSON.stringify(more.october));
+    if (!more.back || more.back.payee !== "Temple Books" || !more.still || !more.gone) fail.push("restore list " + JSON.stringify({ back: more.back, still: more.still, gone: more.gone, oct: more.octTitle }));
 
     out.budgetAdd = await cdp.eval(`(async () => {
       document.querySelector('[data-tab="budget"]').click();
