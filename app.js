@@ -117,6 +117,24 @@
     return "id-" + (uid++);
   }
 
+  /* Saved ids stay as they are. The counter must continue past them, or the next
+   * new row reuses id-1000 and a tap opens the older row that already has that id. */
+  function claimStoredId(id) {
+    var m = /^id-(\d+)$/.exec(String(id == null ? "" : id));
+    if (!m) return;
+    var n = Number(m[1]);
+    if (n >= uid) uid = n + 1;
+  }
+  function claimIdsIn(value, depth) {
+    if (!value || typeof value !== "object" || depth > 12) return;
+    if (Object.prototype.hasOwnProperty.call(value, "id")) claimStoredId(value.id);
+    var keys = Object.keys(value);
+    for (var i = 0; i < keys.length; i++) {
+      var child = value[keys[i]];
+      if (child && typeof child === "object") claimIdsIn(child, depth + 1);
+    }
+  }
+
   function ymKey(year, month) {
     return year + "-" + month;
   }
@@ -2822,6 +2840,7 @@
       ">" + esc(ANNUAL_REVIEW_NAME) + "</button>" +
       "</div>" +
       '<div class="stats-vault-row"><button class="stats-vault" type="button" data-act="stats-door" data-door="vault">Vault</button></div>' +
+      (active === "dash" ? dashWrapDoorHtml() : "") +
       (inReview && active !== "review" ? '<button type="button" class="ar-back" data-act="stats-door" data-door="review">‹ ' + esc(ANNUAL_REVIEW_NAME) + "</button>" : "") +
       "</div>";
   }
@@ -2829,12 +2848,12 @@
   function renderAnnualReview() {
     var stubs = confirmedPayStubs().length, c = state.compensation || {};
     var payData = stubs > 0 || !!c.trueManual;
-    var wrapY = annualWrapYear(), q = quarterAvail(), lastQ = q[q.length - 1];
+    var wrapY = annualWrapYear();
     var row = function (attrs, title, cap, quiet) {
       return '<li><button type="button" class="ar-row' + (quiet ? " ar-quiet" : "") + '" ' + attrs + '><span class="ar-txt"><strong>' + title + '</strong><span class="caption">' + cap + '</span></span><span class="chev" aria-hidden="true">›</span></button></li>';
     };
+    /* The year recap stays here. A closed quarter lives under Vault on the Dashboard. */
     var wrapRow = wrapY != null ? row('data-act="open-wrapped"', "Wrapped", "Your " + wrapY + " recap, story style", false)
-      : lastQ ? row('data-act="open-quarter"', "Wrapped", "Q" + lastQ.q + " " + lastQ.year + " check-in; the full year opens Dec 25", true)
       : (function () {
         /* Not open yet: a quiet progress bar from Jan 1 to Dec 25 of this year (not tappable). */
         var t = dashToday(), y = t.getFullYear();
@@ -3437,6 +3456,7 @@
       parsed.worthDetails = false;
       parsed.statementDetails = false;
       if (parsed.matters && typeof parsed.matters === "object") parsed.matters.deeperOpen = false;
+      claimIdsIn(parsed, 0);
       return parsed;
     } catch (err) {
       /* Was a silent blankState() — the survey then showed and its first tap saved empty books over the real ones. */
@@ -4650,14 +4670,24 @@
 
 var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm4 2v8h1.5v-8H10zm3.5 0v8H15v-8h-1.5z" fill="currentColor"/></svg>';
 
+  /* Tags and angle brackets come out while typing. Spaces stay. Trim only when the note is saved. */
+  function txNoteStrip(v) {
+    return String(v || "").replace(/<[^>]*>/g, "").replace(/[<>]/g, "").slice(0, 200);
+  }
   function txNoteClean(v) {
-    return String(v || "").replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/^\s+|\s+$/g, "").slice(0, 200);
+    return txNoteStrip(v).replace(/^\s+|\s+$/g, "");
+  }
+  function txStorageAt(list, tx) {
+    for (var i = 0; i < (list || []).length; i++) if (list[i] === tx) return i;
+    return -1;
   }
   function spendRowHtml(month, tx) {
     var income = isIncomeTx(tx);
     var summary = gm().txSummary(tx);
     var refund = gm().refundLabel(tx, money);
     var standalone = !income && tx.refundKind === "standalone";
+    var at = txStorageAt(month && month.transactions, tx);
+    var atAttr = ' data-tx-at="' + at + '"';
     var amountHtml;
     if (income) {
       amountHtml = '<span class="mono tx-amt income-amt">+' + money(summary.received) + "</span>";
@@ -4668,7 +4698,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else {
       amountHtml = "<span class='mono tx-amt'>" + money(txTotal(tx)) + "</span>";
     }
-    amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '" aria-label="Edit amount" ');
+    amountHtml = amountHtml.replace("<span ", '<span role="button" tabindex="0" data-act="edit-spend" data-focus="amount" data-id="' + esc(tx.id) + '"' + atAttr + ' aria-label="Edit amount" ');
     var caption = (isSplitTx(tx) ? "Split · " : esc(displayEnvelope(month, tx)) + " · ") +
       esc(displayDate(tx.date)) +
       (tx.note ? " · " + esc(tx.note) : "");
@@ -4679,12 +4709,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (isSplitTx(tx)) chips += ' <span class="split-stamp">Split</span>';
     if (!income && txNeedsCategory(month, tx)) chips += ' <span class="uncat-chip">' + (isSplitTx(tx) ? "Part needs a category" : "Needs a category") + "</span>";
     if (refund) chips += ' <span class="refund-chip">' + esc(refund) + "</span>";
-    return '<div class="tx-swipe" data-swipe-id="' + esc(tx.id) + '">' +
-      '<button class="tx-swipe-delete" type="button" data-act="swipe-delete" data-id="' + esc(tx.id) +
-      '" tabindex="-1" aria-label="Delete ' + esc(tx.payee || "transaction") + '" title="Delete">' + TRASH_SVG +
+    return '<div class="tx-swipe" data-swipe-id="' + esc(tx.id) + '"' + atAttr + '>' +
+      '<button class="tx-swipe-delete" type="button" data-act="swipe-delete" data-id="' + esc(tx.id) + '"' + atAttr +
+      ' tabindex="-1" aria-label="Delete ' + esc(tx.payee || "transaction") + '" title="Delete">' + TRASH_SVG +
       '<span class="tx-swipe-label">Delete</span></button>' +
       '<button class="row-btn tx-row' + (income ? " tx-income" : "") + (refund ? " tx-refund" : "") +
-      '" type="button" data-act="edit-spend" data-id="' + esc(tx.id) + '">' +
+      '" type="button" data-act="edit-spend" data-id="' + esc(tx.id) + '"' + atAttr + '>' +
       '<div class="row"><div><div class="name">' + esc(tx.payee || (income ? "Income" : "Spend")) + chips +
       '</div><span class="caption">' + caption + "</span></div>" + amountHtml + "</div></button></div>";
   }
@@ -4713,10 +4743,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function renderSpend(month, totals) {
     /* One add control on this tab: the floating +. The old header "Add" was the same action. */
     var html =
-      '<div class="nav-row"><h2>Transactions</h2></div>' +
+      '<div class="nav-row tx-list-head"><h2>Transactions</h2></div>' +
       '<div class="row"><span>Spent this month</span><span class="mono">' + money(totals.spent) + "</span></div>" +
       (totals.refunds > 0 ? '<div class="row dense"><span class="caption">Refunds netted out</span><span class="mono caption">' + money(totals.refunds) + "</span></div>" : "") +
-      '<input class="search-field" data-act="spend-search" type="search" placeholder="Search this month" value="' +
+      '<input class="search-field tx-search" data-act="spend-search" type="search" placeholder="Search this month" value="' +
       esc(spendSearch) + '">' +
       '';
     /* EveryDollar-style queue. Spends without an envelope wait here until you pick one. */
@@ -7709,17 +7739,27 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (m === 1) return t.getFullYear() - 1;
     return null;
   }
+  /* The newest closed quarter. The year recap stays on Annual review. */
+  function latestQuarterWrap() {
+    var last = quarterAvail().slice(-1)[0];
+    if (!last) return null;
+    return { act: "open-quarter", title: "Wrapped", caption: "Q" + last.q + " " + last.year + " check-in" };
+  }
+  function dashWrapDoorHtml() {
+    var item = latestQuarterWrap();
+    if (!item) return "";
+    return '<button type="button" class="dash-wrap-door" data-act="' + item.act + '"><span class="ar-txt"><strong>' + esc(item.title) + '</strong><span class="caption">' + esc(item.caption) + '</span></span><span class="chev" aria-hidden="true">›</span></button>';
+  }
   function wrapEntryHtml() {
     state.wrapCadence = "year";
-    var Y = annualWrapYear(), av = quarterAvail(), last = av[av.length - 1];
-    if (Y == null && !last) return "";
+    var Y = annualWrapYear();
+    /* Quarterly check-in is the door under Vault, so this card is only the year recap. */
+    if (Y == null) return "";
     return '<section class="card insight-card wrap-tile" id="dash-wrapped"><p class="kicker">Wrapped</p>' +
       '<div class="wrap-tile-btns">' +
-      (Y != null ? '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
-        '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button>" : "") +
-      (last ? '<button type="button" class="wrap-tile-btn" data-act="open-quarter"><strong>Q' + last.q + " " + last.year + "</strong>" +
-        '<span class="caption">Quarterly check-in</span></button>' : "") + "</div>" +
-      '<p class="plain-line">A quick, swipeable recap of your money' + (Y != null ? ", including how you compare with people your age." : ".") + "</p></section>";
+      '<button type="button" class="wrap-tile-btn" data-act="open-wrapped"><strong>' + Y + "</strong>" +
+      '<span class="caption">' + (isPremium() ? "Your year, story style" : "Two slides free") + "</span></button></div>" +
+      '<p class="plain-line">A quick, swipeable recap of your money, including how you compare with people your age.</p></section>';
   }
 
   /* One Wrapped page per spending category for the year.
@@ -8315,14 +8355,17 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var d = Math.round(now * 100) - Math.round(prior * 100);
     return d > 0 ? " ▲" : d < 0 ? " ▼" : " ▶";
   }
-  /* v37.5.73 (owner): a quarter's check-in exists only once the quarter is closed — all 3 months wrapped up. */
-  function quarterClosed(year, q) {
-    for (var m = q * 3 - 2; m <= q * 3; m++) { var rec = state.months && state.months[ymKey(year, m)]; if (!rec || !rec.closedAt) return false; }
-    return true;
+  /* A quarter's check-in opens the day after that quarter ends. Wrapping up each
+   * month is separate (that earns the $0 stamp) and is not required to open the check-in. */
+  function quarterEnded(year, q) {
+    var t = dashToday();
+    if (t.getFullYear() > year) return true;
+    if (t.getFullYear() < year) return false;
+    return (t.getMonth() + 1) > q * 3;
   }
   function quarterAvail() {
     var t = dashToday(), Y = t.getFullYear(), out = [];
-    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterClosed(yy, q)) out.push({ year: yy, q: q, done: true }); });
+    [Y - 1, Y].forEach(function (yy) { for (var q = 1; q <= 4; q++) if (quarterEnded(yy, q)) out.push({ year: yy, q: q, done: true }); });
     return out.slice(-4);
   }
   function quarterBounds(year, q, toDate) {
@@ -9182,8 +9225,15 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var er = [];
     var er401 = scaleCheck((erMatch || 0) + (erBaseAmt || 0), n);
     if (er401 > 0 && itErCounts("Employer 401k")) er.push({ name: "Employer 401k", amount: er401, source: "Typed-in pay" });
-    if (!(pay.length || other > 0 || er.length || bonus > 0)) return null;
-    return { source: "typed", pay: pay, other: roundCents(other), taxes: 0, er: er, bonus: bonus, checks: n, ceiling: 0 };
+    /* This month's share of the year's estimated tax: per paycheck, times this month's paycheck count. */
+    var taxes = 0;
+    try {
+      var est = estimateCompensation(JSON.parse(JSON.stringify(plan)));
+      var annualTax = (Number(est.federalTax) || 0) + (Number(est.stateTax) || 0) + (Number(est.localTax) || 0) + (Number(est.fica) || 0);
+      taxes = scaleCheck(checks > 0 ? annualTax / checks : 0, n);
+    } catch (e3) {}
+    if (!(pay.length || other > 0 || er.length || bonus > 0 || taxes > 0)) return null;
+    return { source: "typed", pay: pay, other: roundCents(other), taxes: taxes, er: er, bonus: bonus, checks: n, ceiling: 0 };
   }
   function monthPayrollAdd(year, month) {
     var n = monthPaycheckCount(year, month);
@@ -9209,7 +9259,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     recs = (recs || []).filter(Boolean).slice().sort(function (a, b) { return (a.year - b.year) || (a.month - b.month); });
     var budgetMap = {}, payMap = {}, erMap = {};
     var budget = 0, pay = 0, er = 0, takeHome = 0, gross = 0, months = 0, skippedGross = 0, used = [];
-    var source = "budget", taxes = 0, otherDed = 0, divSum = 0, incomeWarn = false, paychecks = 0;
+    var source = "budget", taxes = 0, otherDed = 0, bonusSum = 0, divSum = 0, incomeWarn = false, paychecks = 0;
     recs.forEach(function (rec) {
       var th = 0;
       try { th = Number(sums(rec).income) || 0; } catch (e) {}
@@ -9239,6 +9289,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       takeHome += th;
       taxes += taxNow;
       otherDed += otherNow;
+      bonusSum += bonusNow;
       if (add) paychecks = add.checks || paychecks;
       if (add && add.source === "stub" && add.ceiling > 0 && baseNow > roundCents(add.ceiling * 1.05)) incomeWarn = true;
       bItems.forEach(function (it) { savAdd(budgetMap, it); budget += it.amount; });
@@ -9259,7 +9310,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     var out = {
       basis: basis, label: added ? "Savings rate · planned income + deductions" : "Savings rate · planned income",
       rate: rate, state: stateName, savings: savings, divisor: divisor, gross: gross, employer: er, paycheck: pay, budget: budget, takeHome: takeHome, taxes: taxes, other: otherDed,
-      budgetItems: savList(budgetMap), paycheckItems: savList(payMap), employerItems: savList(erMap),
+      budgetItems: savList(budgetMap), paycheckItems: savList(payMap), employerItems: savList(erMap), bonus: roundCents(bonusSum),
       source: source, months: months, partial: partial, period: period, skippedGross: skippedGross, paydaysNote: "",
       incomeWarn: incomeWarn, paychecks: used.length === 1 ? paychecks : 0, added: added
     };
@@ -9323,6 +9374,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return '<button type="button" class="sav-pay-link" data-act="sav-pay-link">' + (on ? "Paycheck savings included · Edit" : "Include paycheck savings") + "</button>" +
       (on ? "" : '<p class="caption">Count retirement contributions and employer contributions from your pay.</p>');
   }
+  function savBaseRow(label, amount) {
+    return '<div class="row sav-base"><span>' + esc(label) + '</span><span class="mono">' + money(amount) + "</span></div>";
+  }
   function savGroupHtml(title, items) {
     var rows = (items || []).map(function (it) {
       return '<div class="row"><span>' + esc(it.name) + '</span><span class="mono">' + money(it.amount) + "</span></div>";
@@ -9341,6 +9395,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       savGroupHtml("From your budget", c.budgetItems) + savGroupHtml("From your paycheck", c.paycheckItems) + savGroupHtml("From your employer", c.employerItems) +
       '<div class="row"><span>Total savings</span><span class="mono">' + money(c.savings) + "</span></div>" +
       '<div class="row"><span>Divided by</span><span class="mono">' + (c.divisor > 0 ? money(c.divisor) : "—") + "</span></div>" +
+      savBaseRow("Planned income", c.takeHome) +
+      savBaseRow("Savings from paycheck and employer", roundCents((Number(c.paycheck) || 0) + (Number(c.employer) || 0))) +
+      savBaseRow("Taxes and other deductions", roundCents((Number(c.taxes) || 0) + (Number(c.other) || 0) + (Number(c.bonus) || 0))) +
       '<p class="caption">' + esc(c.formula) + "</p>" +
       '<p class="caption">' + esc(src) + (c.employer ? " · employer money that counts is in the savings and in the base" : "") + "</p>" +
       '<div class="sheet-actions"><button type="button" data-act="close-modal">Done</button></div></div>';
@@ -11497,11 +11554,19 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button type="button" data-act="gp-unit" data-u="pct" aria-pressed="' + (!!pct) + '"' + (pct ? ' class="on"' : "") + ">" + pctLabel + "</button></span>" +
       '<input type="hidden" name="' + name + '" value="' + (pct ? "pct" : "usd") + '">';
   }
+  function gpTaxHelp(tax) {
+    if (tax === "post") return "Comes out after taxes (Roth-style).";
+    if (tax === "pre") return "Comes out before taxes, lowers taxable pay.";
+    return "Choose pre-tax or after-tax.";
+  }
   function gpTaxHtml(name, tax, aria) {
-    return '<input type="hidden" name="' + name + '" value="' + (tax === "post" ? "post" : tax === "pre" ? "pre" : "") + '">' +
-      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria) + '">' +
-      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (tax === "pre") + '"' + (tax === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
-      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (tax === "post") + '"' + (tax === "post" ? ' class="on"' : "") + ">After-tax</button></span>";
+    var which = tax === "post" ? "post" : tax === "pre" ? "pre" : "";
+    return '<div class="gp-tax"><span class="gp-tax-label">Tax treatment</span>' +
+      '<input type="hidden" name="' + name + '" value="' + which + '">' +
+      '<span class="it-unit-toggle" role="group" aria-label="' + esc(aria || "Tax treatment") + '">' +
+      '<button type="button" data-act="gp-tax" data-tax="pre" aria-pressed="' + (which === "pre") + '"' + (which === "pre" ? ' class="on"' : "") + ">Pre-tax</button>" +
+      '<button type="button" data-act="gp-tax" data-tax="post" aria-pressed="' + (which === "post") + '"' + (which === "post" ? ' class="on"' : "") + ">After-tax</button></span>" +
+      '<p class="gp-tax-help" aria-live="polite">' + esc(gpTaxHelp(which)) + "</p></div>";
   }
   function gpAmtRow(name, value, pct, unitName, pctLabel, aria) {
     return '<div class="it-amt-row" data-gp-amt="1"><span class="it-amt-unit" aria-hidden="true">' + (pct ? "%" : "$") + "</span>" +
@@ -11688,11 +11753,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return;
     }
     var tax = btn.getAttribute("data-tax") === "post" ? "post" : "pre";
-    var hold = line && line.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
-    if (!hold && line) hold = line.querySelector('input[type="hidden"][name*="Tax"]');
+    var wrap = btn.closest(".gp-tax") || line;
+    var hold = wrap && wrap.querySelector('input[type="hidden"][name^="retTax"], input[type="hidden"][name^="dedTax"]');
+    if (!hold && wrap) hold = wrap.querySelector('input[type="hidden"][name*="Tax"]');
     if (hold) hold.value = tax;
     var group = btn.parentNode;
     [].forEach.call(group.querySelectorAll("[data-act=gp-tax]"), function (b) { var on = b === btn; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+    var help = wrap && wrap.querySelector(".gp-tax-help");
+    if (help) help.textContent = gpTaxHelp(tax);
   }
   function gpCommit() {
     var d = gpDraft;
@@ -14419,7 +14487,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       edApplyAuto(ensureMonth(state.year, state.month));
     }
     else if (k === "date") { el.classList.toggle("ed-date-empty", !el.value); if (el.value) spendDraft.date = el.value; }
-    else if (k === "note") { var noteClean = txNoteClean(el.value); spendDraft.note = noteClean; if (el.value !== noteClean) el.value = noteClean; }
+    else if (k === "note") { var noteLive = txNoteStrip(el.value); spendDraft.note = noteLive; if (el.value !== noteLive) el.value = noteLive; }
     else if (k === "incomeId") spendDraft.incomeId = el.value;
     else if (k === "q") { edUi.q = el.value; if (!edPaintPicker(ensureMonth(state.year, state.month))) renderEdAdd(); }
     else if (li != null) {
@@ -14672,7 +14740,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var delTop = document.querySelector("#modal form.sheet .sheet-top");
       if (delTop && !delTop.querySelector("[data-act='delete-spend']")) {
         delTop.insertAdjacentHTML("beforeend", '<button type="button" class="sheet-x ed-delete-x" data-act="delete-spend" data-id="' +
-          esc(spendDraft.id) + '" aria-label="Delete transaction" title="Delete transaction">✕</button>');
+          esc(spendDraft.id) + '" data-tx-at="' + (typeof spendDraft.txAt === "number" ? spendDraft.txAt : "") + '" aria-label="Delete transaction" title="Delete transaction">✕</button>');
       }
     }
     splitArm();
@@ -14953,6 +15021,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
    * Refund transactions and income keep the full sheet: the card has no refund-piece inputs yet. */
   function openEditSpend(tx, month) {
     fillSpendDraft(tx);
+    if (spendDraft) spendDraft.txAt = txStorageAt(month && month.transactions, tx);
     if (!spendDraft || spendDraft.type === "income" || spendDraft.refundKind) {
       renderSpendSheet(month);
       return;
@@ -14978,8 +15047,25 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return null;
   }
 
-  function confirmDeleteTransaction(month, txId) {
-    var tx = findTx(month, txId);
+  /* The row stamps the storage index. Ids are compared as strings, and when two rows
+   * share an id the index is the one that was tapped — not the first match in the array. */
+  function txAtMatches(list, at, txId) {
+    return typeof at === "number" && at >= 0 && list[at] && String(list[at].id) === String(txId);
+  }
+  function txFromRow(month, el) {
+    var row = el && el.closest ? (el.closest(".tx-row") || el.closest(".tx-swipe-delete") || el) : el;
+    if (!row || !row.getAttribute) return null;
+    var id = row.getAttribute("data-id");
+    var raw = row.getAttribute("data-tx-at");
+    var at = raw == null || raw === "" ? NaN : Number(raw);
+    var list = (month && month.transactions) || [];
+    if (txAtMatches(list, at, id)) return list[at];
+    return findTx(month, id);
+  }
+
+  function confirmDeleteTransaction(month, txId, at) {
+    var list = month.transactions || [];
+    var tx = txAtMatches(list, at, txId) ? list[at] : findTx(month, txId);
     if (!tx) return false;
     var income = isIncomeTx(tx);
     var what = income ? "income" : "transaction";
@@ -14992,10 +15078,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return window.confirm(msg);
   }
 
-  function deleteTransaction(month, txId) {
+  function dropFirstTx(list, id, pinned) {
+    var gone = false;
+    return (list || []).filter(function (item) {
+      if (pinned && item === pinned) return false;
+      if (!pinned && !gone && String(item.id) === String(id)) { gone = true; return false; }
+      return true;
+    });
+  }
+
+  function deleteTransaction(month, txId, at) {
     var list = month.transactions || [];
-    var index = -1;
-    list.forEach(function (item, i) { if (String(item.id) === String(txId)) index = i; });
+    var index = txAtMatches(list, at, txId) ? at : -1;
+    if (index < 0) {
+      for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(txId)) { index = i; break; }
+    }
     if (index < 0) return false;
     list.splice(index, 1);
     saveState();
@@ -18822,7 +18919,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.120";
+  var APP_VERSION = "37.5.125";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -20076,26 +20173,71 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       h += '<span class="season-fx-p" style="left:' + x + "%;width:" + size + "px;height:" + size + "px;--fx-dur:" + dur + "s;--fx-delay:" + delay.toFixed(1) + "s;--fx-sway:" + sway + "px;--fx-spin:" + spin + 'deg;--fx-top:' + ((i * 11) % 80) + '%">' + SEASON_FX_GLYPHS[kind](i) + "</span>";
     }
     fx.innerHTML = h;
-    seasonFxCalmStart(fx);
+    seasonFxClock(fx);
   }
-  /* Leaves fall at full strength for a short while after Seasonal starts, then fade down to a calm few.
-   * Only visible time counts (a hidden tab pauses the clock). Restarts only when the layer is rebuilt
-   * (Seasonal re-entered), not on re-renders or tab switches. */
-  var FX_FULL_MS = 20000, FX_CALM_KEEP = 4, fxCalmTimer = null;
-  function seasonFxCalmStart(fx) {
-    if (fxCalmTimer) clearInterval(fxCalmTimer);
-    var full = FX_FULL_MS;
-    try { var o = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (o > 0) full = o; } catch (e) {}
-    /* Keep the slowest few for the calm set. */
-    var ps = [].slice.call(fx.querySelectorAll(".season-fx-p"));
-    ps.map(function (el) { return { el: el, d: parseFloat(el.style.getPropertyValue("--fx-dur")) || 0 }; })
-      .sort(function (a, b) { return b.d - a.d; })
-      .forEach(function (x, i) { if (i >= FX_CALM_KEEP) x.el.classList.add("fx-extra"); });
-    var seen = 0, step = Math.min(500, full);
-    fxCalmTimer = setInterval(function () {
-      if (!document.body.contains(fx)) { clearInterval(fxCalmTimer); fxCalmTimer = null; return; }
-      if (!document.hidden) seen += step;
-      if (seen >= full) { fx.classList.add("fx-calm"); clearInterval(fxCalmTimer); fxCalmTimer = null; }
+  /* One clock for every falling season (leaves, snow, and anything added later).
+   * Normal speed, then a slower fall, then the pieces fade and the loop stops.
+   * The clock starts the first time this page shows a falling season. Tab switches
+   * do not restart it. A hidden tab does not spend the clock. */
+  var SEASON_FX_TIMING = { normalMs: 5000, slowMs: 30000, easeMs: 1500, fadeMs: 2500, slowRate: 0.28 };
+  var seasonFxSeen = null, seasonFxTimer = null, seasonFxDone = false;
+  function seasonFxTiming() {
+    var t = {
+      normalMs: SEASON_FX_TIMING.normalMs, slowMs: SEASON_FX_TIMING.slowMs,
+      easeMs: SEASON_FX_TIMING.easeMs, fadeMs: SEASON_FX_TIMING.fadeMs, slowRate: SEASON_FX_TIMING.slowRate
+    };
+    try {
+      var n = Number(localStorage.getItem("PaperTrail.fxFullMs")); if (n > 0) t.normalMs = n;
+      var s = Number(localStorage.getItem("PaperTrail.fxSlowMs")); if (s > 0) t.slowMs = s;
+    } catch (e) {}
+    return t;
+  }
+  function seasonFxPhase(seen, t) {
+    var slowAt = t.normalMs, holdAt = t.normalMs + t.easeMs, stopAt = t.normalMs + t.slowMs, deadAt = stopAt + t.fadeMs;
+    if (seen < slowAt) return { rate: 1, fade: false, dead: false };
+    if (seen < holdAt) {
+      var u = (seen - slowAt) / t.easeMs, e = u * u * (3 - 2 * u);
+      return { rate: 1 + (t.slowRate - 1) * e, fade: false, dead: false };
+    }
+    if (seen < stopAt) return { rate: t.slowRate, fade: false, dead: false };
+    if (seen < deadAt) return { rate: t.slowRate * (1 - (seen - stopAt) / t.fadeMs), fade: true, dead: false };
+    return { rate: 0, fade: true, dead: true };
+  }
+  function seasonFxApply(fx, phase) {
+    if (!fx) return;
+    fx.classList.toggle("fx-stop", !!phase.fade);
+    fx.classList.toggle("fx-dead", !!phase.dead);
+    fx.setAttribute("data-fx-seen", String(Math.round(seasonFxSeen || 0)));
+    fx.setAttribute("data-fx-rate", phase.dead ? "0" : String(Math.round(phase.rate * 100) / 100));
+    var ps = fx.querySelectorAll(".season-fx-p");
+    for (var i = 0; i < ps.length; i++) {
+      if (phase.dead) {
+        ps[i].style.animation = "none"; ps[i].style.willChange = "auto";
+        var done = ps[i].getAnimations ? ps[i].getAnimations() : [];
+        for (var d = 0; d < done.length; d++) { try { done[d].cancel(); } catch (e2) {} }
+        continue;
+      }
+      var anims = ps[i].getAnimations ? ps[i].getAnimations() : [];
+      for (var j = 0; j < anims.length; j++) {
+        if (Math.abs(anims[j].playbackRate - phase.rate) > 0.02) anims[j].playbackRate = phase.rate;
+      }
+    }
+  }
+  function seasonFxClock(fx) {
+    if (seasonFxDone) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (seasonFxTimer) { seasonFxApply(fx, seasonFxPhase(seasonFxSeen || 0, seasonFxTiming())); return; }
+    seasonFxSeen = 0;
+    var step = 200;
+    seasonFxApply(fx, seasonFxPhase(0, seasonFxTiming()));
+    seasonFxTimer = setInterval(function () {
+      var layer = document.getElementById("season-fx");
+      if (!layer || document.hidden) return;
+      var timing = seasonFxTiming();
+      seasonFxSeen += step;
+      var phase = seasonFxPhase(seasonFxSeen, timing);
+      seasonFxApply(layer, phase);
+      if (phase.dead) { seasonFxDone = true; clearInterval(seasonFxTimer); seasonFxTimer = null; }
     }, step);
   }
   document.addEventListener("visibilitychange", function () {
@@ -21854,10 +21996,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "delete-spend" || act === "swipe-delete") {
       // Transactions tab only; never offered from Budget/envelope views or other sheets.
       var delId = actEl.getAttribute("data-id") || "";
+      var delRaw = actEl.getAttribute("data-tx-at");
+      var delAt = delRaw == null || delRaw === "" ? -1 : Number(delRaw);
       if (state.tab !== "spend") return;
-      if (!confirmDeleteTransaction(month, delId)) return;
+      if (!confirmDeleteTransaction(month, delId, delAt)) return;
       if (act === "delete-spend") { spendDraft = null; closeModal(); }
-      deleteTransaction(month, delId);
+      deleteTransaction(month, delId, delAt);
     } else if (act === "export-xlsx") {
       exportXlsx();
     } else if (act === "export-pdf") {
@@ -22357,7 +22501,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }     else if (act === "add-spend") {
       openEdAdd(month);
     } else if (act === "edit-spend") {
-      var tx = (month.transactions || []).filter(function (item) { return item.id === actEl.getAttribute("data-id"); })[0];
+      var tx = txFromRow(month, actEl);
       if (tx) {
         openEditSpend(tx, month);
         /* Opening a transaction focuses nothing (no keyboard); only a tap on its $ amount still jumps to Amount. */
@@ -22785,17 +22929,18 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         remapLegIds(payload);
         if (payload.legs) payload.legs.forEach(remapLegIds);
       }
-      /* Entry time for the same-day tie-break; an edit keeps the original. */
-      var prevTx = spendDraft.id ? (month.transactions || []).concat(destMonth.transactions || []).filter(function (item) { return item.id === spendDraft.id; })[0] : null;
+      /* Entry time for the same-day tie-break; an edit keeps the original.
+       * txAt is the row that was opened, so a shared id does not overwrite the other copy. */
+      var srcList = month.transactions || [];
+      var at = typeof spendDraft.txAt === "number" ? spendDraft.txAt : -1;
+      var pinned = spendDraft.id && txAtMatches(srcList, at, spendDraft.id) ? srcList[at] : null;
+      var prevTx = pinned || (spendDraft.id ? srcList.concat(destMonth.transactions || []).filter(function (item) { return String(item.id) === String(spendDraft.id); })[0] : null);
       if (prevTx ? prevTx.enteredAt : true) payload.enteredAt = (prevTx && prevTx.enteredAt) || Date.now();
-      var inPlace = spendDraft.id && destMonth === month ? (month.transactions || []).map(function (t) { return t.id; }).indexOf(spendDraft.id) : -1;
-      if (inPlace >= 0) {
-        month.transactions[inPlace] = payload; // edits keep their place (same-day order = entry order)
+      if (pinned && destMonth === month) {
+        srcList[at] = payload; // edits keep their place (same-day order = entry order)
       } else if (spendDraft.id) {
-        month.transactions = (month.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
-        if (destMonth !== month) {
-          destMonth.transactions = (destMonth.transactions || []).filter(function (item) { return item.id !== spendDraft.id; });
-        }
+        month.transactions = dropFirstTx(month.transactions, spendDraft.id, pinned);
+        if (destMonth !== month) destMonth.transactions = dropFirstTx(destMonth.transactions, spendDraft.id, null);
         destMonth.transactions.push(payload);
       } else {
         destMonth.transactions.push(payload);
@@ -22831,7 +22976,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     } else if (act === "save-edit-spend") {
       var editParts = String(data.lineKey || "").split(":");
       month.transactions.forEach(function (item) {
-        if (item.id === data.id) {
+        if (String(item.id) === String(data.id)) {
           item.payee = (data.payee || "").replace(/^\s+|\s+$/g, "") || "Spend";
           item.amount = Number(data.amount) || 0;
           item.date = data.date || item.date;
@@ -23483,6 +23628,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return rec ? allocMonth(rec) : allocMonth(null);
     },
     allocationYear: function (year) { return allocYear(year); },
+    seasonFxTiming: function () { return seasonFxTiming(); },
+    seasonFxPhase: function (seen) { return seasonFxPhase(seen, seasonFxTiming()); },
+    quarterList: function () { return quarterAvail(); },
     /* Test hook: apply a pay plan, read allocation, then put the plan back. */
     /* Temporary pay plan and one month, restored afterward. Nothing is saved. */
     allocationProbe: function (spec) {
@@ -23543,6 +23691,65 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         var y = Number(spec.year), m = Number(spec.month);
         return { month: allocMonth(state.months[ymKey(y, m)]), january: allocMonth(state.months[ymKey(y, 1)]), year: allocYear(y), canonical: canonicalSavings([state.months[ymKey(y, m)]]) };
       } finally { state.compensation = keepC; state.savLineOn = keepS; }
+    },
+    /* Preview-only: swap pay for a reading, then put the previous plan back. Nothing is saved. */
+    savingsApply: function (spec) {
+      spec = spec || {};
+      if (!this._savKeep) this._savKeep = { c: state.compensation, d: state.profile && state.profile.documents, t: state.theme };
+      if (spec.compensation) state.compensation = spec.compensation;
+      if (spec.documents) { state.profile = state.profile || {}; state.profile.documents = spec.documents; }
+      if (spec.theme) state.theme = spec.theme;
+      payStubBasisCache = {};
+      var rec = state.months && state.months[ymKey(spec.year, spec.month)];
+      var c = canonicalSavings(rec ? [rec] : []);
+      var est = null;
+      try { est = estimateCompensation(JSON.parse(JSON.stringify(state.compensation || {}))); } catch (e) {}
+      return {
+        canonical: c,
+        federal: est && est.federalTax, stateTax: est && est.stateTax, local: est && est.localTax, fica: est && est.fica,
+        checks: est && est.paychecksPerYear
+      };
+    },
+    savingsRestore: function () {
+      var k = this._savKeep;
+      if (!k) return;
+      state.compensation = k.c;
+      if (state.profile) state.profile.documents = k.d;
+      state.theme = k.t;
+      this._savKeep = null;
+      payStubBasisCache = {};
+    },
+    /* Preview only. Adds one transaction in memory and redraws. Does not write storage. */
+    plantTx: function (spec) {
+      spec = spec || {};
+      var y = spec.year != null ? Number(spec.year) : state.year;
+      var m = spec.month != null ? Number(spec.month) : state.month;
+      var rec = ensureMonth(y, m);
+      var tx = spec.tx;
+      if (!tx) return null;
+      claimStoredId(tx.id);
+      (tx.legs || []).forEach(function (leg) { if (leg) claimStoredId(leg.id); });
+      rec.transactions = rec.transactions || [];
+      rec.transactions.push(tx);
+      if (spec.show) { state.year = y; state.month = m; state.tab = "spend"; render(); }
+      return { id: String(tx.id), at: rec.transactions.length - 1 };
+    },
+    /* Preview only. Removes the planted row (by storage index when given) and drops a month the test created. */
+    unplantTx: function (spec) {
+      spec = spec || {};
+      var rec = state.months && state.months[ymKey(spec.year != null ? spec.year : state.year, spec.month != null ? spec.month : state.month)];
+      if (rec && spec.id != null) {
+        var at = spec.at;
+        rec.transactions = (rec.transactions || []).filter(function (item, i) {
+          if (typeof at === "number") return !(i === at && String(item.id) === String(spec.id));
+          return String(item.id) !== String(spec.id);
+        });
+      }
+      if (spec.dropYear != null && spec.dropMonth != null) {
+        delete state.months[ymKey(spec.dropYear, spec.dropMonth)];
+      }
+      if (spec.show) { state.tab = "spend"; render(); }
+      return true;
     },
     canonicalSavings: function (year, m1, m2) {
       var recs = [];

@@ -2500,6 +2500,26 @@ body.night .line-assigned-btn {
   background: var(--paper);
   touch-action: pan-y;
 }
+/* Transactions list only: a little more row, type, and room under the heading. */
+.tx-list-head { padding: 12px 16px 22px; }
+.tx-search { margin-top: 8px; }
+.tx-swipe .tx-row .row {
+  align-items: center;
+  padding: 15px 16px;
+}
+.tx-row .row .name {
+  font-size: calc(19px * var(--fs-scale));
+  line-height: 1.25;
+}
+.tx-row .caption {
+  font-size: calc(14px * var(--fs-scale));
+  line-height: 1.35;
+  margin-top: 3px;
+}
+.tx-row .tx-amt {
+  font-size: calc(18px * var(--fs-scale));
+  font-weight: 600;
+}
 .tx-swipe-delete {
   position: absolute;
   top: 0;
@@ -5351,6 +5371,10 @@ body.kb-fit .screen{padding-bottom:0}
 /* DRAFT next7: Pay stubs door */
 .stats-vault-row{display:flex;gap:8px}
 .stats-vault-row .stats-vault{flex:1;position:relative}
+.dash-wrap-door{display:flex;align-items:center;gap:12px;width:100%;margin-top:8px;min-height:60px;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.dash-wrap-door .ar-txt{flex:1;display:flex;flex-direction:column;gap:2px}
+.dash-wrap-door .caption{margin:0}
+.dash-wrap-door .chev{color:var(--ink);opacity:.5;font-size:20px}
 .stats-paystubs.on{background:var(--ink);color:var(--paper)}
 .paystub-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7c5cff;margin-left:6px;vertical-align:middle}
 .it-nostub{margin:10px 16px;padding:14px 16px}
@@ -5500,11 +5524,49 @@ button.sav-mark { color: var(--moss); }
 .gp-modes { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
 .gp-modes button { min-height: 44px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .gp-modes button.on { border-color: var(--moss); font-weight: 700; }
-.gp-sheet .it-amt-row { display: flex; align-items: center; gap: 6px; }
-.gp-sheet .it-amt-row input[type="text"] { flex: 1; min-width: 0; }
-.gp-sheet .it-unit-toggle { display: flex; flex-wrap: wrap; gap: 4px; }
-.gp-sheet .it-unit-toggle button { min-height: 36px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
-.gp-sheet .it-unit-toggle button.on { border-color: var(--moss); font-weight: 700; }
+/* v37.5.121: one segmented control for $ / % and Pre-tax / After-tax.
+   Outer track, equal inset, selected pill radius = outer radius minus inset. */
+.gp-sheet .it-amt-row { display: flex; align-items: center; gap: 8px; }
+.gp-sheet .it-amt-row input[type="text"] {
+  flex: 1 1 auto; min-width: 72px; height: 44px; margin: 0; padding: 0 12px;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--card); color: var(--ink);
+}
+.gp-sheet .it-unit-toggle {
+  --seg-r: 12px;
+  --seg-inset: 3px;
+  display: inline-flex; flex: 0 1 auto; align-items: stretch; align-self: center;
+  box-sizing: border-box; width: auto; max-width: 100%; height: 44px; margin: 0;
+  padding: var(--seg-inset); gap: 0; flex-wrap: nowrap; overflow: hidden;
+  border: 1px solid var(--rule); border-radius: var(--seg-r); background: color-mix(in srgb, var(--ink) 6%, var(--card));
+}
+.gp-sheet .it-amt-row .it-unit-toggle { flex: 0 0 auto; min-width: max-content; }
+.gp-sheet .it-amt-row .it-unit-toggle button { flex: 0 0 auto; min-width: max-content; overflow: visible; text-overflow: clip; }
+.gp-sheet .it-unit-toggle button {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 0 10px;
+  border: 0; border-radius: calc(var(--seg-r) - var(--seg-inset) - 1px);
+  background: transparent; box-shadow: none; color: var(--muted);
+  font: 600 calc(13px * var(--fs-scale)) var(--ui); line-height: 1; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.gp-sheet .it-unit-toggle button.on {
+  background: var(--moss); color: #fff; border: 0; font-weight: 600; box-shadow: none;
+}
+body.night .gp-sheet .it-unit-toggle button.on { color: rgb(12, 20, 17); }
+.gp-sheet .it-unit-toggle button:focus { outline: none; }
+.gp-sheet .it-unit-toggle button:focus-visible { outline: 2px solid var(--moss); outline-offset: -2px; }
+.gp-sheet .gp-tax { margin: 10px 0 2px; }
+.gp-sheet .gp-tax-label {
+  display: block; margin: 0 0 6px;
+  font: 600 calc(12px * var(--fs-scale)) var(--ui); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted);
+}
+.gp-sheet .gp-tax .it-unit-toggle { display: flex; width: 100%; flex: none; }
+.gp-sheet .gp-tax .it-unit-toggle button { flex: 1 1 0; }
+.gp-sheet .gp-tax-help {
+  margin: 6px 0 0; min-height: 1.35em; line-height: 1.35;
+  font-size: calc(13px * var(--fs-scale)); color: var(--muted);
+}
 .gp-sheet .row { padding: 8px 0; gap: 8px; align-items: flex-start; }
 .gp-sheet .row > span:first-child { flex: 0 1 42%; }
 .gp-sheet .row .mono { flex: 1; text-align: right; white-space: normal; }
@@ -5773,7 +5835,7 @@ body.night .ed-pad .ed-done { color: rgb(18, 19, 21); }
 .reserves-card[open] summary{margin-bottom:8px}
 @media (prefers-reduced-motion: reduce){.reserves-card .chev{transition:none}}
 .dash-snap + .dash-streak{margin:-4px 4px 12px;justify-content:center}
-/* Leaves calm down after the opening fall: extras fade out, the few that stay go a little softer. */
+/* Shared falling-season end: fade, then drop the animation so it costs nothing. */
 .season-fx-p { transition: opacity 2.5s ease; }
-.season-fx.fx-calm .season-fx-p { opacity: 0.5; }
-.season-fx.fx-calm .season-fx-p.fx-extra { opacity: 0; }
+.season-fx.fx-stop .season-fx-p { opacity: 0; }
+.season-fx.fx-dead .season-fx-p { animation: none; will-change: auto; opacity: 0; }

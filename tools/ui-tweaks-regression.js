@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Narrow checks for the sheet tweaks through 37.5.120. Synthetic demo numbers only.
+/* Narrow checks for the sheet tweaks through 37.5.125. Synthetic demo numbers only.
  * Savings rows line up with other envelopes until the count toggle opens.
  * Transactions has one add control. The transaction sheet puts the budget
  * item above the note and keeps its frame steady.
@@ -161,7 +161,7 @@ function versionLockstep() {
   const a = (app.match(/APP_VERSION = "([^"]+)"/) || [])[1];
   const s = (sw.match(/VERSION = "([^"]+)"/) || [])[1];
   const h = [...new Set(html.match(/(?<![\d.])37\.\d+\.\d+(?:\.\d+)?(?!\d|\.\d)/g) || [])];
-  return { app: a, sw: s, index: h, ok: a === "37.5.120" && a === s && h.length === 1 && h[0] === a };
+  return { app: a, sw: s, index: h, ok: a === "37.5.125" && a === s && h.length === 1 && h[0] === a };
 }
 
 (async () => {
@@ -318,6 +318,183 @@ function versionLockstep() {
     if (out.tx && out.tx.labeled !== 0) fail.push("Add label still on screen");
     if (out.tx && out.tx.title !== "Transactions") fail.push("transactions title " + out.tx.title);
     await snap("03-transactions-one-add.png");
+    await snap("tx-list-after.png");
+
+    out.txOpen = await cdp.eval(`(async () => {
+      const row = document.querySelector('.tx-row[data-id="t12"]');
+      const name = getComputedStyle(row.querySelector(".name"));
+      const amt = getComputedStyle(row.querySelector(".tx-amt"));
+      const cap = getComputedStyle(row.querySelector(".caption"));
+      const box = getComputedStyle(row.querySelector(".row"));
+      const head = getComputedStyle(document.querySelector(".tx-list-head"));
+      row.click();
+      await new Promise((r) => setTimeout(r, 250));
+      const payee = document.querySelector('[data-ed-in="payee"]');
+      const date = document.querySelector('[data-ed-in="date"]');
+      const text = (document.getElementById("modal").innerText || "");
+      return {
+        id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at"),
+        payee: payee && payee.value, date: date && date.value, text: text.slice(0, 240),
+        namePx: parseFloat(name.fontSize), amtPx: parseFloat(amt.fontSize), capPx: parseFloat(cap.fontSize),
+        pad: box.paddingTop, head: head.paddingBottom
+      };
+    })()`);
+    if (SHOTS) await snap("tx-open-correct.png");
+    if (!out.txOpen || out.txOpen.payee !== "Temple Books" || out.txOpen.date !== "2026-11-11" || out.txOpen.text.indexOf("11.00") < 0 || out.txOpen.at === "0") fail.push("temple opened wrong " + JSON.stringify(out.txOpen));
+    if (!out.txOpen || !(out.txOpen.namePx >= 21) || !(out.txOpen.amtPx >= 20) || !(out.txOpen.capPx >= 15) || out.txOpen.pad !== "15px" || out.txOpen.head !== "22px") fail.push("tx row size " + JSON.stringify(out.txOpen));
+
+    out.txCases = await cdp.eval(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const close = async () => { const b = document.querySelector(".ed-close"); if (b) b.click(); await wait(220); };
+      const opened = () => {
+        const payee = document.querySelector('[data-ed-in="payee"], #modal input[name="payee"]');
+        const date = document.querySelector('[data-ed-in="date"], #modal input[name="date"]');
+        const modal = document.getElementById("modal");
+        return { payee: payee && payee.value, date: date && date.value, text: modal && !modal.hidden ? modal.innerText.slice(0, 500) : "" };
+      };
+      const clickNamed = async (needle) => {
+        const row = [...document.querySelectorAll(".tx-row")].find((el) => ((el.querySelector(".name") || {}).textContent || "").indexOf(needle) >= 0);
+        if (!row) return { missing: needle };
+        row.click();
+        await wait(250);
+        return Object.assign({ id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at") }, opened());
+      };
+      await close();
+      const search = document.querySelector("[data-act='spend-search']");
+      search.value = "Trader";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(250);
+      const filtered = [...document.querySelectorAll(".tx-row")].map((el) => el.getAttribute("data-id"));
+      const t5 = document.querySelector('.tx-row[data-id="t5"]');
+      t5.click();
+      await wait(250);
+      const trader = Object.assign({ ids: filtered }, opened());
+      await close();
+      const searchNow = document.querySelector("[data-act='spend-search']");
+      searchNow.value = "";
+      searchNow.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(200);
+      document.querySelector('.tx-row[data-id="t1"]').click();
+      await wait(250);
+      const note = document.querySelector('[data-ed-in="note"]');
+      note.focus();
+      note.value = "";
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+      for (const ch of "hello world") {
+        note.value = note.value + ch;
+        note.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" }));
+      }
+      const typed = note.value;
+      return { trader, typed };
+    })()`);
+    if (SHOTS) await snap("tx-note-spaces.png");
+    if (!out.txCases || out.txCases.typed !== "hello world") fail.push("note spaces " + JSON.stringify(out.txCases && out.txCases.typed));
+    if (!out.txCases || !out.txCases.trader || out.txCases.trader.payee !== "Trader Joe's" || out.txCases.trader.date !== "2026-11-04" || out.txCases.trader.text.indexOf("9.50") < 0 || out.txCases.trader.ids[0] !== "t5") fail.push("filtered row " + JSON.stringify(out.txCases && out.txCases.trader));
+
+    out.txMore = await cdp.eval(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const P = window.PaperTrailPreview;
+      const close = async () => { const b = document.querySelector(".ed-close"); if (b) b.click(); await wait(220); };
+      const opened = () => {
+        const payee = document.querySelector('[data-ed-in="payee"], #modal input[name="payee"]');
+        const date = document.querySelector('[data-ed-in="date"], #modal input[name="date"]');
+        const modal = document.getElementById("modal");
+        return { payee: payee && payee.value, date: date && date.value, text: modal && !modal.hidden ? modal.innerText.slice(0, 500) : "" };
+      };
+      const clickNamed = async (needle) => {
+        const row = [...document.querySelectorAll(".tx-row")].find((el) => {
+          const name = el.querySelector(".name");
+          const text = name && name.childNodes[0] ? name.childNodes[0].textContent.trim() : "";
+          return text === needle;
+        });
+        if (!row) return { missing: needle };
+        row.click();
+        await wait(260);
+        return Object.assign({ id: row.getAttribute("data-id"), at: row.getAttribute("data-tx-at") }, opened());
+      };
+      await close();
+      const dup = P.plantTx({ show: true, tx: { id: "t1", payee: "Later Market", date: "2026-11-20", amount: 99, categoryId: "food", lineId: "groceries", note: "" } });
+      const later = await clickNamed("Later Market");
+      await close();
+      const num = P.plantTx({ show: true, tx: { id: 77, payee: "Numeric Diner", date: "2026-11-19", amount: 3.5, categoryId: "food", lineId: "groceries", note: "" } });
+      const diner = await clickNamed("Numeric Diner");
+      await close();
+      P.plantTx({ show: true, tx: { id: "id-split-probe", payee: "Split Diner", date: "2026-11-16", amount: 30, categoryId: "food", lineId: "groceries", legs: [
+        { id: "id-split-a", categoryId: "food", lineId: "groceries", amount: 20 },
+        { id: "id-split-b", categoryId: "food", lineId: "restaurants", amount: 10 }
+      ] } });
+      const split = await clickNamed("Split Diner");
+      await close();
+      P.plantTx({ show: true, tx: { id: "id-inc-probe", type: "income", payee: "Side Gig", amount: 150, date: "2026-11-15", incomeId: "pay1", note: "" } });
+      const income = await clickNamed("Side Gig");
+      const saveInc = document.querySelector("#modal form button.primary");
+      if (saveInc) saveInc.click();
+      await wait(250);
+      P.plantTx({ show: true, tx: { id: "id-ref-probe", payee: "Return Mart", amount: 8, date: "2026-11-15", categoryId: "food", lineId: "groceries", refundKind: "full" } });
+      const refund = await clickNamed("Return Mart");
+      const saveRef = document.querySelector("#modal form button.primary, #modal .ed-save");
+      if (saveRef) saveRef.click();
+      await wait(250);
+      P.plantTx({ show: true, tx: { id: "id-note-probe", payee: "Note Cafe", date: "2026-11-17", amount: 4, categoryId: "food", lineId: "restaurants", note: "" } });
+      const noteRow = await clickNamed("Note Cafe");
+      const noteBtn = document.querySelector('[data-ed="note-open"]');
+      if (noteBtn && noteBtn.getAttribute("aria-expanded") !== "true") noteBtn.click();
+      await wait(200);
+      const note = document.querySelector('[data-ed-in="note"]');
+      note.focus();
+      for (const ch of "  hello world  ") {
+        note.value = note.value + ch;
+        note.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" }));
+      }
+      const live = note.value;
+      document.querySelector(".ed-save").click();
+      await wait(300);
+      const saved = [...document.querySelectorAll(".tx-row")].find((el) => ((el.querySelector(".name") || {}).textContent || "").indexOf("Note Cafe") >= 0);
+      const caption = saved ? saved.querySelector(".caption").textContent : "";
+      const prevConfirm = window.confirm;
+      window.confirm = function () { return true; };
+      const swipe = [...document.querySelectorAll(".tx-swipe")].find((el) => el.textContent.indexOf("Later Market") >= 0);
+      const del = swipe && swipe.querySelector('[data-act="swipe-delete"]');
+      if (del) del.click();
+      await wait(250);
+      window.confirm = prevConfirm;
+      const market = await clickNamed("Market");
+      await close();
+      document.querySelector('[data-act="prev-month"]').click();
+      await wait(250);
+      const octTitle = (document.querySelector(".month-title, .month-label, h1") || {}).textContent || document.body.innerText.slice(0, 80);
+      P.plantTx({ year: 2026, month: 10, show: true, tx: { id: "id-oct-probe", payee: "October Books", date: "2026-10-02", amount: 6, categoryId: "food", lineId: "groceries", note: "" } });
+      const october = await clickNamed("October Books");
+      await close();
+      document.querySelector('[data-act="next-month"]').click();
+      await wait(250);
+      const back = await clickNamed("Temple Books");
+      await close();
+      const leftover = [...document.querySelectorAll(".tx-row")].find((el) => {
+        const name = el.querySelector(".name");
+        return name && name.childNodes[0] && name.childNodes[0].textContent.trim() === "Later Market";
+      });
+      if (leftover) P.unplantTx({ id: "t1", at: Number(leftover.getAttribute("data-tx-at")) });
+      P.unplantTx({ id: "77" });
+      P.unplantTx({ id: "id-split-probe" });
+      P.unplantTx({ id: "id-inc-probe" });
+      P.unplantTx({ id: "id-ref-probe" });
+      P.unplantTx({ id: "id-note-probe" });
+      P.unplantTx({ dropYear: 2026, dropMonth: 10, show: true });
+      const still = !!document.querySelector('.tx-row[data-id="t12"]');
+      const gone = !document.querySelector(".tx-row") || ![...document.querySelectorAll(".tx-row")].some((el) => el.textContent.indexOf("Later Market") >= 0 || el.textContent.indexOf("Note Cafe") >= 0 || el.textContent.indexOf("October Books") >= 0);
+      return { later, diner, split, income, refund, live, caption, market, october, octTitle, back, still, gone };
+    })()`);
+    const more = out.txMore || {};
+    if (!more.later || more.later.payee !== "Later Market" || more.later.text.indexOf("99.00") < 0 || more.later.at === "0") fail.push("duplicate id " + JSON.stringify(more.later));
+    if (!more.diner || more.diner.payee !== "Numeric Diner" || more.diner.text.indexOf("3.50") < 0) fail.push("numeric id " + JSON.stringify(more.diner));
+    if (!more.split || more.split.payee !== "Split Diner" || more.split.text.indexOf("Groceries") < 0 || more.split.text.indexOf("Restaurants") < 0) fail.push("split " + JSON.stringify(more.split));
+    if (!more.income || more.income.payee !== "Side Gig") fail.push("income " + JSON.stringify(more.income));
+    if (!more.refund || more.refund.payee !== "Return Mart") fail.push("refund " + JSON.stringify(more.refund));
+    if (more.live !== "  hello world  " || !more.caption || more.caption.indexOf("hello world") < 0 || more.caption.indexOf("  hello") >= 0) fail.push("note trim " + JSON.stringify({ live: more.live, caption: more.caption }));
+    if (!more.market || more.market.payee !== "Market" || more.market.text.indexOf("42.50") < 0) fail.push("after delete " + JSON.stringify(more.market));
+    if (!more.october || more.october.payee !== "October Books") fail.push("other month " + JSON.stringify(more.october));
+    if (!more.back || more.back.payee !== "Temple Books" || !more.still || !more.gone) fail.push("restore list " + JSON.stringify({ back: more.back, still: more.still, gone: more.gone, oct: more.octTitle }));
 
     out.budgetAdd = await cdp.eval(`(async () => {
       document.querySelector('[data-tab="budget"]').click();
@@ -996,8 +1173,8 @@ function versionLockstep() {
     if (!mb || mb.budget.divisor !== 5000 || !mb.budget.same || taxRow(mb.budget) || mb.budget.warn) fail.push("budget month " + JSON.stringify(mb && mb.budget));
     if (!mb || mb.key.divisor !== 5800 || !mb.key.same || mb.key.savings !== 700 || mb.key.other !== 100 || mb.key.food !== 500 || mb.key.warn || mb.key.of.indexOf("paycheck") < 0 || !mb.key.left.shown || mb.key.left.amount !== 4500 || mb.key.left.old || !mb.key.yearLeft.shown || mb.key.yearLeft.amount !== 4500 || mb.key.yearLeft.old) fail.push("stub extras " + JSON.stringify(mb && mb.key));
     if (!mb || mb.filled.divisor !== 5800 || mb.filled.left.shown || mb.filled.left.old || mb.filled.yearLeft.shown || mb.filled.yearLeft.old) fail.push("left to budget hidden at zero " + JSON.stringify(mb && mb.filled));
-    if (!mb || mb.typedNov.divisor !== 5000 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
-    if (!mb || mb.typedFeb.divisor !== 17000 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
+    if (!mb || mb.typedNov.divisor !== 8147.88 || mb.typedNov.taxes !== 3147.88 || !mb.typedNov.same) fail.push("typed non-bonus " + JSON.stringify(mb && mb.typedNov));
+    if (!mb || mb.typedFeb.divisor !== 20147.88 || mb.typedFeb.taxes !== 3147.88 || !mb.typedFeb.same) fail.push("typed bonus month " + JSON.stringify(mb && mb.typedFeb));
     if (!mb || mb.three.divisor !== 7400 || mb.three.savings !== 2100 || mb.three.other !== 300 || mb.three.checks !== 3 || mb.three.warn) fail.push("three paychecks " + JSON.stringify(mb && mb.three));
     if (!mb || mb.guard.divisor !== 8800 || !mb.guard.warn || mb.guard.savings !== 700 || mb.guard.other !== 100) fail.push("double-count guard " + JSON.stringify(mb && mb.guard));
     if (SHOTS) {
@@ -1325,6 +1502,315 @@ function versionLockstep() {
     await sleep(80);
     out.autoKeep = await cdp.eval(`(() => (document.querySelector(".ed-split-name") || {}).textContent || "")()`);
     if (!out.autoKeep || String(out.autoKeep).trim() !== "Rent") fail.push("kept user pick " + JSON.stringify(out.autoKeep));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const m = document.getElementById("modal"); if (m) { m.hidden = true; m.innerHTML = ""; } document.body.classList.remove("ed-add-open", "tx-editor-open", "ed-typing"); document.querySelector('[data-tab="budget"]').click(); })()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector(".sav-pay-link").click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="it-true-manual"]').click()`);
+    await sleep(250);
+    function segBox() {
+      return cdp.eval(`(() => {
+        function box(el) {
+          if (!el) return null;
+          const t = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          const border = parseFloat(cs.borderTopWidth) || 0;
+          const pad = parseFloat(cs.paddingTop) || 0;
+          const radius = parseFloat(cs.borderRadius) || 0;
+          const btns = [...el.querySelectorAll("button")];
+          const rs = btns.map((b) => b.getBoundingClientRect());
+          const bcs = btns.map((b) => getComputedStyle(b));
+          const inset = rs.length ? {
+            l: rs[0].left - t.left - border,
+            r: t.right - rs[rs.length - 1].right - border,
+            t: rs[0].top - t.top - border,
+            b: t.bottom - rs[0].bottom - border
+          } : null;
+          const input = el.closest(".it-amt-row") && el.closest(".it-amt-row").querySelector('input[type="text"]');
+          const ir = input ? input.getBoundingClientRect() : null;
+          return {
+            h: Math.round(t.height * 10) / 10,
+            inputH: ir ? Math.round(ir.height * 10) / 10 : null,
+            w: Math.round(t.width * 10) / 10,
+            radius,
+            pad,
+            border,
+            inner: bcs.length ? parseFloat(bcs[0].borderRadius) : null,
+            btnBorder: bcs.length ? parseFloat(bcs[0].borderTopWidth) : null,
+            inset,
+            widths: rs.map((r) => Math.round(r.width * 10) / 10),
+            labels: btns.map((b) => b.textContent),
+            clipped: btns.some((b) => b.scrollWidth > b.clientWidth + 1),
+            on: (btns.find((b) => b.classList.contains("on")) || {}).textContent || ""
+          };
+        }
+        const unit = document.querySelector(".it-amt-row .it-unit-toggle");
+        const tax = document.querySelector(".gp-tax .it-unit-toggle");
+        const row = document.querySelector(".it-amt-row");
+        const tops = (sel) => { const el = document.querySelector(sel); return el ? Math.round(el.getBoundingClientRect().top) : null; };
+        return {
+          step: (document.querySelector(".gp-step") || {}).textContent || "",
+          unit: box(unit),
+          tax: box(tax),
+          rowW: row ? Math.round(row.getBoundingClientRect().width * 10) / 10 : null,
+          help: (document.querySelector(".gp-tax-help") || {}).textContent || "",
+          label: (document.querySelector(".gp-tax-label") || {}).textContent || "",
+          tops: {
+            step: tops(".gp-step"),
+            account: tops("select"),
+            amt: tops(".it-amt-row input"),
+            unit: tops(".it-amt-row .it-unit-toggle"),
+            tax: tops(".gp-tax .it-unit-toggle"),
+            help: tops(".gp-tax-help"),
+            check: tops(".gp-check"),
+            next: tops("[data-act='gp-next']")
+          }
+        };
+      })()`);
+    }
+    function insetOk(seg) {
+      if (!seg || !seg.inset) return false;
+      const n = seg.pad;
+      return ["l", "r", "t", "b"].every((k) => Math.abs(seg.inset[k] - n) <= 1);
+    }
+    function radiusOk(seg) {
+      if (!seg) return false;
+      return Math.abs(seg.inner - (seg.radius - seg.pad - seg.border)) <= 0.6 && seg.btnBorder === 0;
+    }
+    out.payIncome = await segBox();
+    const inc = out.payIncome && out.payIncome.unit;
+    if (!inc || inc.inputH == null || Math.abs(inc.h - inc.inputH) > 1 || !insetOk(inc) || !radiusOk(inc) || inc.clipped || inc.on !== "$ a year") fail.push("income unit toggle " + JSON.stringify(inc));
+    await cdp.eval(`(() => { const s = document.querySelector('[name="salary"]'); s.value = "90000"; })()`);
+    await cdp.eval(`document.querySelector('[data-act="gp-next"]').click()`);
+    await sleep(200);
+    out.payPre = await segBox();
+    if (SHOTS) await snap("pay-pretax.png");
+    const pre = out.payPre;
+    const tax = pre && pre.tax;
+    const unit = pre && pre.unit;
+    const halves = tax && tax.widths.length === 2 && Math.abs(tax.widths[0] - tax.widths[1]) <= 1;
+    const full = tax && pre.rowW && Math.abs(tax.w - pre.rowW) <= 2;
+    if (!pre || !/Retirement/.test(pre.step) || pre.label !== "Tax treatment" || pre.help !== "Comes out before taxes, lowers taxable pay." || !unit || Math.abs(unit.h - unit.inputH) > 1 || !insetOk(unit) || !radiusOk(unit) || unit.clipped || (unit.labels || []).join("|") !== "$ a year|% of yearly gross" || unit.on !== "$ a year" || !tax || tax.clipped || !halves || !full || !insetOk(tax) || !radiusOk(tax) || tax.on !== "Pre-tax") fail.push("retirement pretax " + JSON.stringify(pre));
+    const beforeToggle = pre.tops;
+    await cdp.eval(`document.querySelector('.gp-tax [data-tax="post"]').click()`);
+    await sleep(60);
+    out.payPost = await segBox();
+    if (SHOTS) await snap("pay-aftertax.png");
+    const moved = beforeToggle && out.payPost && out.payPost.tops && Object.keys(beforeToggle).filter((k) => beforeToggle[k] != null && Math.abs(beforeToggle[k] - out.payPost.tops[k]) > 1);
+    if (!out.payPost || out.payPost.help !== "Comes out after taxes (Roth-style)." || out.payPost.tax.on !== "After-tax" || (moved && moved.length)) fail.push("after-tax toggle " + JSON.stringify({ help: out.payPost && out.payPost.help, on: out.payPost && out.payPost.tax && out.payPost.tax.on, moved, before: beforeToggle, after: out.payPost && out.payPost.tops }));
+    await cdp.eval(`(() => { const s = document.querySelector('select[name="retType0"]'); s.value = "hsa"; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+    await sleep(200);
+    out.payHsa = await segBox();
+    if (SHOTS) await snap("pay-hsa.png");
+    const hsa = out.payHsa;
+    const hsaName = await cdp.eval(`(document.querySelector('select[name="retType0"]') || {}).value || ""`);
+    if (hsaName !== "hsa" || !hsa || !hsa.unit || Math.abs(hsa.unit.h - hsa.unit.inputH) > 1 || !insetOk(hsa.unit) || !radiusOk(hsa.unit) || hsa.unit.clipped || hsa.unit.on !== "$ a year" || hsa.tax.on !== "Pre-tax") fail.push("hsa toggle " + JSON.stringify({ hsaName, hsa }));
+
+    out.quarterMath = await cdp.eval(`(() => {
+      const t = PaperTrailPreview.seasonFxTiming();
+      const p = (ms) => PaperTrailPreview.seasonFxPhase(ms);
+      const list = PaperTrailPreview.quarterList();
+      return { t, p0: p(0), p4: p(4000), p20: p(20000), p36: p(36000), p40: p(40000), list };
+    })()`);
+    const qm = out.quarterMath;
+    const lastQ = qm && qm.list && qm.list[qm.list.length - 1];
+    if (!qm || qm.t.normalMs !== 5000 || qm.t.slowMs !== 30000 || qm.p0.rate !== 1 || qm.p4.rate !== 1 || Math.abs(qm.p20.rate - qm.t.slowRate) > 0.02 || qm.p20.fade || !qm.p40.dead || !lastQ || lastQ.year !== 2026 || lastQ.q !== 3) fail.push("quarter or fall timing " + JSON.stringify(qm));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await cdp.eval(`(() => { const x = document.querySelector(".gp-sheet .sheet-x"); if (x) x.click(); })()`);
+    await sleep(300);
+    const typedPay = {
+      trueManual: true, baseSalary: 60000, paychecksPerYear: 26, filingStatus: "single", zipCode: "80202",
+      preTax: [
+        { id: "401k", name: "Traditional 401k", method: "fixed", value: 6000, on: true },
+        { id: "hsa", name: "HSA", method: "fixed", value: 1200, on: true },
+        { id: "ins", name: "Insurance", method: "fixed", value: 2400, on: true }
+      ],
+      postTax: [], compRows: [],
+      trueLines: [
+        { id: "401k", tax: "pre", saves: true },
+        { id: "hsa", tax: "pre", saves: true },
+        { id: "ins", tax: "pre", saves: false }
+      ],
+      employer401kMatch: 0, employer401kMatchIsPercent: false, employer401kBase: 0, employer401kBaseIsPercent: false,
+      erSaves: { er401k: true }, payStubSnapshot: null
+    };
+    out.savBefore = await cdp.eval(`PaperTrailPreview.canonicalSavings(2026, 11, 11)`);
+    out.savTax = await cdp.eval(`(() => {
+      const rc = (n) => Math.round(Number(n) * 100) / 100;
+      const P = PaperTrailPreview;
+      const typedPack = P.savingsApply({ year: 2026, month: 11, documents: [], compensation: ${JSON.stringify(typedPay)} });
+      const typed = typedPack.canonical;
+      const annual = (typedPack.federal || 0) + (typedPack.stateTax || 0) + (typedPack.local || 0) + (typedPack.fica || 0);
+      const n = typed.paychecks || 1;
+      const expectTax = rc(annual / typedPack.checks * n);
+      const stubPay = Object.assign({}, ${JSON.stringify(typedPay)}, { payStubSnapshot: {
+        confirmedAt: "2026-11-01", payDate: "2026-11-15", gross: 3000, net: 2000,
+        federalTax: 200, stateTax: 50, socialSecurity: 100, medicare: 20, employee401k: 100
+      } });
+      const stub = P.savingsApply({ year: 2026, month: 11, compensation: stubPay }).canonical;
+      const expectStub = rc((200 + 50 + 100 + 20) * (stub.paychecks || 1));
+      P.savingsRestore();
+      const lines = [typed.takeHome, rc((typed.paycheck || 0) + (typed.employer || 0)), rc((typed.taxes || 0) + (typed.other || 0) + (typed.bonus || 0))];
+      const sum = rc(lines.reduce((a, b) => a + b, 0));
+      return {
+        typed: { rate: typed.rate, divisor: typed.divisor, taxes: typed.taxes, other: typed.other, savings: typed.savings, checks: n, annual: rc(annual) },
+        expectTax, sum, lines,
+        stub: { taxes: stub.taxes, source: stub.source, checks: stub.paychecks, expectStub }
+      };
+    })()`);
+    out.savTax.before = { rate: out.savBefore && out.savBefore.rate, divisor: out.savBefore && out.savBefore.divisor, taxes: out.savBefore && out.savBefore.taxes };
+    const stx = out.savTax;
+    if (!stx || !(stx.typed.taxes > 0) || Math.abs(stx.typed.taxes - stx.expectTax) > 0.02 || Math.abs(stx.sum - stx.typed.divisor) > 0.02 || stx.stub.source !== "stub" || Math.abs(stx.stub.taxes - stx.stub.expectStub) > 0.02 || Math.abs(stx.stub.taxes - stx.expectTax) < 1) fail.push("typed tax base " + JSON.stringify(stx));
+    await cdp.eval(`PaperTrailPreview.savingsApply({ year: 2026, month: 11, documents: [], theme: "light", compensation: ${JSON.stringify(typedPay)} })`);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="light"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+    await sleep(400);
+    await cdp.eval(`document.querySelector('[data-act="sav-details"][data-sav="month"]').click()`);
+    await sleep(250);
+    await cdp.eval(`(() => {
+      const sheet = document.querySelector(".sav-details");
+      const base = document.querySelector(".sav-details .sav-base");
+      if (sheet && base) sheet.scrollTop += base.getBoundingClientRect().top - sheet.getBoundingClientRect().top - 70;
+    })()`);
+    await sleep(40);
+    if (SHOTS) await snap("sav-base.png");
+    out.savSheet = await cdp.eval(`(() => {
+      const rows = [...document.querySelectorAll(".sav-details .sav-base")].map((r) => ({
+        label: (r.querySelector("span") || {}).textContent || "",
+        amount: (r.querySelector(".mono") || {}).textContent || ""
+      }));
+      const nums = rows.map((r) => Number(String(r.amount).replace(/[^0-9.-]/g, "")));
+      const sum = Math.round(nums.reduce((a, b) => a + b, 0) * 100) / 100;
+      return { rows, sum, hero: (document.querySelector(".sav-details .hero-amount") || {}).textContent || "", night: document.body.classList.contains("night"), title: (document.querySelector(".sav-details h3") || {}).textContent || "" };
+    })()`);
+    if (!out.savSheet || out.savSheet.night || out.savSheet.rows.length !== 3 || Math.abs(out.savSheet.sum - Math.round(stx.typed.divisor)) > 1) fail.push("sav sheet " + JSON.stringify(out.savSheet));
+    await cdp.eval(`(() => { document.querySelector('[data-act="close-modal"]').click(); })()`);
+    await sleep(200);
+    await cdp.eval(`PaperTrailPreview.savingsRestore()`);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="dark"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-tab="stats"]').click()`);
+    await sleep(350);
+    out.dashWrap = await cdp.eval(`(() => {
+      const vault = document.querySelector(".stats-vault-row");
+      const door = document.querySelector(".dash-wrap-door");
+      const next = vault ? vault.nextElementSibling : null;
+      return {
+        caption: door ? door.textContent.replace(/\\s+/g, " ").trim() : "",
+        act: door ? door.getAttribute("data-act") : "",
+        underVault: !!(door && next === door),
+        dup: !!document.querySelector("#dash-wrapped")
+      };
+    })()`);
+    if (SHOTS) await snap("dash-wrap.png");
+    if (!out.dashWrap || out.dashWrap.caption.indexOf("Q3 2026 check-in") < 0 || out.dashWrap.act !== "open-quarter" || !out.dashWrap.underVault || out.dashWrap.dup) fail.push("dashboard wrap " + JSON.stringify(out.dashWrap));
+    await cdp.eval(`document.querySelector(".dash-wrap-door").click()`);
+    await sleep(300);
+    out.dashWrapOpen = await cdp.eval(`(document.querySelector(".wrap-cadence-label") || {}).textContent || ""`);
+    if (out.dashWrapOpen.indexOf("Quarterly") < 0) fail.push("dashboard wrap open " + JSON.stringify(out.dashWrapOpen));
+    for (let i = 0; i < 8 && !(await cdp.eval(`!!document.querySelector(".fridge-card")`)); i++) {
+      await cdp.eval(`(() => { var n = document.querySelector('[data-act="wrap-next"]'); if (n) n.click(); })()`);
+      await sleep(180);
+    }
+    out.q3card = await cdp.eval(`(() => {
+      const card = document.querySelector(".fridge-card");
+      return { period: card ? (card.querySelector(".fc-period") || {}).textContent : "", label: card ? card.getAttribute("aria-label") : "", night: document.body.classList.contains("night") };
+    })()`);
+    if (SHOTS) await snap("q3-fridge.png");
+    if (!out.q3card || out.q3card.period !== "Q3 2026" || !out.q3card.night) fail.push("q3 fridge " + JSON.stringify(out.q3card));
+
+    await cdp.eval(`document.querySelector('[data-act="close-modal"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-act="stats-door"][data-door="review"]').click()`);
+    await sleep(300);
+    out.annualRow = await cdp.eval(`(() => {
+      const row = document.querySelector(".ar-wrap-load, [data-act='open-wrapped']");
+      return {
+        text: row ? row.textContent.replace(/\\s+/g, " ").trim() : "",
+        quarter: !!document.querySelector('[data-act="open-quarter"]'),
+        night: document.body.classList.contains("night")
+      };
+    })()`);
+    if (SHOTS) await snap("annual-wrap.png");
+    if (!out.annualRow || out.annualRow.text.indexOf("opens Dec 25") < 0 || out.annualRow.quarter || !out.annualRow.night) fail.push("annual row " + JSON.stringify(out.annualRow));
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    const fxStart = Date.now();
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(700);
+    async function fxNow() {
+      return cdp.eval(`(() => {
+        const fx = document.getElementById("season-fx");
+        const p = document.querySelector(".season-fx-p");
+        const cs = p ? getComputedStyle(p) : null;
+        return {
+          kind: fx ? fx.getAttribute("data-kind") : "",
+          n: document.querySelectorAll(".season-fx-p").length,
+          seen: fx ? Number(fx.getAttribute("data-fx-seen")) : null,
+          rate: fx ? Number(fx.getAttribute("data-fx-rate")) : null,
+          dead: fx ? fx.classList.contains("fx-dead") : null,
+          anim: cs ? cs.animationName : "",
+          play: p && p.getAnimations ? ((p.getAnimations()[0] || {}).playbackRate) : null
+        };
+      })()`);
+    }
+    out.fxEarly = await fxNow();
+    if (SHOTS) await snap("fx-0to5.png");
+    const seenBeforeTab = out.fxEarly && out.fxEarly.seen;
+    await cdp.eval(`document.querySelector('[data-tab="spend"]').click()`);
+    await sleep(250);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(400);
+    out.fxAfterTab = await fxNow();
+    if (!out.fxEarly || out.fxEarly.kind !== "leaves" || out.fxEarly.n < 8 || !(out.fxEarly.rate > 0.9) || out.fxEarly.dead || !out.fxAfterTab || out.fxAfterTab.kind !== "leaves" || out.fxAfterTab.seen < seenBeforeTab || out.fxAfterTab.n !== out.fxEarly.n) fail.push("fall start " + JSON.stringify({ early: out.fxEarly, tab: out.fxAfterTab }));
+    const wait20 = 20000 - (Date.now() - fxStart);
+    if (wait20 > 0) await sleep(wait20);
+    out.fxSlow = await fxNow();
+    if (SHOTS) await snap("fx-20s.png");
+    if (!out.fxSlow || out.fxSlow.dead || !(out.fxSlow.rate < 0.45) || !(out.fxSlow.rate > 0.15) || out.fxSlow.anim === "none" || !(out.fxSlow.play < 0.45)) fail.push("fall slow " + JSON.stringify(out.fxSlow));
+    const wait38 = 38500 - (Date.now() - fxStart);
+    if (wait38 > 0) await sleep(wait38);
+    out.fxStop = await fxNow();
+    if (SHOTS) await snap("fx-stopped.png");
+    if (!out.fxStop || !out.fxStop.dead || out.fxStop.rate !== 0 || out.fxStop.anim !== "none" || out.fxStop.play != null) fail.push("fall stopped " + JSON.stringify(out.fxStop));
+    if (SHOTS) {
+      try {
+        const dir = path.join(SHOTS, "fx-seq");
+        fs.mkdirSync(dir, { recursive: true });
+        ["fx-0to5.png", "fx-20s.png", "fx-stopped.png"].forEach((name, i) => {
+          fs.copyFileSync(path.join(SHOTS, name), path.join(dir, "f" + i + ".png"));
+        });
+        execFileSync("ffmpeg", ["-y", "-framerate", "1", "-i", path.join(dir, "f%d.png"),
+          "-vf", "fps=1,scale=390:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse",
+          path.join(SHOTS, "fx-fall.gif")], { stdio: "ignore" });
+      } catch (e) { out.fxGifError = String(e && e.message || e); }
+    }
+
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp.send("Page.navigate", { url: BASE.replace(/\/$/, "") + "/index.html?nosplash=1" });
+    await sleep(1500);
+    await cdp.eval(`document.querySelector('[data-tab="budget"]').click()`);
+    await sleep(200);
+    await cdp.eval(`document.querySelector('[data-act="bar-menu"]').click()`);
+    await sleep(80);
+    await cdp.eval(`document.querySelector('[data-act="set-theme"][data-theme="seasonal"]').click()`);
+    await sleep(400);
+    out.fxReduce = await fxNow();
+    if (!out.fxReduce || out.fxReduce.kind !== "leaves" || out.fxReduce.n < 8 || out.fxReduce.anim !== "none" || out.fxReduce.play != null) fail.push("reduced motion " + JSON.stringify(out.fxReduce));
 
     out.fail = fail;
     console.log(JSON.stringify(out, null, 2));
