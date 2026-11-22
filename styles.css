@@ -5799,9 +5799,9 @@ body.season-bg.season-dec .tab-bar { background: rgba(252, 248, 242, 0.96); }
 .season-sprig { width: 22px; height: 16px; display: inline-block; margin-right: 4px; vertical-align: -2px; }
 .season-sprig svg { width: 100%; height: 100%; display: block; }
 .season-acc.s-holly { width: 26px; height: 20px; } .season-acc.s-flake { width: 16px; height: 16px; }
-.season-santa { position: absolute; top: 26px; left: 0; width: 228px; height: 58px; pointer-events: none; z-index: 5; animation: santa-cross 8s linear both; }
+.season-santa { position: absolute; top: 26px; left: 0; width: 250px; height: 58px; pointer-events: none; z-index: 5; animation: santa-cross 8s linear both; }
 .season-santa svg { width: 100%; height: 100%; display: block; }
-@keyframes santa-cross { from { transform: translateX(-240px); } to { transform: translateX(420px); } }
+@keyframes santa-cross { from { transform: translateX(-270px); } to { transform: translateX(420px); } }
 body.fx-paused .season-santa { animation-play-state: paused; }
 .season-lights { position: absolute; top: 0; left: 0; right: 0; height: 24px; z-index: 6; pointer-events: none; }
 .season-light-wire { position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 18px; display: block; }
