@@ -156,8 +156,21 @@
     return { year: y, month: mo };
   }
 
+  /* Device clock, or a test instant (local civil time). PT_TEST_NOW is a full local
+   * datetime ("2026-12-31T23:30:00"); PT_TEST_TODAY is a date ("2027-01-12"). */
+  function appNow() {
+    if (window.PT_TEST_NOW) {
+      var t = new Date(window.PT_TEST_NOW);
+      if (!isNaN(t.getTime())) return t;
+    }
+    if (window.PT_TEST_TODAY) {
+      var d = new Date(window.PT_TEST_TODAY + "T12:00:00");
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  }
   function currentYearMonth() {
-    var now = new Date();
+    var now = appNow();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
   }
 
@@ -190,7 +203,7 @@
     return Math.round((Number(n) || 0) * 100) / 100;
   }
 
-  var SS_WAGE_BASE = 184500;
+  var SS_WAGE_BASE = 184500; /* fallback when a year has no published wage base */
   var SS_RATE = 0.062;
   var MEDICARE_RATE = 0.0145;
   var ADD_MEDICARE_RATE = 0.009;
@@ -199,6 +212,10 @@
   var FED_STD_MFJ = 32200;
   var ADD_MEDICARE_THRESHOLD_MFJ = 250000;
   /* Head of household — 2026 IRS Rev. Proc. 2025-32 (std 24,150). */
+  function ssWageBaseFor(year) {
+    var limits = gm().pretaxLimitsFor ? gm().pretaxLimitsFor(year) : null;
+    return (limits && limits.ssWageBase) || SS_WAGE_BASE;
+  }
   var FED_STD_HOH = 24150;
   var FED_BRACKETS_HOH = [
     [17700, 0.10],
@@ -654,7 +671,7 @@
     var state = stateTaxFor(agi, resolved.location, filing);
     var local = localTaxFor(cash, agi, resolved.location);
     var ficaWages = Math.max(0, cash - ficaShield);
-    var social = roundCents(Math.min(ficaWages, SS_WAGE_BASE) * SS_RATE);
+    var social = roundCents(Math.min(ficaWages, ssWageBaseFor(currentYearMonth().year)) * SS_RATE);
     var addMed = married ? ADD_MEDICARE_THRESHOLD_MFJ : ADD_MEDICARE_THRESHOLD;
     var medicare = roundCents(ficaWages * MEDICARE_RATE) +
       roundCents(Math.max(0, ficaWages - addMed) * ADD_MEDICARE_RATE);
@@ -2256,12 +2273,45 @@
     return null;
   }
 
+  function worthYearsList() {
+    return (state.worth && state.worth.years) || [];
+  }
+  /* Loan and Vault syncs write the calendar year once that column exists.
+   * A viewed past year is for hand edits only (viewedWorthYear). */
   function currentWorthYear() {
-    if (state.worthYear && state.worth && (state.worth.years || []).indexOf(state.worthYear) >= 0) {
-      return state.worthYear;
-    }
-    var years = (state.worth && state.worth.years) || [];
-    return years.length ? years[years.length - 1] : 2025;
+    var cal = currentYearMonth().year;
+    var years = worthYearsList();
+    if (years.indexOf(cal) >= 0) return cal;
+    if (state.worthYear && years.indexOf(state.worthYear) >= 0) return state.worthYear;
+    return years.length ? years[years.length - 1] : cal;
+  }
+  function viewedWorthYear() {
+    var years = worthYearsList();
+    if (state.worthYear && years.indexOf(state.worthYear) >= 0) return state.worthYear;
+    return currentWorthYear();
+  }
+  /* First open in a new calendar year: a blank column, same treatment as Add prior year.
+   * The prior year keeps the balances already stored. */
+  function ensureWorthCalendarYear() {
+    if (!state || !state.worth) return false;
+    var y = currentYearMonth().year;
+    var years = state.worth.years || (state.worth.years = []);
+    if (years.indexOf(y) >= 0) return false;
+    (state.worth.lines || []).forEach(function (line) {
+      if (!line.amounts) line.amounts = {};
+      line.amounts[y] = 0;
+      if (!line.additions) line.additions = {};
+      line.additions[y] = 0;
+    });
+    years.push(y);
+    years.sort(function (a, b) { return a - b; });
+    if (!state.worth.income) state.worth.income = {};
+    if (!state.worth.notes) state.worth.notes = {};
+    if (state.worth.income[y] == null) state.worth.income[y] = 0;
+    if (state.worth.notes[y] == null) state.worth.notes[y] = "";
+    if (!state.worth.blankYears) state.worth.blankYears = {};
+    state.worth.blankYears[y] = true;
+    return true;
   }
 
   function ensureVaultNwLiability(doc) {
@@ -3008,7 +3058,7 @@
       tab: "budget",
       year: cur.year,
       month: cur.month,
-      worthYear: 2025,
+      worthYear: cur.year,
       incomeYear: null,
       incomeYearsExpanded: false,
       worthYearsExpanded: false,
@@ -4425,12 +4475,38 @@
     return lines.every(function (l) { return l.autoCopy || !(Number(l.assigned) || 0); }) &&
       (m.incomes || []).every(function (i) { return i.autoCopy || !(Number(i.amount) || 0); });
   }
+  /* An auto-copied next month (ensureMonthsThroughClock) already has a plan. Wrapping must not offer to zero it. */
+  function monthHasLiveAutoCopy(m) {
+    if (!m) return false;
+    var live = false;
+    (m.categories || []).forEach(function (c) {
+      (c.lines || []).forEach(function (l) {
+        if (l.autoCopy && (Number(l.assigned) || 0) > 0) live = true;
+      });
+    });
+    (m.incomes || []).forEach(function (i) {
+      if (i.autoCopy && (Number(i.amount) || 0) > 0) live = true;
+    });
+    return live;
+  }
   function maybeOfferPlanCopy(fromRec, toYM) {
     var key = ymKey(toYM.year, toYM.month), dest = state.months[key];
     state.planCopyAsked = state.planCopyAsked || {};
-    if (!fromRec || state.planCopyAsked[key] || !monthIsUntouchedPlan(dest) || !(fromRec.categories || []).length) return;
+    if (!fromRec || state.planCopyAsked[key] || !(fromRec.categories || []).length) return;
     var from = MONTH_NAMES[fromRec.month - 1], to = MONTH_NAMES[toYM.month - 1];
     var modal = document.getElementById("modal");
+    if (monthHasLiveAutoCopy(dest)) {
+      state.planCopyAsked[key] = "kept";
+      modal.hidden = false;
+      modal.innerHTML = '<div class="sheet plan-copy-sheet plan-copy-keep" data-from="' + esc(ymKey(fromRec.year, fromRec.month)) + '" data-to="' + esc(key) + '">' +
+        "<h3>" + esc(to) + " already has a plan</h3>" +
+        '<p class="empty">' + esc(to) + " was copied forward automatically. Wrapping " + esc(from) + " won’t clear it.</p>" +
+        '<div class="sheet-actions"><button class="primary" type="button" data-act="plan-copy-keep">Keep ' + esc(to) + "’s plan</button></div></div>";
+      armSheetA11y(modal);
+      try { saveState(); } catch (e) {}
+      return;
+    }
+    if (!monthIsUntouchedPlan(dest)) return;
     modal.hidden = false;
     modal.innerHTML = '<div class="sheet plan-copy-sheet" data-from="' + esc(ymKey(fromRec.year, fromRec.month)) + '" data-to="' + esc(key) + '">' +
       "<h3>Copy " + esc(from) + "’s budget to " + esc(to) + "?</h3>" +
@@ -4445,6 +4521,13 @@
     var fromKey = sh.getAttribute("data-from"), key = sh.getAttribute("data-to"), from = state.months[fromKey], dest = state.months[key];
     var kb = key.split("-"), toYM = { year: Number(kb[0]), month: Number(kb[1]) };
     state.planCopyAsked = state.planCopyAsked || {};
+    if (copy === "keep" || (copy !== true && monthHasLiveAutoCopy(dest))) {
+      state.planCopyAsked[key] = "kept";
+      closeModal();
+      saveState();
+      render();
+      return;
+    }
     state.planCopyAsked[key] = copy ? "copy" : "blank";
     if (monthIsUntouchedPlan(dest)) {
       if (copy && from) copyPlanFromTo(from, toYM); // exact copy: income lines, every line's planned amount, Checking too
@@ -4807,10 +4890,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!d.nwSnaps || typeof d.nwSnaps !== "object") d.nwSnaps = {};
     return d;
   }
-  function dashToday() {
-    var t = window.PT_TEST_TODAY ? new Date(window.PT_TEST_TODAY + "T12:00:00") : new Date();
-    return isNaN(t.getTime()) ? new Date() : t;
-  }
+  function dashToday() { return appNow(); }
   function dashIso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function pctWhole(r) { return r == null || !isFinite(r) ? "—" : Math.round(r * 100) + "%"; }
   function signedWhole(n) { return (n >= 0 ? "+" : "−") + moneyWhole(Math.abs(n)); }
@@ -6406,7 +6486,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         });
       });
     });
-    var year = state.worthYear || 2025;
+    var year = currentWorthYear();
     (state.worth.lines || []).forEach(function (line) {
       if (line.kind !== "liability") return;
       var key = String(line.name || "").toLowerCase();
@@ -6592,7 +6672,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!(takeHome > 0) && income > 0) takeHome = income; // fall back to planned/annualized income already resolved
     var savingsRate = sharedSavingsRate([used]).rate; /* v37.5.73: the one shared rate */
     var years = worthFilledYears((state.worth && state.worth.years) || []).slice().sort(function (a, b) { return a - b; });
-    var latestYear = years.length ? years[years.length - 1] : 2025;
+    var latestYear = years.length ? years[years.length - 1] : currentYearMonth().year;
     var cashYear = latestYear;
     var yi;
     for (yi = years.length - 1; yi >= 0; yi--) {
@@ -6719,7 +6799,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function currentDebtTotal() {
-    var year = state.worthYear || 2025;
+    var year = currentWorthYear();
     var total = 0;
     (state.worth.lines || []).forEach(function (line) {
       if (line.kind === "liability") total += Number(lineAmount(line, year)) || 0;
@@ -6970,7 +7050,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function debtCalcLoans() {
     var p = debtPlan(), month = monthRecord(), GM = window.GradeMath, age = GM.ageYears(birthdayISO());
-    var wy = state.worthYear || 2025;
+    var wy = currentWorthYear();
     return collectListedDebts(month).map(function (l) {
       var typed = false, bal = l.balance, paid = 0;
       if (l.source === "nw") {
@@ -7369,7 +7449,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       } else line.loanBalance = bal;
     } else {
       var name = String((document.getElementById("debt-e-name") || {}).value || "").trim() || "Loan";
-      var yr = state.worthYear || 2025, amounts = {}; amounts[yr] = bal;
+      var yr = viewedWorthYear(), amounts = {}; amounts[yr] = bal;
       line = { id: nextId(), name: name, kind: "liability", group: "debt", sortOrder: (state.worth.lines || []).length, amounts: amounts, additions: {}, employerMatch: {}, employerBase: {},
         loanBalance: bal, loanApr: 0, loanMinPayment: 0, loanOriginalBalance: bal, loanDebtType: "" };
       state.worth.lines.push(line);
@@ -7953,11 +8033,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     Object.keys(state.months || {}).forEach(function (key) {
       var rec = state.months[key];
       if (!rec) return;
+      var recStart = isoDate(rec.year, rec.month, 1);
+      if (recStart < bounds.start || recStart > bounds.end) return;
       var planned = (rec.incomes || []).reduce(function (n, row) { return n + (Number(row.amount) || 0); }, 0);
       var inc = gm().monthMoneyIn(planned, rec.transactions || [], rec.incomes || [], takeHomeOpts(rec));
       var out = Math.max(0, gm().sumLedger(rec.transactions || []).spendingNet);
       var left = inc - out;
-      if (rec.stamped) trailSetMonths += 1;
+      var totals = null;
+      try { totals = sums(rec); } catch (e) { totals = null; }
+      /* Trail-set is a wrapped month that still has every dollar assigned. */
+      if (rec.stamped || monthStampEarned(rec, totals)) trailSetMonths += 1;
       if (inc > 0 && Math.abs(left) < 0.5) zeroLeftoverMonths += 1;
     });
     /* True over the whole Wrapped period (confirmed stub × months + savings sum). */
@@ -9462,7 +9547,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       var monthly = window.GradeMath.monthlySpend(budgetLinesFromMonth(month));
       if (!(monthly > 0) && est.takeHome > 0) monthly = est.takeHome / 12;
       if (monthly > 0) {
-        var onHand = (Number(foo.emergencyAmount) || 0) > 0 ? Number(foo.emergencyAmount) : cashOnHandForYear(state.worthYear || 2025);
+        var onHand = (Number(foo.emergencyAmount) || 0) > 0 ? Number(foo.emergencyAmount) : cashOnHandForYear(currentWorthYear());
         var months = onHand / monthly;
         /* Folded: just the months of cover. Open: target, cash on hand and the plain line. */
         var mo = Math.round(months * 10) / 10;
@@ -9691,24 +9776,21 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out;
   }
 
-  /* If a calendar year column is missing, copy the prior year (including tax sub-lines). */
+  /* A new calendar year starts blank. Prior-year figures stay on that year. */
+  function blankAnnualYearRow() {
+    return {
+      salary: null, bonus: null, sideGig: null, other: null, match: null,
+      taxes: null, opex: null, investments: null,
+      taxFederal: null, taxState: null, taxFica: null, taxOther: null,
+      federalBracket: null, stateBracket: null, stateOtherPct: null,
+      _startedBlank: true
+    };
+  }
   function ensureAnnualYearFromPrior(book, year) {
     book = book || ensureAnnualStatement();
     var key = String(year);
     if (book.years[key]) return book.years[key];
-    var years = annualYearList(book);
-    var prior = null;
-    years.forEach(function (y) { if (y < year) prior = y; });
-    if (prior == null) {
-      book.years[key] = {
-        salary: null, bonus: null, sideGig: null, other: null, match: null,
-        taxes: null, opex: null, investments: null,
-        taxFederal: null, taxState: null, taxFica: null, taxOther: null,
-        federalBracket: null, stateBracket: null, stateOtherPct: null
-      };
-    } else {
-      book.years[key] = annualCloneYearRow(book.years[String(prior)]);
-    }
+    book.years[key] = blankAnnualYearRow();
     return book.years[key];
   }
 
@@ -9717,6 +9799,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   function annualTaxesAmount(row, year) {
+    if (yearStartedBlank(year) && !annualHasTaxParts(row) && row.taxes == null) return null;
     if (annualHasTaxParts(row)) {
       /* A typed sub-line wins; a blank one keeps its live pay-stub estimate (same as the table shows). */
       var partEst = year != null ? annualTaxEstimateParts(year) : null;
@@ -9865,7 +9948,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return out;
   }
 
+  function yearStartedBlank(year) {
+    var raw = state && state.annualStatement && state.annualStatement.years && state.annualStatement.years[String(year)];
+    return !!(raw && raw._startedBlank);
+  }
   function syncedAnnualRow(row, year) {
+    /* A year opened blank stays blank until the user types. Pay-plan estimates are not last year's numbers. */
+    if (yearStartedBlank(year)) return row;
     var out = row;
     var copied = false;
     function set(id, v) {
@@ -10631,13 +10720,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       '<button class="link-btn" type="button" data-act="is-est-clear" data-year="' + y + '">Clear estimate</button></section>';
   }
   function renderIncomeGrid(book, years) {
-    var cy = new Date().getFullYear();
+    var cy = currentYearMonth().year;
     var sel = years.indexOf(Number(state.incomeYear)) >= 0 ? Number(state.incomeYear) : (years.indexOf(cy) >= 0 ? cy : years[years.length - 1]);
     var canAdd = !years.length || Math.min.apply(null, years) - 1 >= cy - 40;
     var D = {};
     years.forEach(function (y) {
       var raw = book.years[String(y)] || {};
-      var row = annualRow(raw), inc = annualIncomeParts(row, y), est = annualTaxEstimateParts(y), T = raw._typed || {};
+      var row = annualRow(raw), inc = annualIncomeParts(row, y), est = raw._startedBlank ? null : annualTaxEstimateParts(y), T = raw._typed || {};
       var taxes = annualTaxesAmount(row, y), ded = null;
       ANNUAL_DED_FIELDS.forEach(function (f) { if (row[f] != null) ded = (ded || 0) + row[f]; });
       var takeHome = inc.taxedIncome == null || taxes == null ? null : roundCents(inc.taxedIncome - taxes - (ded || 0));
@@ -10655,8 +10744,13 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return function (y) { var v = valFn(D[y]); return sgCell("is", "", y, v, { calc: true, on: y === sel, text: textFn ? textFn(v) : null, cls: clsFn ? clsFn(v) : "" }); };
     }
     function pct(v) { return v == null ? "—" : pctWhole(v); }
+    var freshRaw = book.years[String(cy)];
+    var freshNote = freshRaw && freshRaw._startedBlank
+      ? '<p class="caption" id="is-fresh-year">' + cy + " starts blank — update when you get your first pay stub.</p>"
+      : "";
     var html = '<div class="sg-pass">' + statsSegmentHtml("statement") +
       '<div class="sg-title"><h2>Income statement</h2>' + helpQ("Gross pay to take-home, by calendar year. Tap any amount to edit it; cents fill in from the right. Where a pay stub fills a cell, typing your own number wins and the cell is marked typed; Clear goes back to the stub. Swipe left for older years; + adds the year before your earliest.\n\n" + ESTIMATE_DISCLAIMER) + "</div>" +
+      freshNote +
       payFreqMismatchHtml() + annualStubBasisHtml(sel) +
       stmtDetailToggleHtml("is") +
       '<div class="sg-wrap" data-sgk="is"><table class="sg-grid' + (stmtFull("is") ? "" : " sg-slim") + '">' + sgHead("is", years, sel, "add-prior-income-year", canAdd, "Calendar year") + "<tbody>" + sgGroup("Income", years);
@@ -10793,6 +10887,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
         raw._typed = raw._typed || {};
         if (value == null) delete raw._typed[ed.key]; else raw._typed[ed.key] = true;
       }
+      if (value != null) delete raw._startedBlank;
       payStubBasisCache = {};
     }
     saveState();
@@ -17476,14 +17571,14 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function profileSyncHtml() {
     if (!cloudCfg() || !cloudSignedIn()) return "";
     var sync = cloudSync();
-    var ack = backupAckTime(), yr = new Date().getFullYear();
+    var ack = backupAckTime(), yr = appNow().getFullYear();
     return '<div class="profile-sync" id="profile-sync">' +
       '<p class="sheet-label">Cloud backup</p>' +
       '<p class="caption" id="acct-status">' + esc(acctStatusText()) + '</p>' +
       (sync.paused ? '<button class="primary" type="button" data-act="acct-resume">Turn on cloud backup</button>' : '<button type="button" data-act="acct-sync-now">Sync now</button>') +
       ' <button type="button" data-act="acct-versions">Cloud versions</button>' +
       '<p class="caption quiet">Your books are sent over an encrypted connection and stored with access limited to your account. Vault files never leave this device; only the details you typed are backed up. Exports download to this device; we never email your data.</p>' +
-      '<p class="caption" id="backup-reminder-status">Keep-a-copy reminder: each year Jan 5–10. ' +
+      '<p class="caption" id="backup-reminder-status">Keep-a-copy reminder: each January, until you acknowledge it. ' +
       (ack && new Date(ack).getFullYear() === yr ? "Done for " + yr + "." : "Not done yet for " + yr + ".") + "</p></div>";
   }
   /* An account is required. Signed out (with accounts configured) the app sits behind an opaque
@@ -17717,16 +17812,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   function requestEmailChange(to) {
     return cloudFetch("/auth/v1/user?redirect_to=" + authRedirect(), { method: "PUT", body: { email: to } }, true);
   }
-  /* Yearly "keep a copy" prompt (v37.5.67). The account email is the only way back in, so once a year,
-   * on app open during January 5–10 (local time), explain that, suggest filling in Net worth and Income for
-   * the new year, offer Export my data (.json) and require a checkbox before Continue.
-   * Per account and per year: the acknowledged date lives locally and in the user's metadata (backup_ack_at),
-   * so a device that sees this year's date stays quiet. Closing with ✕ (or a quick link) without the tick
-   * asks again on the next open inside the window. */
+  /* Yearly "keep a copy" prompt. Any day in January, signed in or not, until this year is acknowledged.
+   * Signed-out devices store the ack under "local". Closing with ✕ without the tick asks again next open. */
   var BACKUP_ACK_KEY = "PaperTrail.backupAck.v1", backupPromptShown = false;
   function backupAckStore() { try { return JSON.parse(localStorage.getItem(BACKUP_ACK_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function backupAckId() {
+    var s = cloudSession(), id = s && s.user && s.user.id;
+    return id || "local";
+  }
   function backupAckRec(patch) {
-    var s = cloudSession(), id = s && s.user && s.user.id; if (!id) return {};
+    var id = backupAckId();
     var all = backupAckStore(), rec = all[id] || {};
     if (patch) { Object.keys(patch).forEach(function (k) { rec[k] = patch[k]; }); all[id] = rec; try { localStorage.setItem(BACKUP_ACK_KEY, JSON.stringify(all)); } catch (e) {} }
     return rec;
@@ -17736,25 +17831,70 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     return Math.max(Date.parse(backupAckRec().ackAt || "") || 0, Date.parse(md.backup_ack_at || "") || 0);
   }
   function backupPromptDue() {
-    var now = new Date();
-    if (now.getMonth() !== 0 || now.getDate() < 5 || now.getDate() > 10) return false;
+    var now = appNow();
+    if (now.getMonth() !== 0) return false;
     var t = backupAckTime();
-    return cloudSignedIn() && !(t && new Date(t).getFullYear() === now.getFullYear());
+    return !(t && new Date(t).getFullYear() === now.getFullYear());
   }
   function maybeBackupPrompt() {
     if (backupPromptShown || !backupPromptDue()) return;
     var m = document.getElementById("modal"); if (m && !m.hidden) return;
     backupPromptShown = true;
-    var yr = new Date().getFullYear();
+    var yr = appNow().getFullYear();
+    var email = acctEmail();
+    var emailLine = email
+      ? '<p class="caption">Your account email, <strong>' + esc(email) + '</strong>, is the only way back into your Paper Trail data. We can’t recover an account if you lose access to that email, and we don’t use recovery questions.</p>'
+      : '<p class="caption">A copy saved on this device is the way back to your books if this phone is replaced. Sign in when you can so the same reminder follows your account.</p>';
+    var ackLabel = email
+      ? "I understand I may lose all my saved data if I lose access to my email"
+      : "I understand a saved copy is how I get these books back";
     openCloudSheet("Keep a copy of your data",
-      '<p class="caption">Your account email, <strong>' + esc(acctEmail()) + '</strong>, is the only way back into your Paper Trail data. We can’t recover an account if you lose access to that email, and we don’t use recovery questions.</p>' +
+      emailLine +
       '<p class="caption">New year, fresh copy. First make sure your Net worth and Income are filled out for ' + yr + ', then download a copy of everything and keep it somewhere safe.</p>' +
       '<p class="backup-links"><button type="button" class="link-btn" data-act="acct-backup-door" data-door="worth">Net worth ›</button> · <button type="button" class="link-btn" data-act="acct-backup-door" data-door="statement">Income ›</button></p>' +
       '<button class="data-btn" type="button" data-act="export-backup"><strong>Export my data</strong><span class="caption">A .json file, saved to this device</span></button>' +
-      '<label class="consent-row"><input type="checkbox" id="backup-ack-box"> <span>I understand I may lose all my saved data if I lose access to my email</span></label>' +
+      '<label class="consent-row"><input type="checkbox" id="backup-ack-box"> <span>' + esc(ackLabel) + '</span></label>' +
       '<div class="acct-actions"><button class="primary" type="button" id="backup-ack-go" data-act="acct-backup-ack" disabled>Continue</button></div>');
+    var sheet = document.querySelector("#modal .sheet");
+    if (sheet) sheet.id = "backup-prompt";
     var box = document.getElementById("backup-ack-box"), go = document.getElementById("backup-ack-go");
     if (box && go) box.addEventListener("change", function () { go.disabled = !box.checked; if (box.checked) acctErr(""); });
+  }
+  /* Late December: ask once to update this year's year-end Net worth balances. Dec 20–31, dismissible. */
+  var YEAR_END_ASK_KEY = "PaperTrail.yearEndAsk.v1", yearEndPromptShown = false;
+  function yearEndAskStore() { try { return JSON.parse(localStorage.getItem(YEAR_END_ASK_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function yearEndWorthDue() {
+    var now = appNow();
+    if (now.getMonth() !== 11 || now.getDate() < 20) return false;
+    var y = String(now.getFullYear());
+    if (yearEndAskStore()[y]) return false;
+    if (state && state.worth && state.worth.yearEndAsked && state.worth.yearEndAsked[y]) return false;
+    return true;
+  }
+  function dismissYearEndPrompt() {
+    var y = String(appNow().getFullYear());
+    var store = yearEndAskStore();
+    store[y] = new Date().toISOString();
+    try { localStorage.setItem(YEAR_END_ASK_KEY, JSON.stringify(store)); } catch (e) {}
+    if (state && state.worth) {
+      if (!state.worth.yearEndAsked || typeof state.worth.yearEndAsked !== "object") state.worth.yearEndAsked = {};
+      state.worth.yearEndAsked[y] = store[y];
+      try { saveState(); } catch (e) {}
+    }
+  }
+  function maybeYearEndWorthPrompt() {
+    if (yearEndPromptShown || !yearEndWorthDue()) return;
+    var m = document.getElementById("modal");
+    if (m && !m.hidden) return;
+    if (document.querySelector(".launch-splash,.welcome-splash")) return;
+    yearEndPromptShown = true;
+    var y = appNow().getFullYear();
+    openCloudSheet("Update " + y + " year-end balances",
+      '<p class="caption" id="year-end-copy">Before the year closes, check Net worth so ' + y + " stays your year-end figure. Next year’s column starts blank.</p>" +
+      '<div class="acct-actions"><button class="primary" type="button" data-act="year-end-worth">Open Net worth</button>' +
+      '<button class="text-btn" type="button" data-act="year-end-dismiss">Not now</button></div>');
+    var sh = document.querySelector("#modal .sheet");
+    if (sh) { sh.classList.add("year-end-sheet"); sh.id = "year-end-prompt"; }
   }
   function signOutThisDevice(msg, skipServer) {
     /* Sign out this device only, with the token we already hold. No refresh on this path,
@@ -18919,7 +19059,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.130";
+  var APP_VERSION = "37.5.131";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
@@ -21410,6 +21550,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       state.month = now.month;
     }
     ensureMonthsThroughClock(now);
+    if (ensureWorthCalendarYear()) {
+      try { saveState(); } catch (e) {}
+    }
     var behind = state.year < now.year || (state.year === now.year && state.month < now.month);
     if (!behind) {
       ensureMonth(state.year, state.month);
@@ -22219,10 +22362,23 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     }
     else if (act === "debt-open") { openDebtCalc(); }
     else if (act === "extra-income-add" || act === "extra-income-dismiss") extraIncomeAnswer(act === "extra-income-add");
-    else if (act === "plan-copy-yes" || act === "plan-copy-blank") answerPlanCopy(act === "plan-copy-yes");
+    else if (act === "plan-copy-yes" || act === "plan-copy-blank" || act === "plan-copy-keep") {
+      answerPlanCopy(act === "plan-copy-yes" ? true : act === "plan-copy-keep" ? "keep" : false);
+    }
+    else if (act === "year-end-dismiss") { dismissYearEndPrompt(); closeModal(); render(); }
+    else if (act === "year-end-worth") {
+      dismissYearEndPrompt();
+      closeModal();
+      state.tab = "stats";
+      state.statsDoor = "worth";
+      state.worthDetails = true;
+      saveState();
+      render();
+    }
     else if (act === "close-modal") {
       if (closeSavesSheet(actEl)) return;
       if (txEditorForm() && actEl.closest && actEl.closest('form[data-act="save-spend-sheet"]')) return;
+      if (document.querySelector(".year-end-sheet")) dismissYearEndPrompt();
       pendingScreenUi = captureScreenUi();
       closeModal();
       render();
@@ -23124,7 +23280,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       /* Details › Add loan always creates (or updates) a statement liability — even at $0. */
       var nwLoan = findNwLiabilityByName(loanName) || ensureBudgetNwLiability(draftLoan);
       if (nwLoan) {
-        var nwYear = currentWorthYear();
+        var nwYear = viewedWorthYear();
         if (!nwLoan.amounts) nwLoan.amounts = {};
         nwLoan.amounts[nwYear] = loanBal;
         nwLoan.loanBalance = loanBal;
@@ -23694,6 +23850,24 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     seasonFxTiming: function () { return seasonFxTiming(); },
     seasonFxPhase: function (seen) { return seasonFxPhase(seen, seasonFxTiming()); },
     seasonLightMode: function (seen) { return seasonLightMode(seen, seasonFxTiming()); },
+    yearClock: function () {
+      return { ym: currentYearMonth(), worthSync: currentWorthYear(), viewed: viewedWorthYear(), ss: ssWageBaseFor(currentYearMonth().year) };
+    },
+    worthProbe: function () {
+      var y = currentWorthYear();
+      return {
+        year: y, years: (state.worth && state.worth.years) || [],
+        blank: (state.worth && state.worth.blankYears) || {},
+        lines: ((state.worth && state.worth.lines) || []).map(function (l) {
+          return { name: l.name, amounts: l.amounts || {} };
+        })
+      };
+    },
+    wrappedCounts: function (year, month, cadence) {
+      var rec = (state.months && state.months[ymKey(year, month)]) || { year: year, month: month, incomes: [], categories: [], transactions: [] };
+      var facts = wrappedFacts(rec, cadence || "year");
+      return { trail: facts.trailSetMonths, zero: facts.zeroLeftoverMonths };
+    },
     quarterList: function () { return quarterAvail(); },
     /* Test hook: apply a pay plan, read allocation, then put the plan back. */
     /* Temporary pay plan and one month, restored afterward. Nothing is saved. */
@@ -23866,6 +24040,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     window.addEventListener("focus", function () { maybeAdvanceMonthFromClock(); });
     scheduleMidnightAdvance();
   } catch (err) {}
+  if (ensureWorthCalendarYear()) {
+    try { saveState(); } catch (e) {}
+  }
   if (incomeYearList().indexOf(Number(state.incomeYear)) < 0) {
     state.incomeYear = defaultIncomeYear();
   }
@@ -23878,6 +24055,10 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     setTimeout(function () {
       if (document.querySelector(".launch-splash,.welcome-splash") && n < 40) return waitSplash(n + 1);
       try { maybeNewMonthStampClose(); } catch (e) {}
+      var modal = document.getElementById("modal");
+      if (modal && !modal.hidden && n < 40) return waitSplash(n + 1);
+      try { maybeYearEndWorthPrompt(); } catch (e) {}
+      try { maybeBackupPrompt(); } catch (e) {}
     }, 250);
   })(0);
   try {
