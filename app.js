@@ -10307,7 +10307,8 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   var sgLeft = {};              // remembered horizontal scroll per grid
   function sgWhole(n) { return n == null || !isFinite(n) ? "—" : moneyWhole(n); }
   function sgHead(kind, years, selected, plusAct, canAdd, corner) {
-    var cy = new Date().getFullYear();
+    /* "so far" is only the calendar year still in progress. A year the clock has passed is its year-end figure. */
+    var cy = currentYearMonth().year;
     return '<thead><tr><th class="sg-name" scope="col">' + esc(corner) + '</th><th class="sg-add">' +
       (canAdd ? '<button class="year-add-prior" type="button" data-act="' + plusAct + '" aria-label="Add a prior year">+</button>' : "") + "</th>" +
       years.map(function (y) {
@@ -10377,7 +10378,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
     if (!Object.keys(m).length) delete state.worth.goals[key];
   }
   function nwGoalCell(key, label) {
-    var cy = new Date().getFullYear(), g = nwGoalGet(key, cy);
+    var cy = currentYearMonth().year, g = nwGoalGet(key, cy);
     return '<td class="sg-amt sg-goalcol sg-goal-tap' + (g == null ? " empty" : "") + '" role="button" tabindex="0" data-sg-goal="' + esc(key) + '" data-year="' + cy +
       '" data-v="' + (g == null ? "" : g) + '" data-label="' + esc(label + " · Goal") + '" aria-label="' + (g == null ? "Add " : "Edit ") + cy + " goal for " + esc(label) + '">' +
       (g == null ? "+" : moneyWhole(g)) + "</td>";
@@ -10428,7 +10429,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       .sort(function (a, b) { return a.s - b.s || a.r - b.r || a.i - b.i; }).map(function (x) { return x.l; });
   }
   function renderWorthGrid(years) {
-    var cy = new Date().getFullYear();
+    var cy = currentYearMonth().year;
     var filled = worthFilledYears(years);
     var lastFilled = filled.length ? filled[filled.length - 1] : years[years.length - 1];
     var sel = years.indexOf(Number(state.worthYear)) >= 0 ? Number(state.worthYear) : lastFilled;
@@ -19059,7 +19060,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.131";
+  var APP_VERSION = "37.5.132";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
