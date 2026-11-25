@@ -10307,13 +10307,12 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   var sgLeft = {};              // remembered horizontal scroll per grid
   function sgWhole(n) { return n == null || !isFinite(n) ? "—" : moneyWhole(n); }
   function sgHead(kind, years, selected, plusAct, canAdd, corner) {
-    /* "so far" is only the calendar year still in progress. A year the clock has passed is its year-end figure. */
     var cy = currentYearMonth().year;
     return '<thead><tr><th class="sg-name" scope="col">' + esc(corner) + '</th><th class="sg-add">' +
       (canAdd ? '<button class="year-add-prior" type="button" data-act="' + plusAct + '" aria-label="Add a prior year">+</button>' : "") + "</th>" +
       years.map(function (y) {
         if (y === "goal") return '<th scope="col" class="sg-y sg-goalcol sg-goalh">' + cy + " goal</th>";
-        return '<th scope="col" class="sg-y' + (y === selected ? " on" : "") + '" data-year="' + y + '">' + y + (y === cy ? "<small>so far</small>" : "") + "</th>";
+        return '<th scope="col" class="sg-y' + (y === selected ? " on" : "") + '" data-year="' + y + '">' + y + "</th>";
       }).join("") + "</tr></thead>";
   }
   function sgCell(kind, key, year, value, opts) {
@@ -10366,9 +10365,9 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   /* Net worth goals per line / total per year. Stored apart from balances (state.worth.goals[key][year],
    * key = line id, "_assets", "_liabs" or "_net"), so they never reach totals, charts or projections. */
-  var NW_GOAL_HELP = "Goal = what you want this account (or total) to finish the year with. It shows in its own purple column to the right of the newest year (gold at night), headed with this year. " +
-    "When a new year starts, the new year has no goal until you set one.\n\nGoals are never added into totals, net worth, charts, CAGR or projections.\n\n" +
-    "Tap the Goal line (or the faint +) under this year’s amount to set or change it; Clear removes it.";
+  var NW_GOAL_HELP = "Goal = what you want this account (or total) to finish the year with. It shows in its own purple column to the right of the year-end columns (gold at night), headed with this year. " +
+    "The year still in progress is not a balance column on this grid. When a new year starts, that year has no goal until you set one.\n\nGoals are never added into totals, net worth, charts, CAGR or projections.\n\n" +
+    "Tap the Goal line (or the faint +) to set or change it; Clear removes it.";
   function nwGoalMap(key) { var g = state.worth.goals; return g && g[key] ? g[key] : null; }
   function nwGoalGet(key, y) { var m = nwGoalMap(key); var v = m ? m[y] : null; return v == null || v === "" ? null : Number(v); }
   function nwGoalSet(key, y, v) {
@@ -10430,14 +10429,16 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
   function renderWorthGrid(years) {
     var cy = currentYearMonth().year;
+    /* The year still in progress stays in the books (syncs write it) and off this grid. */
+    var shown = years.filter(function (y) { return Number(y) !== cy; });
     var filled = worthFilledYears(years);
-    var lastFilled = filled.length ? filled[filled.length - 1] : years[years.length - 1];
-    var sel = years.indexOf(Number(state.worthYear)) >= 0 ? Number(state.worthYear) : lastFilled;
+    var lastFilled = filled.length ? filled[filled.length - 1] : (shown.length ? shown[shown.length - 1] : null);
+    var sel = shown.indexOf(Number(state.worthYear)) >= 0 ? Number(state.worthYear) : (shown.length ? shown[shown.length - 1] : null);
     var lines = state.worth.lines || [];
     var assets = sortedWorthAssets(lines.filter(function (l) { return l.kind !== "liability"; }));
     var liabs = lines.filter(function (l) { return l.kind === "liability"; });
-    /* Goals live in their own column right of the newest year ("2026 goal"). */
-    var yearsG = years.concat(["goal"]);
+    /* Goals stay the current calendar year, to the right of the year-end columns. */
+    var yearsG = shown.concat(["goal"]);
     function gcol(key, label, fn) {
       return function (y) { return y === "goal" ? nwGoalCell(key, label) : fn(y); };
     }
@@ -10493,7 +10494,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
       return out;
     }
     var html = '<div class="sg-pass">' + statsSegmentHtml("worth") +
-      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. A new year shows — until you type a balance, and it stays out of charts until then. Tap › on an account for its Added, Employer match and Return rows; tap its name to rename it, change its group or delete it. One dropdown opens at a time.\n\n" + NW_GOAL_HELP) + "</div>";
+      '<div class="sg-title"><h2>Net worth</h2>' + helpQ("Year-end balances for completed years. Tap any amount to edit it; cents fill in from the right. Swipe left for older years; + adds the year before your earliest. The year still in progress is kept for syncs and is not a column here until the year closes. Tap › on an account for its Added, Employer match and Return rows; tap its name to rename it, change its group or delete it. One dropdown opens at a time.\n\n" + NW_GOAL_HELP) + "</div>";
     if (!lines.length) {
       html += '<section class="empty-card worth-empty"><p><strong>Your first Net worth starts here.</strong></p><p>Add what you own and what you owe. Each one becomes a row you can fill in by year.</p></section>';
     }
@@ -19060,7 +19061,7 @@ var TRASH_SVG = '<svg class="trash-ico" viewBox="0 0 24 24" width="18" height="1
   }
 
   /* V37.5.14 Profile › Data: Excel, PDF report, full backup / restore (all local) ---- */
-  var APP_VERSION = "37.5.132";
+  var APP_VERSION = "37.5.133";
   /* Feedback is a plain mailto: the user's own email app sends it; nothing is tracked or sent by the app. */
   function feedbackMailto() {
     var body = "What were you doing?\n\n\nWhat happened?\n\n\nWhat did you expect?\n\n";
